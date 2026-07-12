@@ -1,0 +1,113 @@
+@use '../abstracts/breakpoints' as bp;
+
+.app-shell {
+  height: 100vh;
+  min-width: 0;
+  background: var(--surface-page);
+}
+
+.app-shell__main { min-width: 0; }
+
+.app-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(180deg, #0c304d 0%, #0b2942 100%);
+}
+
+.app-sidebar__brand {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgb(255 255 255 / 9%);
+}
+
+.app-sidebar__brand-name.ant-typography {
+  display: block;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: .1px;
+}
+
+.app-sidebar__brand-tagline.ant-typography {
+  color: rgb(255 255 255 / 52%);
+  font-size: 11px;
+}
+
+.app-sidebar__identity-wrap { padding: 16px 16px 10px; }
+.app-sidebar__identity {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px;
+  margin-bottom: 10px;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 5%);
+}
+
+.top-header.ant-layout-header {
+  position: relative;
+  z-index: 5;
+  height: 68px;
+  padding: 0 clamp(18px, 2vw, 30px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background: rgb(255 255 255 / 96%);
+  border-bottom: 1px solid #e5ebf0;
+}
+
+.top-header__start { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 auto; }
+.top-header__actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; min-width: 0; }
+.top-header__user { display: flex; align-items: center; gap: 10px; min-width: 166px; max-width: 230px; }
+.top-header__user-copy { min-width: 0; }
+.top-header__user-name.ant-typography { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; line-height: 1.35; }
+.top-header__user-role.ant-typography { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }
+
+.dashboard-page { display: flex; flex-direction: column; gap: 24px; max-width: 1500px; margin: 0 auto; }
+.dashboard-page > .ant-alert { border-radius: 12px; }
+.dashboard-page .ant-card { border-color: #e3eaf0; box-shadow: 0 1px 2px rgb(22 45 66 / 3%); }
+.dashboard-page .ant-card-head { min-height: 50px; padding-inline: 20px; border-bottom-color: #edf1f4; }
+.dashboard-page .ant-card-body { padding: 20px; }
+.dashboard-page__quick-actions .ant-card { border-color: transparent; box-shadow: 0 5px 18px rgb(22 55 82 / 7%); }
+.dashboard-page__quick-actions .ant-card-body { padding: 16px; }
+.dashboard-page__content-grid > .ant-col > div { height: 100%; }
+
+// `.app-content` is the only surviving class from the pre-AntD-redesign
+// shell (`.app-shell`/`.app-main` were dead — the shell is now built with
+// AntD `Layout`, see `src/layouts/AppShell.tsx`). Below `lg` the sidebar
+// becomes a Drawer (rendered by AppShell, not CSS), so this file only needs
+// to handle the content area's own padding shrinking on narrower screens —
+// the desktop 24/28px padding is too wide once the sidebar stops reserving
+// permanent horizontal space next to it.
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px clamp(24px, 2.4vw, 40px) 40px;
+
+  @include bp.until(bp.$bp-md) {
+    padding: 20px 16px 28px;
+  }
+
+  @media (min-width: bp.$bp-md) and (max-width: (bp.$bp-lg - 1px)) {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 1180px) and (min-width: bp.$bp-md) {
+  .top-header.ant-layout-header { gap: 14px; padding-inline: 18px; }
+  .top-header__user { min-width: 145px; max-width: 185px; }
+}
+
+@include bp.until(bp.$bp-md) {
+  .top-header.ant-layout-header { height: 62px; padding-inline: 12px; gap: 8px; }
+  .top-header__actions { gap: 6px; }
+  .top-header__user { min-width: auto; }
+  .dashboard-page { gap: 20px; }
+  .dashboard-page .ant-card-body { padding: 16px; }
+}

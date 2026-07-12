@@ -1,0 +1,40 @@
+// Medical design-system color tokens. Consumed as CSS custom properties
+// from TSX inline styles (`var(--medical-blue-700)`) and from
+// `src/theme/antdTheme.ts` (hardcoded in parallel there, since AntD's
+// ConfigProvider token API needs literal values, not CSS var references —
+// keep the two in sync by hand if a color changes here).
+:root {
+  --medical-blue-950: #0c2d4f;
+  --medical-blue-900: #123b66;
+  --medical-blue-800: #174a7c;
+  --medical-blue-700: #1e5e9e;
+  --medical-blue-600: #2878c8;
+  --medical-blue-500: #3491e6;
+  --medical-blue-400: #5da9ea;
+  --medical-blue-200: #bdddf5;
+  --medical-blue-100: #e7f2fb;
+  --medical-blue-50: #f4f9fd;
+
+  --surface-page: #f3f6f9;
+  --surface-card: #ffffff;
+  --surface-subtle: #f8fafc;
+  --surface-selected: #edf6ff;
+  --surface-hover: #f5f9fc;
+
+  --text-primary: #172033;
+  --text-secondary: #5f6b7a;
+  --text-muted: #8792a2;
+  --text-inverse: #ffffff;
+
+  --border-default: #dce4ec;
+  --border-strong: #c6d2de;
+
+  --success: #238a57;
+  --success-bg: #eaf7f0;
+  --warning: #b7791f;
+  --warning-bg: #fff7e6;
+  --danger: #c83e4d;
+  --danger-bg: #fff0f1;
+  --info: #2878c8;
+  --info-bg: #eaf4fd;
+}

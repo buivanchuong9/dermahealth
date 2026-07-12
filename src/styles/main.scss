@@ -1,0 +1,26 @@
+// Single global stylesheet entry point — imported exactly once, from
+// `src/main.tsx`. Nothing else in the app should `import` a `.css`/`.scss`
+// file directly except this one (component-level styling is inline
+// `style={{}}` + CSS custom properties from `tokens/`, or AntD's own
+// ConfigProvider tokens in `src/theme/antdTheme.ts`).
+//
+// Folder guide for the next person editing this:
+//   abstracts/  — SCSS-only variables & mixins (breakpoints). No CSS output.
+//   tokens/     — CSS custom properties (:root). Colors, radius, shadow.
+//   base/       — reset, global element defaults, animations.
+//   layout/     — the app shell's own structural classes (.app-content).
+//   vendor/     — narrow overrides for third-party component libraries.
+//
+// There is deliberately no `utilities/` folder of Tailwind-style
+// `.flex`/`.gap-2`/`.text-muted` helper classes: the previous version of
+// this file had one, and a repo-wide grep found zero remaining usages —
+// every page had already migrated to AntD layout components (`Row`/`Col`/
+// `Space`/`Flex`) or inline `style={{}}`. Add it back only if a real, used
+// utility class is introduced — don't pre-create empty folders speculatively.
+@use 'base/reset';
+@use 'base/animations';
+@use 'layout/shell';
+@use 'vendor/antd-overrides';
+@use 'vendor/react-flow-overrides';
+@use 'tokens/colors';
+@use 'tokens/elevation';

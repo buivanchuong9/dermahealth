@@ -1,0 +1,44 @@
+// Breakpoint values are deliberately identical to Ant Design's own grid
+// breakpoints (see antd's `Grid` token defaults) rather than an invented
+// set of numbers. This app mixes two responsive mechanisms — plain CSS
+// media queries (here) and antd's `<Row>/<Col>` responsive span props /
+// `Grid.useBreakpoint()` in TSX (see `src/layouts/Sidebar.tsx`,
+// `src/layouts/AppShell.tsx`) — and they must agree on where "tablet"
+// starts or the shell and the page content could reflow at different
+// widths and visibly fight each other.
+$bp-xs: 480px; // narrow mobile
+$bp-sm: 576px; // antd sm
+$bp-md: 768px; // antd md — tablet portrait
+$bp-lg: 992px; // antd lg — the width this app treats as "sidebar can be permanently open"
+$bp-xl: 1200px; // antd xl
+$bp-xxl: 1600px; // antd xxl
+
+@mixin from($breakpoint) {
+  @media (min-width: $breakpoint) {
+    @content;
+  }
+}
+
+@mixin until($breakpoint) {
+  @media (max-width: ($breakpoint - 1px)) {
+    @content;
+  }
+}
+
+@mixin mobile-only {
+  @include until($bp-md) {
+    @content;
+  }
+}
+
+@mixin tablet-only {
+  @media (min-width: $bp-md) and (max-width: ($bp-lg - 1px)) {
+    @content;
+  }
+}
+
+@mixin desktop-up {
+  @include from($bp-lg) {
+    @content;
+  }
+}

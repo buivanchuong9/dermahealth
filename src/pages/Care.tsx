@@ -1,206 +1,254 @@
 import { useState } from 'react';
-import React from 'react';
-import { Phone, CheckCircle, Clock, AlertTriangle, Bell, MessageCircle, Calendar, Plus, X } from 'lucide-react';
-import { mockCareItems } from '../data/mockData';
+import { Row, Col, Card, Statistic, Tag, Button, Modal, Input, Select, Alert, Typography, List, Avatar, Empty } from 'antd';
+import { Phone, CheckCircle, Clock, TriangleAlert, Bell, MessageCircle, Calendar, Plus, ShieldAlert, Info, UserCheck, XCircle } from 'lucide-react';
+import { useAppState } from '../state/useAppState';
+import { useStore } from '../state/useStore';
+import { carePlanRepository } from '../domain/repositories';
+import { crmService, ESCALATION_RULES, CRM_PROHIBITED_ACTIONS, type EscalationTrigger } from '../domain/services/crmService';
+import { ITEM_TYPE_LABEL, type CarePlanItemType } from '../domain/carePlan';
+import type { FollowUpActivityStatus } from '../domain/core/enums';
 
-const PRIO: Record<string, { label: string; cls: string; dot: string }> = {
-  high:   { label: 'Quan trọng', cls: 'badge-danger',   dot: '#FF4D4F' },
-  medium: { label: 'Trung bình', cls: 'badge-warning',  dot: '#FAAD14' },
-  low:    { label: 'Bình thường', cls: 'badge-gray',    dot: '#9ca3af' },
-};
+const { Title, Text, Paragraph } = Typography;
 
-const STATUS_ICON: Record<string, React.ReactElement> = {
-  pending:  <Clock size={15} color="#FAAD14" />,
-  ongoing:  <AlertTriangle size={15} color="#1677FF" />,
-  done:     <CheckCircle size={15} color="#52C41A" />,
-};
+const PRIO_COLOR: Record<string, string> = { high: 'red', medium: 'gold', low: 'default' };
+const PRIO_LABEL: Record<string, string> = { high: 'Quan trọng', medium: 'Trung bình', low: 'Bình thường' };
+const STATUS_LABEL: Record<FollowUpActivityStatus, string> = { scheduled: 'Đã lên lịch', due: 'Đến hạn', completed: 'Hoàn thành', escalated: 'Đã báo cáo bất thường', cancelled: 'Đã hủy' };
+const SEVERITY_COLOR: Record<string, string> = { low: 'default', medium: 'gold', high: 'red', critical: 'red' };
 
 const CAMPAIGNS = [
-  { id: 1, title: 'Nhắc tái khám tháng 11', type: 'Lịch hẹn', reach: 1, status: 'active', sent: '08:00 hôm nay' },
-  { id: 2, title: 'Nhắc uống thuốc buổi tối', type: 'Thuốc', reach: 1, status: 'active', sent: '21:30 hàng ngày' },
-  { id: 3, title: 'Cảnh báo AI nguy cơ tái phát', type: 'AI Alert', reach: 1, status: 'sent', sent: '10/10/2023' },
+  { id: 1, title: 'Nhắc tái khám tháng 11', sent: '08:00 hôm nay' },
+  { id: 2, title: 'Nhắc uống thuốc buổi tối', sent: '21:30 hàng ngày' },
 ];
 
 export default function Care() {
-  const [items, setItems] = useState(mockCareItems);
-  const [modal, setModal] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
+  const { currentPatient, currentUser, role } = useAppState();
+  const plans = useStore(carePlanRepository.plans());
+  const activities = useStore(carePlanRepository.activities());
+  const alerts = useStore(carePlanRepository.alerts());
+  const requests = useStore(carePlanRepository.encounterRequests());
 
-  const addItem = () => {
-    if (!newTitle.trim()) return;
-    setItems(p => [...p, { id: Date.now(), category: 'Chăm sóc', title: newTitle, desc: '', date: 'Hôm nay', priority: 'medium', status: 'pending' }]);
-    setNewTitle(''); setModal(false);
+  const [addModal, setAddModal] = useState(false);
+  const [escModal, setEscModal] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newType, setNewType] = useState<CarePlanItemType>('lifestyle_guidance');
+  const [escTrigger, setEscTrigger] = useState<EscalationTrigger>('worsening_symptoms');
+  const [escNote, setEscNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const carePlan = plans.find((p) => p.patientId === currentPatient.id);
+  const planActivities = carePlan ? activities.filter((a) => a.carePlanId === carePlan.id) : [];
+  const patientAlerts = alerts.filter((a) => a.patientId === currentPatient.id);
+  const openAlerts = patientAlerts.filter((a) => a.status !== 'resolved');
+  const patientRequests = requests.filter((r) => r.patientId === currentPatient.id);
+  const pendingRequests = patientRequests.filter((r) => r.status === 'requested');
+
+  const canApproveRequests = role === 'medical_administrator' || role === 'doctor';
+  const canCloseAlerts = role === 'doctor' || role === 'medical_administrator' || role === 'care_coordinator';
+
+  const guarded = (fn: () => void) => {
+    setError(null);
+    try { fn(); } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   };
 
-  const pending = items.filter(i => i.status === 'pending' || i.status === 'ongoing');
-  const done = items.filter(i => i.status === 'done');
+  const addItem = () => guarded(() => {
+    if (!newTitle.trim() || !carePlan) throw new Error('Vui lòng nhập tên mục và đảm bảo đã có kế hoạch chăm sóc.');
+    crmService.addActivity(carePlan.id, { type: newType, title: newTitle, description: '', dueDate: 'Hôm nay', priority: 'medium', status: 'scheduled' });
+    setNewTitle(''); setAddModal(false);
+  });
+
+  const advanceItem = (id: string, to: FollowUpActivityStatus) => guarded(() => crmService.advanceActivity(id, to));
+
+  const submitEscalation = () => guarded(() => {
+    if (!carePlan) throw new Error('Chưa có kế hoạch chăm sóc cho bệnh nhân này.');
+    crmService.raiseAlert(carePlan.id, currentPatient.id, escTrigger, escNote || ESCALATION_RULES[escTrigger].label, currentUser.id);
+    setEscNote(''); setEscModal(false);
+  });
+
+  const closeAlert = (id: string) => guarded(() => crmService.closeAlert(id, currentUser.id));
+  const decideRequest = (id: string, decision: 'approve' | 'reject') => guarded(() => crmService.decideEncounterCreationRequest(id, decision, currentUser.id));
+
+  const active = planActivities.filter((i) => i.status === 'scheduled' || i.status === 'due');
+  const done = planActivities.filter((i) => i.status === 'completed');
 
   return (
-    <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div className="page-hero">
-        <div className="page-hero-text">
-          <div className="page-eyebrow">Chăm sóc bệnh nhân</div>
-          <h1>Chăm Sóc Sau Khám</h1>
-          <p>Quản lý nhắc nhở, chăm sóc liên tục và các cảnh báo từ AI.</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Chăm sóc bệnh nhân</Text>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Chăm Sóc Sau Khám</Title>
+          <Text type="secondary">Quản lý nhắc nhở, chăm sóc liên tục và báo cáo bất thường tới đội ngũ điều phối.</Text>
         </div>
-        <div className="page-hero-actions">
-          <button className="btn btn-outline btn-sm"><Bell size={15} /> Tất cả nhắc nhở</button>
-          <button className="btn btn-primary" onClick={() => setModal(true)}>
-            <Plus size={16} /> Thêm mục chăm sóc
-          </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button icon={<ShieldAlert size={15} />} onClick={() => setEscModal(true)}>Báo cáo bất thường</Button>
+          <Button type="primary" icon={<Plus size={16} />} onClick={() => setAddModal(true)}>Thêm mục chăm sóc</Button>
         </div>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+      {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
+
+      <Row gutter={[12, 12]}>
         {[
-          { label: 'Cần thực hiện', val: pending.length, color: '#1677FF', icon: <Clock size={18} color="#1677FF" /> },
-          { label: 'Đã hoàn thành', val: done.length, color: '#52C41A', icon: <CheckCircle size={18} color="#52C41A" /> },
-          { label: 'Cảnh báo AI', val: 1, color: '#FF4D4F', icon: <AlertTriangle size={18} color="#FF4D4F" /> },
-          { label: 'Chiến dịch hoạt động', val: 2, color: '#FAAD14', icon: <Bell size={18} color="#FAAD14" /> },
-        ].map(s => (
-          <div key={s.label} className="card" style={{ padding: '1.125rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-              <div style={{ width: 38, height: 38, borderRadius: 10, background: `${s.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{s.icon}</div>
-              <span style={{ fontSize: '1.75rem', fontWeight: 800, color: s.color }}>{s.val}</span>
-            </div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontWeight: 500 }}>{s.label}</div>
-          </div>
+          { label: 'Cần thực hiện', val: active.length, icon: <Clock size={18} /> },
+          { label: 'Đã hoàn thành', val: done.length, icon: <CheckCircle size={18} /> },
+          { label: 'Cảnh báo đang mở', val: openAlerts.length, icon: <TriangleAlert size={18} />, danger: openAlerts.length > 0 },
+          { label: 'Yêu cầu tái khám đang chờ', val: pendingRequests.length, icon: <Calendar size={18} />, warn: pendingRequests.length > 0 },
+        ].map((s) => (
+          <Col xs={24} sm={12} md={6} key={s.label}>
+            <Card size="small"><Statistic title={s.label} value={s.val} prefix={s.icon} valueStyle={{ color: s.danger ? 'var(--danger)' : s.warn ? 'var(--warning)' : 'var(--text-primary)', fontSize: 24 }} /></Card>
+          </Col>
         ))}
-      </div>
+      </Row>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '1.25rem', alignItems: 'start' }}>
-        {/* Care items */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-
-          {/* Pending items */}
-          <div className="card card-no-hover">
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.125rem' }}>
-              ⏳ Cần thực hiện ({pending.length})
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {pending.map(item => {
-                const p = PRIO[item.priority];
-                return (
-                  <div key={item.id} style={{ display: 'flex', gap: '0.875rem', padding: '1rem', background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)' }}>
-                    <div style={{ marginTop: 2 }}>{STATUS_ICON[item.status]}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.3rem' }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>{item.title}</div>
-                        <span className={`badge ${p.cls}`} style={{ fontSize: '0.68rem', flexShrink: 0 }}>{p.label}</span>
-                      </div>
-                      {item.desc && <p style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>{item.desc}</p>}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.625rem' }}>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 600, background: 'var(--primary-bg)', color: 'var(--primary)', padding: '0.15rem 0.5rem', borderRadius: 6 }}>{item.category}</span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{item.date}</span>
-                      </div>
-                    </div>
+      {canApproveRequests && pendingRequests.length > 0 && (
+        <Card title={`Yêu cầu tạo lượt tái khám cần phê duyệt (${pendingRequests.length})`} size="small">
+          <List
+            dataSource={pendingRequests}
+            renderItem={(r) => (
+              <List.Item>
+                <div style={{ width: '100%' }}>
+                  <Text style={{ fontSize: 13.5, display: 'block', marginBottom: 4 }}>{r.reason}</Text>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Yêu cầu bởi: {r.requestedByRole} · {new Date(r.requestedAt).toLocaleString('vi-VN')}</Text>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Button size="small" type="primary" icon={<UserCheck size={13} />} onClick={() => decideRequest(r.id, 'approve')}>Duyệt & tạo lượt khám</Button>
+                    <Button size="small" icon={<XCircle size={13} />} onClick={() => decideRequest(r.id, 'reject')}>Từ chối</Button>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Completed items */}
-          <div className="card card-no-hover">
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.125rem' }}>
-              ✅ Đã hoàn thành ({done.length})
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-              {done.map(item => (
-                <div key={item.id} style={{ display: 'flex', gap: '0.875rem', padding: '0.875rem', background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)', opacity: 0.75 }}>
-                  <CheckCircle size={15} color="var(--success)" style={{ marginTop: 2, flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.85rem', textDecoration: 'line-through', color: 'var(--muted)' }}>{item.title}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: 2 }}>{item.date}</div>
-                  </div>
-                  <span className="badge badge-success" style={{ fontSize: '0.68rem', flexShrink: 0 }}>Hoàn thành</span>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Right sidebar */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-          {/* Contact doctor */}
-          <div className="card card-no-hover">
-            <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '1rem' }}>📞 Liên hệ bác sĩ</h4>
-            <div style={{ display: 'flex', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)', marginBottom: '0.875rem' }}>
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #1677FF, #4096ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '1rem', flexShrink: 0 }}>A</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>Bs. Nguyễn Thị An</div>
-                <div style={{ fontSize: '0.775rem', color: 'var(--muted)' }}>Chuyên khoa Da liễu</div>
-                <span className="badge badge-success" style={{ fontSize: '0.65rem', marginTop: 4 }}>● Đang trực tuyến</span>
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <button className="btn btn-primary btn-full btn-sm">
-                <MessageCircle size={15} /> Nhắn tin bác sĩ
-              </button>
-              <button className="btn btn-outline btn-full btn-sm">
-                <Phone size={15} /> Gọi điện tư vấn
-              </button>
-              <button className="btn btn-outline btn-full btn-sm">
-                <Calendar size={15} /> Đặt lịch tái khám
-              </button>
-            </div>
-          </div>
-
-          {/* Care campaigns */}
-          <div className="card card-no-hover">
-            <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '1rem' }}>📢 Nhắc nhở tự động</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-              {CAMPAIGNS.map(c => (
-                <div key={c.id} style={{ padding: '0.875rem', background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.3rem' }}>
-                    <span style={{ fontSize: '0.825rem', fontWeight: 700 }}>{c.title}</span>
-                    <span className={c.status === 'active' ? 'badge badge-success' : 'badge badge-gray'} style={{ fontSize: '0.65rem' }}>
-                      {c.status === 'active' ? 'Hoạt động' : 'Đã gửi'}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{c.sent}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* AI alert */}
-          <div style={{ background: 'linear-gradient(135deg, #FF4D4F 0%, #ff7875 100%)', borderRadius: 16, padding: '1.25rem', color: 'white' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              <AlertTriangle size={16} />
-              <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Cảnh báo AI</span>
-            </div>
-            <p style={{ fontSize: '0.825rem', lineHeight: 1.65, opacity: 0.9 }}>
-              AI phát hiện tín hiệu sớm nguy cơ tái phát vùng trán. Khuyến nghị: Tăng tần suất rửa mặt và theo dõi chặt hơn trong 2 tuần tới.
-            </p>
-            <button style={{ marginTop: '0.875rem', fontSize: '0.8rem', fontWeight: 600, color: 'white', background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 8, padding: '0.45rem 0.875rem', cursor: 'pointer', width: '100%' }}>
-              Xem phân tích chi tiết →
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Modal */}
-      {modal && (
-        <div className="modal-overlay" onClick={() => setModal(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Thêm Mục Chăm Sóc</h3>
-              <button className="modal-close" onClick={() => setModal(false)}><X size={16} /></button>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Tên mục *</label>
-              <input className="form-input" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="VD: Uống đủ nước mỗi ngày..." />
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" onClick={() => setModal(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={addItem}>Thêm</button>
-            </div>
-          </div>
-        </div>
+              </List.Item>
+            )}
+          />
+        </Card>
       )}
+
+      <Row gutter={16}>
+        <Col xs={24} md={16}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {openAlerts.length > 0 && (
+              <Card title={`Cảnh báo đang xử lý (${openAlerts.length})`} size="small">
+                <List
+                  dataSource={openAlerts}
+                  renderItem={(a) => (
+                    <List.Item>
+                      <div style={{ width: '100%' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <Text strong style={{ fontSize: 13.5 }}>{ESCALATION_RULES[a.trigger as EscalationTrigger]?.label ?? a.trigger}</Text>
+                          <Tag color={SEVERITY_COLOR[a.severity]}>{a.severity}</Tag>
+                        </div>
+                        <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 6 }}>{a.note}</Paragraph>
+                        <Text type="secondary" style={{ fontSize: 12 }}>Chịu trách nhiệm: <Text strong>{a.responsibleActor}</Text> · Hạn phản hồi: {a.responseDeadlineHours}h</Text>
+                        {a.requiresLinkedEncounter && (
+                          <Alert type="info" showIcon style={{ marginTop: 8, fontSize: 12 }} message={a.status === 'encounter_requested' ? 'Đã gửi yêu cầu tạo lịch tái khám — chờ phê duyệt.' : 'Cần yêu cầu tạo lịch tái khám liên kết (CRM không tự tạo lịch khám).'} />
+                        )}
+                        {canCloseAlerts && <Button size="small" style={{ marginTop: 8 }} onClick={() => closeAlert(a.id)}>Đóng cảnh báo (có xác nhận)</Button>}
+                      </div>
+                    </List.Item>
+                  )}
+                />
+              </Card>
+            )}
+
+            <Card title={`Cần thực hiện (${active.length})`} size="small">
+              <List
+                dataSource={active}
+                locale={{ emptyText: <Empty description="Không còn mục nào cần thực hiện" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                renderItem={(item) => (
+                  <List.Item
+                    actions={[
+                      item.status === 'scheduled' && <Button size="small" key="due" onClick={() => advanceItem(item.id, 'due')}>Đến hạn</Button>,
+                      item.status === 'due' && <Button size="small" type="primary" key="done" icon={<CheckCircle size={12} />} onClick={() => advanceItem(item.id, 'completed')}>Hoàn thành</Button>,
+                    ].filter(Boolean)}
+                  >
+                    <List.Item.Meta
+                      title={<div style={{ display: 'flex', justifyContent: 'space-between' }}><Text strong style={{ fontSize: 13.5 }}>{item.title}</Text><Tag color={PRIO_COLOR[item.priority]}>{PRIO_LABEL[item.priority]}</Tag></div>}
+                      description={
+                        <>
+                          {item.description && <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 4 }}>{item.description}</Paragraph>}
+                          <Tag color="blue">{ITEM_TYPE_LABEL[item.type as CarePlanItemType] ?? item.type}</Tag>
+                          <Text type="secondary" style={{ fontSize: 11.5 }}> · {item.dueDate} · {STATUS_LABEL[item.status]}</Text>
+                        </>
+                      }
+                    />
+                  </List.Item>
+                )}
+              />
+            </Card>
+
+            <Card title={`Đã hoàn thành (${done.length})`} size="small">
+              <List
+                dataSource={done}
+                renderItem={(item) => (
+                  <List.Item>
+                    <List.Item.Meta
+                      avatar={<CheckCircle size={18} color="var(--success)" />}
+                      title={<Text delete type="secondary" style={{ fontSize: 13 }}>{item.title}</Text>}
+                      description={<Text type="secondary" style={{ fontSize: 11.5 }}>{item.dueDate}</Text>}
+                    />
+                  </List.Item>
+                )}
+              />
+            </Card>
+          </div>
+        </Col>
+
+        <Col xs={24} sm={12} md={8}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Card title="Liên hệ bác sĩ" size="small">
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                <Avatar size={44} style={{ background: 'var(--medical-blue-700)' }}>A</Avatar>
+                <div>
+                  <Text strong style={{ display: 'block', fontSize: 13.5 }}>Bs. Nguyễn Thị An</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Chuyên khoa Da liễu</Text>
+                  <Tag color="success" style={{ display: 'block', marginTop: 4, width: 'fit-content' }}>Đang trực tuyến</Tag>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <Button type="primary" block icon={<MessageCircle size={15} />}>Nhắn tin bác sĩ</Button>
+                <Button block icon={<Phone size={15} />}>Gọi điện tư vấn</Button>
+                <Button block icon={<Calendar size={15} />}>Đặt lịch tái khám</Button>
+              </div>
+            </Card>
+
+            <Card title="Nhắc nhở tự động" size="small">
+              <List
+                dataSource={CAMPAIGNS}
+                renderItem={(c) => (
+                  <List.Item extra={<Tag color="success">Hoạt động</Tag>}>
+                    <List.Item.Meta title={<Text style={{ fontSize: 13 }}>{c.title}</Text>} description={<Text type="secondary" style={{ fontSize: 12 }}>{c.sent}</Text>} />
+                  </List.Item>
+                )}
+              />
+            </Card>
+
+            <Card title={<span><Info size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Giới hạn của chăm sóc sau khám</span>} size="small">
+              <List size="small" dataSource={[...CRM_PROHIBITED_ACTIONS]} renderItem={(a) => <List.Item style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{a}</List.Item>} />
+            </Card>
+          </div>
+        </Col>
+      </Row>
+
+      <Modal title="Thêm Mục Chăm Sóc" open={addModal} onCancel={() => setAddModal(false)} onOk={addItem} okText="Thêm" cancelText="Hủy">
+        <div style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Loại</Text>
+          <Select style={{ width: '100%' }} value={newType} onChange={setNewType} options={Object.entries(ITEM_TYPE_LABEL).map(([k, v]) => ({ value: k, label: v }))} />
+        </div>
+        <div>
+          <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tên mục *</Text>
+          <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="VD: Uống đủ nước mỗi ngày..." />
+        </div>
+      </Modal>
+
+      <Modal title="Báo Cáo Bất Thường" open={escModal} onCancel={() => setEscModal(false)} onOk={submitEscalation} okText={<span><Bell size={13} style={{ verticalAlign: -2 }} /> Gửi báo cáo</span>} cancelText="Hủy">
+        <div style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Loại bất thường</Text>
+          <Select style={{ width: '100%' }} value={escTrigger} onChange={setEscTrigger} options={Object.values(ESCALATION_RULES).map((r) => ({ value: r.trigger, label: r.label }))} />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Mô tả</Text>
+          <Input value={escNote} onChange={(e) => setEscNote(e.target.value)} placeholder="Mô tả ngắn về tình trạng..." />
+        </div>
+        <Paragraph type="secondary" style={{ fontSize: 12 }}>
+          Mức độ nghiêm trọng, người chịu trách nhiệm và hạn phản hồi sẽ được hệ thống tự động xác định dựa trên loại bất thường bạn chọn. Nếu cần lịch tái khám, một <Text strong>Encounter Creation Request</Text> sẽ được gửi để Quản trị viên y tế / bác sĩ phê duyệt trước khi tạo lượt khám mới.
+        </Paragraph>
+      </Modal>
     </div>
   );
 }

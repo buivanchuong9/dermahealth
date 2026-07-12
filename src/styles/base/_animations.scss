@@ -1,0 +1,14 @@
+// `.spin-icon` is the only animation still in use (AIAnalysis.tsx's
+// in-progress step indicator) — the rest of the original animation set
+// (`fadeUp`, `progressFill`, `.fade-up*`) had zero remaining callers and
+// was removed rather than carried forward, per FE_OVERVIEW.md's mandate to
+// keep dead code out of the codebase instead of relocating it.
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}

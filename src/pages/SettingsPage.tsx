@@ -1,44 +1,50 @@
 import { useState } from 'react';
-import { Bell, Shield, User, Smartphone, Moon, Globe, ChevronRight, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, Shield, User, Smartphone, Moon, Globe, FileCheck, Settings2, RotateCcw, LogOut } from 'lucide-react';
+import { App as AntApp, Row, Col, Card, Menu, Switch, Input, Select, Button, Alert, Typography, Segmented } from 'antd';
+import { useAppState } from '../state/useAppState';
+import { useStore } from '../state/useStore';
+import { consentRepository } from '../domain/repositories';
+import { patientService } from '../domain/services/patientService';
+
+const { Title, Text, Paragraph } = Typography;
+
+const CONSENT_LABEL: Record<string, string> = {
+  data_processing: 'Xử lý dữ liệu y tế cá nhân',
+  research_data_sharing: 'Chia sẻ dữ liệu ẩn danh với nghiên cứu',
+  telemedicine: 'Khám bệnh từ xa (telemedicine)',
+};
 
 interface Toggle { label: string; desc: string; val: boolean }
 
 function ToggleRow({ label, desc, val, onChange }: Toggle & { onChange: (v: boolean) => void }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.875rem 0', borderBottom: '1px solid var(--border)' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border-default)' }}>
       <div>
-        <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{label}</div>
-        <div style={{ fontSize: '0.775rem', color: 'var(--muted)', marginTop: 2 }}>{desc}</div>
+        <Text strong style={{ fontSize: 13.5, display: 'block' }}>{label}</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>{desc}</Text>
       </div>
-      <button
-        onClick={() => onChange(!val)}
-        style={{
-          width: 44, height: 24, borderRadius: 30, border: 'none', cursor: 'pointer',
-          background: val ? 'var(--primary)' : '#d1d9e6',
-          position: 'relative', transition: 'background 0.22s', flexShrink: 0,
-        }}
-      >
-        <div style={{
-          position: 'absolute', top: 3, left: val ? 22 : 3,
-          width: 18, height: 18, borderRadius: '50%', background: 'white',
-          transition: 'left 0.22s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-        }} />
-      </button>
+      <Switch checked={val} onChange={onChange} />
     </div>
   );
 }
 
 const SECTIONS = [
-  { id: 'notif',    label: 'Thông báo',           Icon: Bell,       color: '#1677FF' },
-  { id: 'account',  label: 'Tài khoản',           Icon: User,       color: '#52C41A' },
-  { id: 'privacy',  label: 'Quyền riêng tư',      Icon: Shield,     color: '#FAAD14' },
-  { id: 'device',   label: 'Thiết bị & Ứng dụng', Icon: Smartphone, color: '#FF4D4F' },
-  { id: 'display',  label: 'Giao diện',            Icon: Moon,       color: '#4096ff' },
-  { id: 'language', label: 'Ngôn ngữ & Khu vực',  Icon: Globe,      color: '#52C41A' },
+  { key: 'notif', label: 'Thông báo', icon: <Bell size={15} /> },
+  { key: 'account', label: 'Tài khoản', icon: <User size={15} /> },
+  { key: 'privacy', label: 'Quyền riêng tư', icon: <Shield size={15} /> },
+  { key: 'device', label: 'Thiết bị & Ứng dụng', icon: <Smartphone size={15} /> },
+  { key: 'display', label: 'Giao diện', icon: <Moon size={15} /> },
+  { key: 'language', label: 'Ngôn ngữ & Khu vực', icon: <Globe size={15} /> },
+  { key: 'app', label: 'Ứng dụng', icon: <Settings2 size={15} /> },
 ];
 
 export default function SettingsPage() {
   const [active, setActive] = useState('notif');
+  const nav = useNavigate();
+  const { modal } = AntApp.useApp();
+  const { currentPatient, resetToSeed } = useAppState();
+  const consents = useStore(consentRepository).filter((c) => c.patientId === currentPatient.id);
 
   const [notifs, setNotifs] = useState([
     { label: 'Nhắc uống thuốc hàng ngày', desc: 'Thông báo vào giờ uống thuốc đã đặt', val: true },
@@ -62,203 +68,156 @@ export default function SettingsPage() {
     { label: 'Cho phép microphone', desc: 'Cần để cuộc gọi video với bác sĩ', val: false },
   ]);
 
-  const sec = SECTIONS.find(s => s.id === active)!;
+  const toggle = (setArr: typeof setNotifs, i: number, v: boolean) => setArr((a) => a.map((x, idx) => (idx === i ? { ...x, val: v } : x)));
 
-  const toggle = (_arr: typeof notifs, setArr: typeof setNotifs, i: number, v: boolean) =>
-    setArr(a => a.map((x, idx) => idx === i ? { ...x, val: v } : x));
+  const confirmReset = () => {
+    modal.confirm({
+      title: 'Đặt lại dữ liệu demo?',
+      content: 'Toàn bộ dữ liệu hiện tại sẽ bị xóa và thay thế bằng dữ liệu mẫu ban đầu. Hành động này không thể hoàn tác.',
+      okText: 'Đặt lại dữ liệu',
+      okButtonProps: { danger: true },
+      cancelText: 'Hủy',
+      onOk: resetToSeed,
+    });
+  };
 
   return (
-    <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div className="page-hero">
-        <div className="page-hero-text">
-          <div className="page-eyebrow">Hệ thống</div>
-          <h1>Cài Đặt</h1>
-          <p>Tùy chỉnh ứng dụng theo nhu cầu của bạn.</p>
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div>
+        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Hệ thống</Text>
+        <Title level={3} style={{ margin: '4px 0 0' }}>Cài Đặt</Title>
+        <Text type="secondary">Tùy chỉnh ứng dụng theo nhu cầu của bạn.</Text>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '1.25rem', alignItems: 'start' }}>
-        {/* Menu */}
-        <div className="card card-no-hover" style={{ padding: '0.625rem' }}>
-          {SECTIONS.map(s => {
-            const isActive = active === s.id;
-            return (
-              <button key={s.id} onClick={() => setActive(s.id)} style={{
-                display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 0.875rem',
-                width: '100%', borderRadius: 10, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                background: isActive ? 'var(--primary-bg)' : 'transparent',
-                color: isActive ? 'var(--primary)' : 'var(--text)',
-                fontWeight: isActive ? 700 : 500, fontSize: '0.85rem', transition: 'all 0.18s',
-              }}>
-                <div style={{ width: 30, height: 30, borderRadius: 8, background: isActive ? 'var(--primary)' : `${s.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <s.Icon size={15} color={isActive ? 'white' : s.color} />
-                </div>
-                <span style={{ flex: 1, textAlign: 'left' }}>{s.label}</span>
-                {isActive && <ChevronRight size={14} />}
-              </button>
-            );
-          })}
-        </div>
+      <Row gutter={16}>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small" styles={{ body: { padding: 4 } }}>
+            <Menu mode="inline" selectedKeys={[active]} onClick={({ key }) => setActive(key)} items={SECTIONS.map((s) => ({ key: s.key, icon: s.icon, label: s.label }))} style={{ border: 'none' }} />
+          </Card>
+        </Col>
 
-        {/* Content */}
-        <div>
+        <Col xs={24} md={18}>
           {active === 'notif' && (
-            <div className="card card-no-hover">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--primary-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Bell size={20} color="var(--primary)" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Cài đặt thông báo</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Quản lý loại thông báo bạn muốn nhận</p>
-                </div>
-              </div>
-              {notifs.map((n, i) => (
-                <ToggleRow key={i} label={n.label} desc={n.desc} val={n.val} onChange={v => toggle(notifs, setNotifs, i, v)} />
-              ))}
-              <div style={{ marginTop: '1.25rem' }}>
-                <button className="btn btn-primary btn-sm">Lưu cài đặt</button>
-              </div>
-            </div>
+            <Card title="Cài đặt thông báo" size="small">
+              {notifs.map((n, i) => <ToggleRow key={n.label} {...n} onChange={(v) => toggle(setNotifs, i, v)} />)}
+              <Button type="primary" size="small" style={{ marginTop: 16 }}>Lưu cài đặt</Button>
+            </Card>
           )}
 
           {active === 'account' && (
-            <div className="card card-no-hover">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: '#52C41A15', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <User size={20} color="#52C41A" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Thông tin tài khoản</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Cập nhật thông tin cá nhân</p>
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <Card title="Thông tin tài khoản" size="small">
+              <Row gutter={16}>
                 {[
-                  { label: 'Họ và tên', val: 'Nguyễn Văn A' },
-                  { label: 'Ngày sinh', val: '15/03/1995' },
-                  { label: 'Số điện thoại', val: '0912 345 678' },
-                  { label: 'Email', val: 'nguyenvana@gmail.com' },
-                ].map(f => (
-                  <div key={f.label} className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">{f.label}</label>
-                    <input className="form-input" defaultValue={f.val} />
-                  </div>
+                  { label: 'Họ và tên', val: currentPatient.name },
+                  { label: 'Ngày sinh', val: currentPatient.profile.dob },
+                  { label: 'Số điện thoại', val: currentPatient.profile.phone },
+                  { label: 'Email', val: currentPatient.profile.email },
+                ].map((f) => (
+                  <Col xs={24} md={12} key={f.label} style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>{f.label}</Text>
+                    <Input defaultValue={f.val} />
+                  </Col>
                 ))}
+              </Row>
+              <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Địa chỉ</Text>
+              <Input defaultValue={currentPatient.profile.address} style={{ marginBottom: 16 }} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button type="primary">Lưu thay đổi</Button>
+                <Button>Hủy</Button>
               </div>
-              <div className="form-group" style={{ marginTop: '1rem' }}>
-                <label className="form-label">Địa chỉ</label>
-                <input className="form-input" defaultValue="Q. Bình Thạnh, TP.HCM" />
-              </div>
-              <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem' }}>
-                <button className="btn btn-primary">Lưu thay đổi</button>
-                <button className="btn btn-outline">Hủy</button>
-              </div>
-            </div>
+            </Card>
           )}
 
           {active === 'privacy' && (
-            <div className="card card-no-hover">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: '#FAAD1415', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Shield size={20} color="#FAAD14" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Quyền riêng tư & Bảo mật</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Kiểm soát dữ liệu và quyền truy cập</p>
-                </div>
+            <Card title="Quyền riêng tư & Bảo mật" size="small">
+              {privacy.map((n, i) => <ToggleRow key={n.label} {...n} onChange={(v) => toggle(setPrivacy, i, v)} />)}
+
+              <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-default)' }}>
+                <Text strong style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}><FileCheck size={15} /> Trạng thái đồng ý (Consent)</Text>
+                {consents.map((c) => (
+                  <ToggleRow
+                    key={c.id}
+                    label={CONSENT_LABEL[c.type] ?? c.type}
+                    desc={c.granted ? `Đã đồng ý lúc ${c.grantedAt ? new Date(c.grantedAt.replace(' ', 'T')).toLocaleString('vi-VN') : ''}` : `Đã rút lại lúc ${c.withdrawnAt ? new Date(c.withdrawnAt.replace(' ', 'T')).toLocaleString('vi-VN') : ''}`}
+                    val={c.granted}
+                    onChange={(v) => patientService.setConsent(currentPatient.id, c.type, v)}
+                  />
+                ))}
               </div>
-              {privacy.map((n, i) => (
-                <ToggleRow key={i} label={n.label} desc={n.desc} val={n.val} onChange={v => toggle(privacy, setPrivacy, i, v)} />
-              ))}
-              <div style={{ marginTop: '1.25rem', padding: '1rem', background: 'var(--danger-bg)', borderRadius: 12, border: '1px solid rgba(255,77,79,0.2)' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--danger)', marginBottom: '0.375rem' }}>Xóa tài khoản</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.75rem' }}>Xóa vĩnh viễn tất cả dữ liệu. Hành động này không thể hoàn tác.</div>
-                <button className="btn btn-sm" style={{ background: 'var(--danger)', color: 'white' }}>Yêu cầu xóa tài khoản</button>
-              </div>
-            </div>
+
+              <Alert
+                type="error"
+                showIcon
+                style={{ marginTop: 20 }}
+                message="Xóa tài khoản"
+                description={<>
+                  <Paragraph style={{ fontSize: 12.5, marginBottom: 8 }}>Xóa vĩnh viễn tất cả dữ liệu. Hành động này không thể hoàn tác.</Paragraph>
+                  <Button danger size="small">Yêu cầu xóa tài khoản</Button>
+                </>}
+              />
+            </Card>
           )}
 
-          {(active === 'device' || active === 'display' || active === 'language') && (
-            <div className="card card-no-hover">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: `${sec.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <sec.Icon size={20} color={sec.color} />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>{sec.label}</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Tuỳ chỉnh {sec.label.toLowerCase()}</p>
-                </div>
-              </div>
-
-              {active === 'display' && (
-                <div>
-                  <div className="form-group">
-                    <label className="form-label">Giao diện màu</label>
-                    <div style={{ display: 'flex', gap: '0.75rem' }}>
-                      {['Sáng', 'Tối', 'Theo hệ thống'].map((mode, i) => (
-                        <button key={mode} style={{ flex: 1, padding: '0.75rem', borderRadius: 10, border: `2px solid ${i === 0 ? 'var(--primary)' : 'var(--border)'}`, background: i === 0 ? 'var(--primary-bg)' : 'white', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: i === 0 ? 'var(--primary)' : 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}>
-                          {i === 0 && <Check size={14} />} {mode}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Cỡ chữ</label>
-                    <select className="form-input">
-                      <option>Nhỏ</option>
-                      <option>Vừa (Mặc định)</option>
-                      <option>Lớn</option>
-                      <option>Rất lớn (Cao tuổi)</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {active === 'language' && (
-                <div>
-                  <div className="form-group">
-                    <label className="form-label">Ngôn ngữ hiển thị</label>
-                    <select className="form-input">
-                      <option>Tiếng Việt</option>
-                      <option>English</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Múi giờ</label>
-                    <select className="form-input">
-                      <option>UTC+7 (Hà Nội / TP.HCM)</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Định dạng ngày</label>
-                    <select className="form-input">
-                      <option>DD/MM/YYYY</option>
-                      <option>MM/DD/YYYY</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {active === 'device' && (
-                <div>
-                  {device.map((n, i) => (
-                    <ToggleRow key={i} label={n.label} desc={n.desc} val={n.val} onChange={v => toggle(device, setDevice, i, v)} />
-                  ))}
-                  <div style={{ marginTop: '1.25rem', padding: '1rem', background: 'var(--bg)', borderRadius: 12 }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.5rem' }}>Phiên bản ứng dụng</div>
-                    <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>DermaHealth v2.4.1 · Cập nhật mới nhất</div>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ marginTop: '1.25rem' }}>
-                <button className="btn btn-primary btn-sm">Lưu cài đặt</button>
-              </div>
-            </div>
+          {active === 'display' && (
+            <Card title="Giao diện" size="small">
+              <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 8 }}>Giao diện màu</Text>
+              <Segmented block options={['Sáng', 'Tối', 'Theo hệ thống']} defaultValue="Sáng" style={{ marginBottom: 16 }} />
+              <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 8 }}>Cỡ chữ</Text>
+              <Select style={{ width: '100%' }} defaultValue="Vừa (Mặc định)" options={['Nhỏ', 'Vừa (Mặc định)', 'Lớn', 'Rất lớn (Cao tuổi)'].map((v) => ({ value: v, label: v }))} />
+              <Button type="primary" size="small" style={{ marginTop: 16 }}>Lưu cài đặt</Button>
+            </Card>
           )}
-        </div>
-      </div>
+
+          {active === 'language' && (
+            <Card title="Ngôn ngữ & Khu vực" size="small">
+              <div style={{ marginBottom: 14 }}>
+                <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Ngôn ngữ hiển thị</Text>
+                <Select style={{ width: '100%' }} defaultValue="Tiếng Việt" options={[{ value: 'Tiếng Việt', label: 'Tiếng Việt' }, { value: 'English', label: 'English' }]} />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Múi giờ</Text>
+                <Select style={{ width: '100%' }} defaultValue="UTC+7 (Hà Nội / TP.HCM)" options={[{ value: 'UTC+7 (Hà Nội / TP.HCM)', label: 'UTC+7 (Hà Nội / TP.HCM)' }]} />
+              </div>
+              <div>
+                <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Định dạng ngày</Text>
+                <Select style={{ width: '100%' }} defaultValue="DD/MM/YYYY" options={[{ value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' }, { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' }]} />
+              </div>
+              <Button type="primary" size="small" style={{ marginTop: 16 }}>Lưu cài đặt</Button>
+            </Card>
+          )}
+
+          {active === 'device' && (
+            <Card title="Thiết bị & Ứng dụng" size="small">
+              {device.map((n, i) => <ToggleRow key={n.label} {...n} onChange={(v) => toggle(setDevice, i, v)} />)}
+              <div style={{ marginTop: 16, padding: 12, background: 'var(--surface-subtle)', borderRadius: 8 }}>
+                <Text strong style={{ fontSize: 12.5, display: 'block', marginBottom: 4 }}>Phiên bản ứng dụng</Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>DermaHealth v2.4.1 · Cập nhật mới nhất</Text>
+              </div>
+              <Button type="primary" size="small" style={{ marginTop: 16 }}>Lưu cài đặt</Button>
+            </Card>
+          )}
+
+          {active === 'app' && (
+            <Card title="Quản lý ứng dụng" size="small">
+              <div style={{ paddingBottom: 18, marginBottom: 18, borderBottom: '1px solid var(--border-default)' }}>
+                <Text strong style={{ display: 'block', marginBottom: 4 }}>Dữ liệu dùng thử</Text>
+                <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 12 }}>
+                  Khôi phục toàn bộ lượt khám, hồ sơ và quy trình về dữ liệu mẫu ban đầu.
+                </Paragraph>
+                <Button danger icon={<RotateCcw size={15} />} onClick={confirmReset}>Đặt lại dữ liệu demo</Button>
+              </div>
+
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 4 }}>Phiên đăng nhập</Text>
+                <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 12 }}>
+                  Kết thúc phiên hiện tại và quay lại màn hình đăng nhập.
+                </Paragraph>
+                <Button icon={<LogOut size={15} />} onClick={() => nav('/login')}>Đăng xuất</Button>
+              </div>
+            </Card>
+          )}
+        </Col>
+      </Row>
     </div>
   );
 }

@@ -1,191 +1,288 @@
 import { useState } from 'react';
-import { Upload, Camera, ScanLine, CheckCircle, AlertTriangle, ArrowRight, RotateCcw, Brain, ZoomIn } from 'lucide-react';
+import {
+  Row, Col, Card, Steps, Upload, Button, Segmented, InputNumber, Input, Checkbox, Progress, Result, Tag,
+  Alert, Typography, List, Space,
+} from 'antd';
+import { Upload as UploadIcon, Camera, Loader, CheckCircle2, Phone, FlaskConical, ZoomIn } from 'lucide-react';
+import { useAppState } from '../state/useAppState';
+import { encounterService } from '../domain/services/encounterService';
+import { aiAssessmentService, SYMPTOM_OPTIONS, type IntakeDraft, type SymptomKey } from '../domain/services/aiAssessmentService';
+import type { AIPreliminaryAssessment, ClinicalRedFlag, ConfidenceBand } from '../domain/core/entities';
+import type { EncounterId } from '../domain/core/ids';
 
-type Step = 'upload' | 'scan' | 'result';
+const { Title, Text, Paragraph } = Typography;
+
+type Step = 'upload' | 'scan' | 'result' | 'emergency';
+
+const EMPTY_INTAKE: IntakeDraft = { chiefComplaint: '', severity: null, durationDays: null, symptoms: [], history: [], currentMedication: [] };
 
 const STEPS_TXT = [
-  'Tiền xử lý và tăng cường hình ảnh...',
-  'Trích xuất đặc trưng vùng da tổn thương...',
-  'Đối chiếu với mô hình AI lâm sàng (1.5M ca)...',
-  'Tổng hợp kết quả và tạo báo cáo...',
+  'Tiền xử lý và tăng cường hình ảnh',
+  'Trích xuất đặc trưng vùng da tổn thương',
+  'Đối chiếu với mô hình AI lâm sàng (1.5M ca)',
+  'Tổng hợp kết quả và tạo báo cáo',
 ];
 
+const BAND_META: Record<ConfidenceBand, { label: string; color: string }> = {
+  high: { label: 'Khả năng cao', color: 'red' },
+  moderate: { label: 'Khả năng trung bình', color: 'gold' },
+  low: { label: 'Khả năng thấp', color: 'default' },
+};
+
+const STEP_INDEX: Record<Step, number> = { upload: 0, scan: 1, result: 2, emergency: 2 };
+
 export default function AIAnalysis() {
+  const { currentPatient, currentUser } = useAppState();
   const [step, setStep] = useState<Step>('upload');
   const [pct, setPct] = useState(0);
   const [stepIdx, setStepIdx] = useState(0);
+  const [intake, setIntake] = useState<IntakeDraft>(EMPTY_INTAKE);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [emergency, setEmergency] = useState<ClinicalRedFlag | null>(null);
+  const [assessment, setAssessment] = useState<AIPreliminaryAssessment | null>(null);
+  const [encounterId, setEncounterId] = useState<EncounterId | null>(null);
 
-  const startScan = () => {
+  const toggleSymptoms = (values: SymptomKey[]) => setIntake((p) => ({ ...p, symptoms: values }));
+
+  const runScanAnimation = (onDone: () => void) => {
     setStep('scan'); setPct(0); setStepIdx(0);
     let p = 0;
     const t = setInterval(() => {
-      p += 2; setPct(p);
+      p += 4; setPct(Math.min(p, 100));
       setStepIdx(Math.min(Math.floor(p / 25), 3));
-      if (p >= 100) { clearInterval(t); setTimeout(() => setStep('result'), 500); }
-    }, 60);
+      if (p >= 100) { clearInterval(t); setTimeout(onDone, 400); }
+    }, 90);
+  };
+
+  const startAnalysis = () => {
+    const errs = aiAssessmentService.validateIntake(intake);
+    if (errs.length) { setErrors(errs); return; }
+    setErrors([]);
+
+    const redFlag = aiAssessmentService.evaluateRedFlag(intake);
+    if (redFlag.urgency === 'emergency') {
+      setEmergency(redFlag);
+      setStep('emergency');
+      return;
+    }
+
+    const encounter = encounterService.createEncounter(
+      { patientId: currentPatient.id, type: 'standard', origin: 'walk_in', department: 'Khoa Da liễu' },
+      currentUser.id,
+    );
+    encounterService.transitionStatus(encounter.id, 'intake_in_progress', currentUser.id);
+    setEncounterId(encounter.id);
+
+    runScanAnimation(() => {
+      const { assessment: result } = aiAssessmentService.requestAssessment(encounter.id, intake, currentUser.id);
+      setAssessment(result);
+      setStep('result');
+    });
+  };
+
+  const resetAll = () => {
+    setIntake(EMPTY_INTAKE); setErrors([]); setEmergency(null); setAssessment(null); setEncounterId(null); setStep('upload');
   };
 
   return (
-    <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div className="page-hero">
-        <div className="page-hero-text">
-          <div className="page-eyebrow">AI Diagnosis</div>
-          <h1>Phân Tích Da Bằng AI</h1>
-          <p>Tải lên hình ảnh để nhận đánh giá sơ bộ từ hệ thống trí tuệ nhân tạo của DermaHealth.</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>AI Preliminary Assessment</Text>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Phân Tích Da Bằng AI</Title>
+          <Text type="secondary">Tải lên hình ảnh và mô tả triệu chứng để nhận đánh giá sơ bộ từ hệ thống AI của DermaHealth.</Text>
         </div>
-        <span className="badge badge-primary" style={{ padding: '0.5rem 1rem', fontSize: '0.825rem' }}>
-          <Brain size={15} /> AI Diagnosis v2.4
-        </span>
+        <Tag color="blue" style={{ padding: '4px 10px' }}>AI Diagnosis v2.4</Tag>
       </div>
 
-      {step === 'upload' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '1.5rem', alignItems: 'start' }}>
-          {/* Upload zone */}
-          <div onClick={startScan} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 2rem', background: 'white', border: '2px dashed var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.background = 'rgba(10,61,74,0.02)'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'white'; }}>
-            <div style={{ width: 88, height: 88, borderRadius: '50%', background: 'var(--bg)', border: '2px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem', color: 'var(--primary)' }}>
-              <Upload size={36} />
-            </div>
-            <h2 style={{ fontSize: '1.4rem', color: 'var(--primary)', marginBottom: '0.5rem' }}>Kéo thả hoặc nhấp để tải lên</h2>
-            <p style={{ color: 'var(--muted)', marginBottom: '0.5rem' }}>Hỗ trợ JPG, PNG, HEIC • Tối đa 5MB</p>
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-              <button className="btn btn-outline" onClick={e => { e.stopPropagation(); startScan(); }}><Upload size={16} /> Chọn tệp</button>
-              <button className="btn btn-primary" onClick={e => { e.stopPropagation(); startScan(); }}><Camera size={16} /> Dùng camera</button>
-            </div>
-          </div>
+      <Card size="small">
+        <Steps
+          size="small"
+          current={STEP_INDEX[step]}
+          status={step === 'emergency' ? 'error' : undefined}
+          items={[{ title: 'Tải lên & khai báo' }, { title: 'Đang phân tích' }, { title: step === 'emergency' ? 'Cảnh báo khẩn cấp' : 'Kết quả' }]}
+        />
+      </Card>
 
-          {/* Tips */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div className="card card-no-hover" style={{ padding: '1.25rem' }}>
-              <h3 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '1rem' }}>Để có kết quả tốt nhất</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {[
-                  { icon: '☀️', title: 'Đủ ánh sáng', desc: 'Chụp dưới ánh sáng trắng tự nhiên' },
-                  { icon: '🎯', title: 'Khoảng cách 10–15cm', desc: 'Để thiết bị gần vùng da cần chụp' },
-                  { icon: '🔍', title: 'Lấy nét rõ', desc: 'Giữ tay ổn định, tránh ảnh mờ' },
-                  { icon: '📐', title: 'Chụp thẳng góc', desc: 'Camera song song với bề mặt da' },
-                ].map(t => (
-                  <div key={t.title} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>{t.icon}</span>
-                    <div>``
-                      <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t.title}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: 2 }}>{t.desc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+      {step === 'upload' && (
+        <Row gutter={16}>
+          <Col xs={24} md={14}>
+            <Upload.Dragger multiple={false} showUploadList={false} beforeUpload={() => false} style={{ background: 'var(--surface-card)' }}>
+              <p className="ant-upload-drag-icon"><Camera size={32} color="var(--medical-blue-600)" /></p>
+              <p style={{ fontWeight: 600, fontSize: 16 }}>Kéo thả hoặc nhấp để tải lên</p>
+              <p style={{ color: 'var(--text-secondary)' }}>Hỗ trợ JPG, PNG, HEIC · Tối đa 5MB (mô phỏng — không lưu file thật)</p>
+              <Space style={{ marginTop: 16 }}>
+                <Button icon={<UploadIcon size={15} />}>Chọn tệp</Button>
+                <Button icon={<Camera size={15} />}>Dùng camera</Button>
+              </Space>
+            </Upload.Dragger>
+          </Col>
+
+          <Col xs={24} md={10}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Card size="small" title="Để có kết quả tốt nhất">
+                <List
+                  size="small"
+                  dataSource={[
+                    { title: 'Đủ ánh sáng', desc: 'Chụp dưới ánh sáng trắng tự nhiên' },
+                    { title: 'Khoảng cách 10–15cm', desc: 'Để thiết bị gần vùng da cần chụp' },
+                    { title: 'Lấy nét rõ', desc: 'Giữ tay ổn định, tránh ảnh mờ' },
+                  ]}
+                  renderItem={(t) => <List.Item><List.Item.Meta title={t.title} description={t.desc} /></List.Item>}
+                />
+              </Card>
+
+              <Card size="small" title={<span><FlaskConical size={15} /> Thông tin triệu chứng</span>}>
+                <Paragraph type="secondary" style={{ fontSize: 12 }}>Bắt buộc — giúp AI đưa ra đánh giá chính xác hơn và phát hiện dấu hiệu cần khám gấp.</Paragraph>
+
+                <div style={{ marginBottom: 14 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Lý do khám / mô tả chính *</Text>
+                  <Input value={intake.chiefComplaint} onChange={(e) => setIntake((p) => ({ ...p, chiefComplaint: e.target.value }))} placeholder="VD: Mụn viêm lan rộng vùng má và trán" />
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Mức độ nghiêm trọng *</Text>
+                  <Segmented block value={intake.severity ?? undefined} onChange={(v) => setIntake((p) => ({ ...p, severity: v as number }))} options={[1, 2, 3, 4, 5]} />
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Số ngày xuất hiện *</Text>
+                  <InputNumber style={{ width: '100%' }} min={0} placeholder="VD: 3" value={intake.durationDays} onChange={(v) => setIntake((p) => ({ ...p, durationDays: v }))} />
+                </div>
+
+                <div style={{ marginBottom: errors.length ? 14 : 0 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Triệu chứng đi kèm (nếu có)</Text>
+                  <Checkbox.Group value={intake.symptoms} onChange={(v) => toggleSymptoms(v as SymptomKey[])} options={SYMPTOM_OPTIONS.map((o) => ({ value: o.key, label: o.label }))} />
+                </div>
+
+                {errors.length > 0 && (
+                  <Alert type="error" showIcon style={{ marginBottom: 14 }} message={<ul style={{ margin: 0, paddingLeft: 16 }}>{errors.map((e) => <li key={e}>{e}</li>)}</ul>} />
+                )}
+
+                <Button type="primary" block icon={<FlaskConical size={15} />} onClick={startAnalysis}>Bắt đầu phân tích AI</Button>
+              </Card>
+
+              <Alert type="warning" showIcon message="Kết quả AI chỉ là hỗ trợ ra quyết định (AI Preliminary Assessment), không phải chẩn đoán. Chẩn đoán chính thức luôn do bác sĩ xác nhận." />
             </div>
-            <div style={{ display: 'flex', gap: '0.75rem', padding: '0.875rem 1rem', background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.2)', borderRadius: 12, fontSize: '0.825rem', color: '#92400e' }}>
-              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2, color: 'var(--warning)' }} />
-              <span>Kết quả AI chỉ là đánh giá sơ bộ, không thay thế chẩn đoán bác sĩ chuyên khoa.</span>
-            </div>
-          </div>
-        </div>
+          </Col>
+        </Row>
       )}
 
       {step === 'scan' && (
-        <div className="card card-no-hover" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4rem 2rem', textAlign: 'center' }}>
-          <div style={{ position: 'relative', width: 110, height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2rem' }}>
-            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid rgba(10,61,74,0.15)', animation: 'pulse 2s infinite' }} />
-            <div style={{ position: 'absolute', inset: 12, borderRadius: '50%', border: '2px solid rgba(10,61,74,0.1)', animation: 'pulse 2s 0.5s infinite' }} />
-            <ScanLine size={48} style={{ color: 'var(--primary)' }} />
-          </div>
-          <h2 style={{ fontSize: '1.6rem', color: 'var(--primary)', marginBottom: '0.5rem' }}>Đang phân tích hình ảnh</h2>
-          <p style={{ color: 'var(--muted)', maxWidth: 420, lineHeight: 1.6, marginBottom: '2rem' }}>AI đang đối chiếu với hơn 1.5 triệu ca lâm sàng trong cơ sở dữ liệu...</p>
-          <div style={{ width: '100%', maxWidth: 520, marginBottom: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.625rem' }}>
-              <span style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>{STEPS_TXT[stepIdx]}</span>
-              <strong style={{ color: 'var(--primary)' }}>{pct}%</strong>
-            </div>
-            <div className="prog-track">
-              <div className="prog-fill" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--primary) 0%, var(--primary-light) 100%)', transition: 'width 0.1s linear' }} />
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', width: '100%', maxWidth: 400, textAlign: 'left' }}>
-            {STEPS_TXT.map((s, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.625rem 0.875rem', borderRadius: 10, background: stepIdx > i ? 'rgba(5,150,105,0.06)' : stepIdx === i ? 'rgba(10,61,74,0.05)' : 'transparent', fontSize: '0.875rem', color: stepIdx > i ? 'var(--success)' : stepIdx === i ? 'var(--primary)' : 'var(--muted)', fontWeight: stepIdx === i ? 600 : 400 }}>
-                <CheckCircle size={17} style={{ flexShrink: 0, opacity: stepIdx > i ? 1 : stepIdx === i ? 0.7 : 0.3 }} />
-                {s}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {step === 'result' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: '1.5rem', alignItems: 'start' }}>
-          {/* Image */}
-          <div className="card card-no-hover" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ width: '100%', aspectRatio: '1', background: 'linear-gradient(135deg, #ffc9b0 0%, #ffa07a 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ position: 'absolute', top: '22%', left: '28%', width: '40%', height: '38%', border: '2.5px solid var(--primary)', borderRadius: 6, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '4px', background: 'rgba(10,61,74,0.08)' }}>
-                <div style={{ background: 'var(--primary)', color: 'white', fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <ZoomIn size={11} /> Vùng tổn thương
-                </div>
-              </div>
-            </div>
-            <div style={{ padding: '1rem 1.25rem' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.2rem' }}>Hình ảnh đã được chú thích</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>AI đánh dấu vùng có nghi ngờ tổn thương</div>
-            </div>
-            <div style={{ display: 'flex', gap: '0.625rem', padding: '0 1.25rem 1.25rem' }}>
-              <button className="btn btn-sm btn-outline" onClick={() => setStep('upload')}><RotateCcw size={13} /> Phân tích lại</button>
-              <button className="btn btn-sm btn-outline"><Upload size={13} /> Tải xuống</button>
-            </div>
-          </div>
-
-          {/* Results */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            <div className="card card-no-hover">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <h3 style={{ fontSize: '1.05rem', color: 'var(--primary)' }}>Kết Quả Chẩn Đoán AI</h3>
-                <span className="badge badge-danger">⚠ Cần theo dõi</span>
-              </div>
-              {[
-                { name: 'Viêm nang lông', pct: 96.8, color: 'var(--danger)', cls: 'badge-danger', desc: 'Viêm do vi khuẩn, tụ cầu khuẩn. Tổn thương có mủ, đỏ, đau rát. Mức độ cao.' },
-                { name: 'Mụn trứng cá', pct: 89.4, color: 'var(--warning)', cls: 'badge-warning', desc: 'Viêm nang lông do tắc nghẽn bã nhờn. Cần theo dõi.' },
-                { name: 'Viêm da tiết bã', pct: 82.1, color: 'var(--warning)', cls: 'badge-warning', desc: 'Tình trạng da bong tróc vảy đỏ. Thường gặp ở vùng nhiều tuyến bã.' },
-              ].map(d => (
-                <div key={d.name} style={{ marginBottom: '1.25rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{d.name}</span>
-                    <span className={`badge ${d.cls}`}>{d.pct}%</span>
-                  </div>
-                  <div className="prog-track" style={{ marginBottom: '0.375rem' }}>
-                    <div className="prog-fill" style={{ width: `${d.pct}%`, background: d.color }} />
-                  </div>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{d.desc}</p>
+        <Card>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 16px', textAlign: 'center' }}>
+            <Progress type="circle" percent={pct} size={110} strokeColor="var(--medical-blue-600)" />
+            <Title level={4} style={{ marginTop: 20 }}>Đang phân tích hình ảnh</Title>
+            <Text type="secondary" style={{ maxWidth: 420, marginBottom: 20 }}>AI đang đối chiếu với hơn 1.5 triệu ca lâm sàng trong cơ sở dữ liệu...</Text>
+            <div style={{ width: '100%', maxWidth: 420, textAlign: 'left' }}>
+              {STEPS_TXT.map((s, i) => (
+                <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: stepIdx > i ? 'var(--success-bg)' : stepIdx === i ? 'var(--surface-selected)' : 'transparent', marginBottom: 4 }}>
+                  {stepIdx > i ? <CheckCircle2 size={15} color="var(--success)" /> : stepIdx === i ? <Loader size={15} color="var(--medical-blue-600)" className="spin-icon" /> : <span style={{ width: 14, display: 'inline-block' }} />}
+                  <Text style={{ fontSize: 13, color: stepIdx >= i ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: stepIdx === i ? 600 : 400 }}>{s}</Text>
                 </div>
               ))}
             </div>
-
-            <div className="card card-no-hover">
-              <h3 style={{ fontSize: '1.05rem', color: 'var(--primary)', marginBottom: '1rem' }}>Phân Tích Chi Tiết (ABCDE)</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                {[
-                  { k: 'A', n: 'Bất đối xứng', v: 'Không đồng đều', bg: 'rgba(217,119,6,0.07)' },
-                  { k: 'B', n: 'Đường viền', v: 'Bờ không rõ ràng', bg: 'rgba(217,119,6,0.07)' },
-                  { k: 'C', n: 'Màu sắc', v: 'Đỏ viêm', bg: 'rgba(220,38,38,0.06)' },
-                  { k: 'D', n: 'Đường kính', v: '~3–5mm', bg: 'rgba(5,150,105,0.06)' },
-                ].map(i => (
-                  <div key={i.k} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', padding: '0.875rem', borderRadius: 10, background: i.bg }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0 }}>{i.k}</div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.825rem' }}>{i.n}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: 2 }}>{i.v}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="card card-no-hover">
-              <h3 style={{ fontSize: '1.05rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>Đề Xuất Tiếp Theo</h3>
-              <p style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: '1.25rem', fontSize: '0.875rem' }}>AI phát hiện tổn thương có dấu hiệu viêm trung bình. Khuyến nghị đặt lịch với bác sĩ chuyên khoa da liễu trong vòng 7 ngày để được điều trị phù hợp.</p>
-              <a href="/app/appointments" className="btn btn-primary btn-full">Đặt lịch khám ngay <ArrowRight size={17} /></a>
-            </div>
           </div>
-        </div>
+        </Card>
+      )}
+
+      {step === 'emergency' && emergency && (
+        <Card>
+          <Result
+            status="error"
+            title="Dấu hiệu cần được khám ngay"
+            subTitle="Hệ thống phát hiện các dấu hiệu vượt ngưỡng an toàn dựa trên thông tin bạn cung cấp. Vui lòng liên hệ cơ sở y tế gần nhất hoặc gọi cấp cứu ngay."
+            extra={[
+              <Button danger type="primary" key="call" icon={<Phone size={15} />}>Gọi cấp cứu / Hotline hỗ trợ</Button>,
+              <Button key="back" onClick={resetAll}>Quay lại</Button>,
+            ]}
+          >
+            <div style={{ textAlign: 'left', maxWidth: 420, margin: '0 auto' }}>
+              <Text strong>Lý do cảnh báo:</Text>
+              <List size="small" dataSource={emergency.reasons} renderItem={(r) => <List.Item>{r}</List.Item>} />
+            </div>
+          </Result>
+        </Card>
+      )}
+
+      {step === 'result' && assessment && assessment.status === 'insufficient_data' && (
+        <Card>
+          <Result
+            status="warning"
+            title="Chưa đủ dữ liệu để đánh giá"
+            subTitle="AI không thể đưa ra đánh giá đáng tin cậy với thông tin hiện tại thay vì đoán mò. Vui lòng bổ sung thêm:"
+            extra={<Button type="primary" icon={<FlaskConical size={15} />} onClick={() => setStep('upload')}>Bổ sung thông tin</Button>}
+          >
+            <List size="small" style={{ maxWidth: 420, margin: '0 auto' }} dataSource={assessment.missingDataHints} renderItem={(h) => <List.Item>{h}</List.Item>} />
+          </Result>
+        </Card>
+      )}
+
+      {step === 'result' && assessment && assessment.status === 'completed' && (
+        <Row gutter={16}>
+          <Col xs={24} sm={12} md={8}>
+            <Card size="small" styles={{ body: { padding: 0 } }}>
+              <div style={{ width: '100%', aspectRatio: '1', background: 'var(--surface-subtle)', borderBottom: '1px solid var(--border-default)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', top: '22%', left: '28%', width: '40%', height: '38%', border: '2px solid var(--medical-blue-700)', borderRadius: 6, display: 'flex', alignItems: 'flex-start', padding: 4 }}>
+                  <Tag color="blue" icon={<ZoomIn size={11} style={{ verticalAlign: -1 }} />} style={{ fontSize: 11 }}>Vùng tổn thương</Tag>
+                </div>
+              </div>
+              <div style={{ padding: 16 }}>
+                <Text strong style={{ display: 'block' }}>Hình ảnh đã được chú thích</Text>
+                <Text type="secondary" style={{ fontSize: 12.5 }}>AI đánh dấu vùng có nghi ngờ tổn thương</Text>
+                {encounterId && <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>Lượt khám: {encounterId}</Text>}
+                <Space style={{ marginTop: 12 }}>
+                  <Button size="small" onClick={resetAll}>Phân tích lại</Button>
+                  <Button size="small" icon={<UploadIcon size={15} />}>Tải xuống</Button>
+                </Space>
+              </div>
+            </Card>
+          </Col>
+
+          <Col xs={24} md={16}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {assessment.redFlag.urgency === 'urgent' && (
+                <Alert type="warning" showIcon message="Khuyến nghị khám sớm" description={`${assessment.redFlag.reasons.join('; ')} — nên đặt lịch trong 24–48 giờ.`} />
+              )}
+
+              <Card title="Top 3 Ứng Viên Chẩn Đoán (AI Preliminary Assessment)" extra={<Tag color="warning">Đang chờ bác sĩ xác nhận</Tag>} size="small">
+                {assessment.candidateConditions.map((c) => {
+                  const band = BAND_META[c.confidenceBand];
+                  return (
+                    <div key={c.code} style={{ marginBottom: 18 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text strong>{c.name}</Text>
+                        <Tag color={band.color}>{band.label}</Tag>
+                      </div>
+                      <Progress percent={c.confidenceScore} showInfo={false} strokeColor={band.color === 'red' ? 'var(--danger)' : band.color === 'gold' ? 'var(--warning)' : 'var(--text-muted)'} size="small" />
+                      <Paragraph type="secondary" style={{ fontSize: 12.5, margin: '6px 0' }}>{c.rationale}</Paragraph>
+                      <Space size={[4, 4]} wrap>
+                        {c.supportingEvidence.map((e) => <Tag key={e} color="blue">{e}</Tag>)}
+                        {c.conflictingEvidence.map((e) => <Tag key={e} color="red">{e}</Tag>)}
+                      </Space>
+                    </div>
+                  );
+                })}
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', borderTop: '1px solid var(--border-default)', paddingTop: 10 }}>
+                  Mô hình: {assessment.modelVersion} · {new Date(assessment.generatedAt).toLocaleString('vi-VN')} · Mã dữ liệu: {assessment.inputSnapshotId}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 11, fontStyle: 'italic', display: 'block', marginTop: 6 }}>
+                  Đây là hỗ trợ ra quyết định của AI, không phải chẩn đoán xác định. Bác sĩ là người đưa ra quyết định lâm sàng cuối cùng.
+                </Text>
+              </Card>
+
+              <Card title="Đề Xuất Tiếp Theo" size="small">
+                <Paragraph style={{ fontSize: 13 }}>
+                  Đây là kết quả hỗ trợ từ AI, chưa phải chẩn đoán chính thức. Bác sĩ sẽ xem xét thông tin này cùng với hồ sơ của bạn trong lần khám tới.
+                  {assessment.redFlag.urgency === 'urgent'
+                    ? ' Do có dấu hiệu cần lưu ý, khuyến nghị đặt lịch khám trong 24–48 giờ tới.'
+                    : ' Khuyến nghị đặt lịch với bác sĩ chuyên khoa da liễu trong vòng 7 ngày để được tư vấn phù hợp.'}
+                </Paragraph>
+                <Button type="primary" block href="/app/appointments">Đặt lịch khám ngay</Button>
+              </Card>
+            </div>
+          </Col>
+        </Row>
       )}
     </div>
   );

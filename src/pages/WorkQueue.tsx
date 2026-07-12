@@ -1,0 +1,215 @@
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { App as AntApp, Card, Select, Table, Tag, Typography, Button, Empty } from 'antd';
+import {
+  DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCorners,
+  useDroppable, useDraggable,
+  type DragEndEvent, type DragStartEvent,
+} from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
+import { Zap, ShieldCheck, TriangleAlert, GripVertical } from 'lucide-react';
+import { useAppState } from '../state/useAppState';
+import { useStore } from '../state/useStore';
+import { workflowRepository, encounterRepository } from '../domain/repositories';
+import { workflowService } from '../domain/services/workflowService';
+import { TASK_STATUS_LABEL, ROLE_LABEL } from '../domain/core/enums';
+import type { WorkflowTaskStatus, Priority, Urgency } from '../domain/core/enums';
+import type { WorkflowTask } from '../domain/core/entities';
+
+const { Title, Text } = Typography;
+
+type ColumnKey = 'ready' | 'in_progress' | 'completed' | 'escalated';
+
+const COLUMNS: { key: ColumnKey; title: string; hint: string }[] = [
+  { key: 'ready', title: 'Sẵn sàng / Chưa nhận', hint: 'Kéo vào "Đang thực hiện" để nhận việc' },
+  { key: 'in_progress', title: 'Đang thực hiện (của tôi)', hint: 'Kéo sang "Hoàn thành" khi xong' },
+  { key: 'completed', title: 'Hoàn thành', hint: 'Chỉ nhận tác vụ đang thực hiện' },
+  { key: 'escalated', title: 'Báo cáo bất thường', hint: 'Giám sát viên kéo ngược lại để mở lại' },
+];
+
+function overdueMinutes(task: WorkflowTask): number | null {
+  const created = new Date(task.createdAt.replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1')).getTime();
+  if (Number.isNaN(created)) return null;
+  return Math.round((created + task.slaMinutes * 60_000 - Date.now()) / 60_000);
+}
+
+function columnFor(task: WorkflowTask, myUserId: string): ColumnKey | null {
+  if (task.status === 'completed') return 'completed';
+  if (task.status === 'escalated') return 'escalated';
+  if (task.status === 'ready' && !task.assigneeId) return 'ready';
+  if (task.assigneeId === myUserId && ['assigned', 'accepted', 'in_progress', 'waiting_for_patient', 'waiting_for_result', 'waiting_for_approval'].includes(task.status)) return 'in_progress';
+  return null;
+}
+
+function TaskCard({ task, encounterLabel }: { task: WorkflowTask; encounterLabel: string }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id, data: { task } });
+  const minutesLeft = overdueMinutes(task);
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1,
+        background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 8,
+        padding: '10px 12px', marginBottom: 8, cursor: 'grab',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+        <Link to={`/app/workflows/instances/${task.instanceId}`} style={{ fontWeight: 600, fontSize: 13, color: 'var(--medical-blue-700)' }}>{task.name}</Link>
+        <span {...attributes} {...listeners} role="button" tabIndex={0} aria-label={`Kéo để chuyển tác vụ "${task.name}" sang cột khác`} style={{ touchAction: 'none', color: 'var(--text-muted)' }}><GripVertical size={14} /></span>
+      </div>
+      <Text type="secondary" style={{ fontSize: 11.5, display: 'block', margin: '4px 0' }}>{encounterLabel} · {ROLE_LABEL[task.responsibleRole]}</Text>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        <Tag color={task.urgency === 'emergency' ? 'red' : task.urgency === 'urgent' ? 'orange' : 'default'} style={{ fontSize: 10.5 }}>{task.urgency}</Tag>
+        <Tag style={{ fontSize: 10.5 }}>{task.priority}</Tag>
+        {minutesLeft !== null && <Tag color={minutesLeft < 0 ? 'red' : minutesLeft < 15 ? 'gold' : 'default'} style={{ fontSize: 10.5 }}>{minutesLeft < 0 ? `Quá hạn ${Math.abs(minutesLeft)}p` : `Còn ${minutesLeft}p`}</Tag>}
+      </div>
+      {task.clinicalWarning && <Text type="warning" style={{ fontSize: 11, display: 'block', marginTop: 4 }}><TriangleAlert size={11} style={{ verticalAlign: -1 }} /> {task.clinicalWarning}</Text>}
+    </div>
+  );
+}
+
+function Column({ col, tasks, encounterLabelFor }: { col: (typeof COLUMNS)[number]; tasks: WorkflowTask[]; encounterLabelFor: (t: WorkflowTask) => string }) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.key });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        background: isOver ? 'var(--surface-selected)' : 'var(--surface-subtle)', borderRadius: 10, padding: 12,
+        minHeight: 320, border: `1px dashed ${isOver ? 'var(--medical-blue-500)' : 'var(--border-default)'}`,
+        flex: '1 0 240px', minWidth: 240,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <Text strong style={{ fontSize: 13 }}>{col.title}</Text>
+        <Tag>{tasks.length}</Tag>
+      </div>
+      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 10 }}>{col.hint}</Text>
+      {tasks.map((t) => <TaskCard key={t.id} task={t} encounterLabel={encounterLabelFor(t)} />)}
+      {tasks.length === 0 && <Empty description="Không có tác vụ" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+    </div>
+  );
+}
+
+export default function WorkQueue() {
+  const { message } = AntApp.useApp();
+  const { currentUser, role } = useAppState();
+  const tasks = useStore(workflowRepository.tasks());
+  const encounters = useStore(encounterRepository);
+  const [department, setDepartment] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<WorkflowTaskStatus | 'all'>('all');
+  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
+  const [urgencyFilter, setUrgencyFilter] = useState<Urgency | 'all'>('all');
+  const [activeTask, setActiveTask] = useState<WorkflowTask | null>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
+  const canSupervise = role === 'medical_administrator' || role === 'care_coordinator';
+
+  const departments = useMemo(() => Array.from(new Set(tasks.map((t) => t.department))), [tasks]);
+  const visibleForRole = tasks.filter((t) => role === 'medical_administrator' || role === 'system_administrator' || t.responsibleRole === role);
+  const filtered = visibleForRole.filter((t) =>
+    (department === 'all' || t.department === department) &&
+    (statusFilter === 'all' || t.status === statusFilter) &&
+    (priorityFilter === 'all' || t.priority === priorityFilter) &&
+    (urgencyFilter === 'all' || t.urgency === urgencyFilter),
+  );
+
+  const encounterLabelFor = (t: WorkflowTask) => {
+    const enc = encounters.find((e) => e.id === t.encounterId);
+    return enc ? `${enc.id} (${enc.department})` : t.encounterId;
+  };
+
+  const byColumn = (key: ColumnKey) => filtered.filter((t) => columnFor(t, currentUser.id) === key);
+  const otherTasks = filtered.filter((t) => columnFor(t, currentUser.id) === null);
+
+  const autoAssign = () => {
+    const candidates = tasks.filter((t) => t.responsibleRole === role && t.status === 'ready' && !t.assigneeId);
+    if (candidates.length === 0) { message.info('Không có tác vụ nào phù hợp để tự động phân công.'); return; }
+    candidates.forEach((t) => workflowService.reassignTask(t.id, currentUser.id, currentUser.id));
+    message.success(`Đã tự động phân công ${candidates.length} tác vụ cho bạn.`);
+  };
+
+  const handleDragStart = (e: DragStartEvent) => {
+    const t = tasks.find((task) => task.id === e.active.id);
+    setActiveTask(t ?? null);
+  };
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setActiveTask(null);
+    const target = e.over?.id as ColumnKey | undefined;
+    const task = tasks.find((t) => t.id === e.active.id);
+    if (!task || !target) return;
+    const source = columnFor(task, currentUser.id);
+    if (source === target) return;
+
+    try {
+      if (target === 'in_progress') {
+        if (task.status === 'ready') workflowService.acceptTask(task.id, currentUser.id);
+        else if (task.status === 'accepted' || task.status === 'assigned') workflowService.startTask(task.id, currentUser.id);
+        else if (task.status === 'escalated') {
+          if (!canSupervise) throw new Error('Chỉ giám sát viên (Điều phối viên chăm sóc / Quản trị viên y tế) mới có thể mở lại tác vụ đã báo cáo bất thường.');
+          workflowService.transitionTask(task.id, 'ready', currentUser.id, { reason: 'Giám sát viên đã xem xét và mở lại tác vụ' });
+        } else {
+          throw new Error(`Không thể chuyển tác vụ "${task.name}" sang Đang thực hiện từ trạng thái hiện tại.`);
+        }
+      } else if (target === 'completed') {
+        if (task.status !== 'in_progress') throw new Error('Chỉ có thể hoàn thành tác vụ đang ở trạng thái "Đang thực hiện".');
+        workflowService.completeTask(task.id, currentUser.id);
+      } else if (target === 'escalated') {
+        workflowService.escalateTask(task.id, currentUser.id, 'Chuyển bằng kéo thả trong hàng đợi công việc');
+      } else if (target === 'ready') {
+        throw new Error('Không thể kéo tác vụ trở lại trạng thái "Sẵn sàng" thủ công.');
+      }
+      message.success(`Đã cập nhật trạng thái tác vụ "${task.name}".`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Vận hành</Text>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Hàng Đợi Công Việc</Title>
+          <Text type="secondary">{currentUser.name} · {ROLE_LABEL[role]}</Text>
+        </div>
+        <Button type="primary" icon={<Zap size={15} />} onClick={autoAssign}>Tự động phân công</Button>
+      </div>
+
+      <Card size="small">
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Select style={{ width: 200 }} value={department} onChange={setDepartment} options={[{ value: 'all', label: 'Tất cả bộ phận' }, ...departments.map((d) => ({ value: d, label: d }))]} />
+          <Select style={{ width: 200 }} value={statusFilter} onChange={setStatusFilter} options={[{ value: 'all', label: 'Tất cả trạng thái' }, ...Object.entries(TASK_STATUS_LABEL).map(([k, v]) => ({ value: k, label: v }))]} />
+          <Select style={{ width: 160 }} value={priorityFilter} onChange={setPriorityFilter} options={[{ value: 'all', label: 'Mọi mức ưu tiên' }, { value: 'low', label: 'Thấp' }, { value: 'medium', label: 'Trung bình' }, { value: 'high', label: 'Cao' }]} />
+          <Select style={{ width: 160 }} value={urgencyFilter} onChange={setUrgencyFilter} options={[{ value: 'all', label: 'Mọi mức độ' }, { value: 'routine', label: 'Thường quy' }, { value: 'urgent', label: 'Khẩn' }, { value: 'emergency', label: 'Cấp cứu' }]} />
+        </div>
+      </Card>
+
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
+          {COLUMNS.map((col) => <Column key={col.key} col={col} tasks={byColumn(col.key)} encounterLabelFor={encounterLabelFor} />)}
+        </div>
+        <DragOverlay>
+          {activeTask ? <div style={{ width: 260 }}><TaskCard task={activeTask} encounterLabel={encounterLabelFor(activeTask)} /></div> : null}
+        </DragOverlay>
+      </DndContext>
+
+      <Card title="Tất cả tác vụ khác (không thuộc luồng kéo-thả trực tiếp)" size="small" extra={<ShieldCheck size={15} color="var(--text-muted)" />}>
+        <Table
+          size="small"
+          scroll={{ x: 'max-content' }}
+          rowKey="id"
+          pagination={{ pageSize: 8 }}
+          dataSource={otherTasks}
+          columns={[
+            { title: 'Tác vụ', dataIndex: 'name', render: (v: string, t) => <Link to={`/app/workflows/instances/${t.instanceId}`}>{v}</Link> },
+            { title: 'Lượt khám', render: (_, t) => encounterLabelFor(t) },
+            { title: 'Vai trò', dataIndex: 'responsibleRole', render: (v: WorkflowTask['responsibleRole']) => ROLE_LABEL[v] },
+            { title: 'Trạng thái', dataIndex: 'status', render: (v: WorkflowTaskStatus) => <Tag>{TASK_STATUS_LABEL[v]}</Tag> },
+            { title: 'Người phụ trách', dataIndex: 'assigneeId', render: (v?: string) => v ?? '—' },
+          ]}
+        />
+      </Card>
+    </div>
+  );
+}

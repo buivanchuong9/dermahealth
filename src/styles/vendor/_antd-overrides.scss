@@ -1,0 +1,39 @@
+// Targeted overrides for the handful of things `src/theme/antdTheme.ts`'s
+// ConfigProvider tokens can't reach, so AntD components don't read as
+// default/generic AntD. Keep this file small — anything expressible as a
+// ConfigProvider token belongs in antdTheme.ts, not here.
+.ant-layout {
+  background: var(--surface-page) !important;
+}
+
+.ant-card {
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-card);
+}
+
+.ant-menu {
+  background: transparent !important;
+  border-inline-end: none !important;
+}
+
+.ant-table-thead > tr > th {
+  background: var(--surface-subtle) !important;
+  text-transform: uppercase;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary) !important;
+}
+
+.ant-statistic-title {
+  font-size: 0.78rem !important;
+  color: var(--text-secondary) !important;
+  margin-bottom: 4px !important;
+}
+
+.ant-tabs-tab {
+  font-weight: 500;
+}
+
+.ant-btn {
+  box-shadow: none !important;
+}

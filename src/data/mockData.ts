@@ -75,9 +75,9 @@ export const mockPrescriptions = [
 ];
 
 export const mockMedicineReminders = [
-  { id: 1, name: 'Tretinoin 0.05%', time: '22:00', type: 'Bôi', taken: false, color: '#1677FF' },
-  { id: 2, name: 'Omega-3 1000mg', time: '07:30', type: 'Uống', taken: true, color: '#52C41A' },
-  { id: 3, name: 'Kem chống nắng SPF50+', time: '07:00', type: 'Bôi', taken: true, color: '#FAAD14' },
+  { id: 1, name: 'Tretinoin 0.05%', time: '22:00', type: 'Bôi', taken: false },
+  { id: 2, name: 'Omega-3 1000mg', time: '07:30', type: 'Uống', taken: true },
+  { id: 3, name: 'Kem chống nắng SPF50+', time: '07:00', type: 'Bôi', taken: true },
 ];
 
 export const mockProgressPhotos = [
@@ -87,35 +87,4 @@ export const mockProgressPhotos = [
   { week: 'Tuần 4', date: '06/10/2023', score: 65, url: null, note: 'Tretinoin bắt đầu phát huy tác dụng' },
   { week: 'Tuần 5', date: '13/10/2023', score: 70, url: null, note: 'Cải thiện tốt, ít mụn mới' },
   { week: 'Tuần 8', date: '03/11/2023', score: 85, url: null, note: 'Kết quả rất tốt, da sáng đều màu' },
-];
-
-export const mockCareItems = [
-  {
-    id: 1, category: 'Nhắc nhở', title: 'Tái khám định kỳ', desc: 'Khám da liễu vào ngày 22/10/2023 với Bs. Trần Văn Nam.',
-    date: '22/10/2023', priority: 'high', status: 'pending',
-  },
-  {
-    id: 2, category: 'Chăm sóc', title: 'Uống đủ 2 lít nước mỗi ngày', desc: 'Hydrat hóa từ bên trong giúp da phục hồi nhanh hơn.',
-    date: 'Hàng ngày', priority: 'medium', status: 'ongoing',
-  },
-  {
-    id: 3, category: 'Xét nghiệm', title: 'Kết quả xét nghiệm máu', desc: 'Xét nghiệm ngày 28/09/2023 – Kết quả bình thường.',
-    date: '28/09/2023', priority: 'low', status: 'done',
-  },
-  {
-    id: 4, category: 'Tư vấn', title: 'Tư vấn chế độ ăn trị mụn', desc: 'Hạn chế đường, sữa, thực phẩm chế biến sẵn.',
-    date: '10/10/2023', priority: 'medium', status: 'done',
-  },
-  {
-    id: 5, category: 'AI Cảnh báo', title: 'AI phát hiện nguy cơ tái phát', desc: 'Cần theo dõi vùng trán – AI phát hiện tín hiệu sớm.',
-    date: 'Hôm nay', priority: 'high', status: 'pending',
-  },
-];
-
-export const mockTimeline = [
-  { date: '10/10/2023', title: 'Bác sĩ điều chỉnh liều Tretinoin', type: 'Cập nhật phác đồ', color: '#1677FF' },
-  { date: '01/10/2023', title: 'Khám định kỳ lần 2', type: 'Lịch hẹn', color: '#4096ff' },
-  { date: '28/09/2023', title: 'Xét nghiệm máu – Kết quả bình thường', type: 'Xét nghiệm', color: '#52C41A' },
-  { date: '25/09/2023', title: 'Bắt đầu liệu trình kháng sinh Doxycycline', type: 'Đơn thuốc', color: '#FAAD14' },
-  { date: '15/09/2023', title: 'Bắt đầu điều trị mụn trứng cá độ III', type: 'Bắt đầu phác đồ', color: '#FF4D4F' },
 ];
