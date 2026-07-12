@@ -6,7 +6,7 @@ on:
 
 env:
   NODE_VERSION: '20'
-  BUILD_OUTPUT_DIR: 'bundle'
+  BUILD_OUTPUT_DIR: 'dist'
   NGINX_ROOT: '/home/phonglv/FE_Y_TE/crm/bundle'
   BACKUP_DIR: '/home/phonglv/FE_Y_TE/crm/backup'
   INCOMING_DIR: '/tmp/crm-incoming'
@@ -38,7 +38,7 @@ jobs:
       - name: ✅ Verify build output
         run: |
           if [ ! -f "${{ env.BUILD_OUTPUT_DIR }}/index.html" ]; then
-            echo "❌ Build failed: index.html not found in bundle/"
+            echo "❌ Build failed: index.html not found in ${{ env.BUILD_OUTPUT_DIR }}/"
             exit 1
           fi
           echo "✅ $(find ${{ env.BUILD_OUTPUT_DIR }} -type f | wc -l) files built"
@@ -60,7 +60,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: crm-build
-          path: ./bundle
+          path: ./${{ env.BUILD_OUTPUT_DIR }}
 
       - name: 📤 SCP Copy
         uses: appleboy/scp-action@v0.1.7
@@ -69,7 +69,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SERVER_PORT }}
-          source: "./bundle/*"
+          source: "./${{ env.BUILD_OUTPUT_DIR }}/*"
           target: "${{ env.INCOMING_DIR }}"
           strip_components: 1
 
