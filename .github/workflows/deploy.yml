@@ -1,0 +1,118 @@
+name: CI/CD Deploy CRM
+
+on:
+  push:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+  BUILD_OUTPUT_DIR: 'bundle'
+  NGINX_ROOT: '/home/phonglv/FE_Y_TE/crm/bundle'
+  BACKUP_DIR: '/home/phonglv/FE_Y_TE/crm/backup'
+  INCOMING_DIR: '/tmp/crm-incoming'
+
+jobs:
+  ci:
+    name: 🔍 CI — Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: 🏗️ Build
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: ✅ Verify build output
+        run: |
+          if [ ! -f "${{ env.BUILD_OUTPUT_DIR }}/index.html" ]; then
+            echo "❌ Build failed: index.html not found in bundle/"
+            exit 1
+          fi
+          echo "✅ $(find ${{ env.BUILD_OUTPUT_DIR }} -type f | wc -l) files built"
+
+      - name: 📤 Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-build
+          path: ${{ env.BUILD_OUTPUT_DIR }}
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    name: 🚀 Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: ci
+    steps:
+      - name: 📥 Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: crm-build
+          path: ./bundle
+
+      - name: 📤 SCP Copy
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          source: "./bundle/*"
+          target: "${{ env.INCOMING_DIR }}"
+          strip_components: 1
+
+      - name: 🔄 Sync & Reload
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            set -euo pipefail
+            
+            # Khai báo lại đường dẫn
+            NGINX_ROOT="${{ env.NGINX_ROOT }}"
+            BACKUP_DIR="${{ env.BACKUP_DIR }}"
+            INCOMING="${{ env.INCOMING_DIR }}"
+
+            # 1. Kiểm tra file
+            if [ ! -f "$INCOMING/index.html" ]; then
+              echo "❌ ERROR: index.html not found in $INCOMING"
+              rm -rf "$INCOMING"
+              exit 1
+            fi
+
+            # 2. Backup
+            mkdir -p "$BACKUP_DIR"
+            if [ -d "$NGINX_ROOT" ] && [ "$(ls -A $NGINX_ROOT 2>/dev/null)" ]; then
+              cp -r "$NGINX_ROOT" "$BACKUP_DIR/backup-$(date +%Y%m%d-%H%M%S)"
+              ls -dt $BACKUP_DIR/backup-* 2>/dev/null | tail -n +6 | xargs rm -rf 2>/dev/null || true
+            fi
+
+            # 3. Sync
+            mkdir -p "$NGINX_ROOT"
+            rsync -av --delete "$INCOMING/" "$NGINX_ROOT/"
+
+            # 4. Permissions
+            find "$NGINX_ROOT" -type f -exec chmod 644 {} \;
+            find "$NGINX_ROOT" -type d -exec chmod 755 {} \;
+
+            # 5. Reload Nginx
+            sudo nginx -t && sudo nginx -s reload
+
+            # 6. Dọn dẹp
+            rm -rf "$INCOMING"
+            echo "✅ Deploy thành công lúc $(date)"
