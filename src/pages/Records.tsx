@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, Pill, Activity, Calendar, FileText, Trash2, Upload, FileSignature, History, ShieldAlert, Lock, GripVertical, Home,
+  Plus, Pill, Activity, Calendar, FileText, Trash2, Upload, FileSignature, History, ShieldAlert, Lock, Home,
 } from 'lucide-react';
+import { DragHandle } from '../components/common/DragHandle';
+import { IconActionButton } from '../components/common/IconActionButton';
+import { DragConfirmDialog, type PendingDrop } from '../components/common/DragConfirmDialog';
 import {
   Tabs, Card, Row, Col, Tag, Button, Modal, Input, Select, Alert, Typography, List, App as AntApp,
 } from 'antd';
@@ -10,7 +13,6 @@ import {
   DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCorners,
   useDroppable, useDraggable, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, medicalRecordRepository, clinicalOrderRepository, workflowRepository, auditRepository } from '../domain/repositories';
@@ -45,20 +47,30 @@ const TYPE_ICON: Record<string, typeof Pill> = { Thuốc: Pill, AI: Activity, 'L
 const PRIO_COLOR: Record<string, string> = { high: 'red', medium: 'gold', low: 'default' };
 const PRIO_LABEL: Record<string, string> = { high: 'Quan trọng', medium: 'Trung bình', low: 'Bình thường' };
 
-function PlanCard({ task, onDelete }: { task: PlanTask; onDelete: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
+function PlanCard({ task, onDelete, ghost, registerNode }: { task: PlanTask; onDelete: () => void; ghost?: boolean; registerNode?: (node: HTMLDivElement | null) => void }) {
+  // Lưu ý: KHÔNG áp `transform` lên thẻ gốc — DragOverlay đã là bản ghost bay
+  // theo chuột; nếu transform cả thẻ gốc sẽ có 2 thẻ cùng di chuyển và thẻ gốc
+  // bị mép cột (overflow) cắt cụt. `ghost` = bản copy trong DragOverlay: hiển
+  // thị nét, không đăng ký ref draggable trùng id.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, disabled: ghost });
   const Icon = TYPE_ICON[task.type] || FileText;
   return (
-    <Card
-      ref={setNodeRef}
-      size="small"
-      style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1, marginBottom: 8 }}
+    <div
+      ref={(node) => {
+        if (!ghost) setNodeRef(node);
+        registerNode?.(node);
+      }}
+      style={{
+        visibility: !ghost && isDragging ? 'hidden' : 'visible',
+        background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 8,
+        padding: '10px 12px', marginBottom: 8, boxShadow: 'none', width: '100%', boxSizing: 'border-box',
+      }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 6 }}>
         <Tag icon={<Icon size={12} style={{ verticalAlign: -1 }} />}>{task.type}</Tag>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <span {...attributes} {...listeners} role="button" tabIndex={0} aria-label={`Kéo để di chuyển bước "${task.title}" sang cột khác`} style={{ cursor: 'grab', color: 'var(--text-muted)', touchAction: 'none' }}><GripVertical size={13} /></span>
-          <Button size="small" type="text" danger icon={<Trash2 size={12} />} onClick={onDelete} />
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <DragHandle attributes={attributes} listeners={listeners} label={`Kéo để di chuyển bước "${task.title}" sang cột khác`} />
+          <IconActionButton icon={<Trash2 size={14} />} label="Xóa" danger onClick={onDelete} />
         </div>
       </div>
       <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>{task.title}</Text>
@@ -67,19 +79,26 @@ function PlanCard({ task, onDelete }: { task: PlanTask; onDelete: () => void }) 
         <Tag color={PRIO_COLOR[task.priority]}>{PRIO_LABEL[task.priority]}</Tag>
         <Text type="secondary" style={{ fontSize: 11.5 }}>{task.date}</Text>
       </div>
-    </Card>
+    </div>
   );
 }
 
-function PlanColumn({ colId, label, tasks, onDelete }: { colId: string; label: string; tasks: PlanTask[]; onDelete: (id: number) => void }) {
+function PlanColumn({ colId, label, tasks, onDelete, registerCardNode }: { colId: string; label: string; tasks: PlanTask[]; onDelete: (id: number) => void; registerCardNode: (id: number, node: HTMLDivElement | null) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: colId });
   return (
-    <div ref={setNodeRef} style={{ background: isOver ? 'var(--surface-selected)' : 'var(--surface-subtle)', borderRadius: 10, padding: 12, minHeight: 400, border: `1px dashed ${isOver ? 'var(--medical-blue-500)' : 'var(--border-default)'}` }}>
+    <div
+      ref={setNodeRef}
+      style={{
+        background: isOver ? 'var(--surface-selected)' : 'var(--surface-subtle)', borderRadius: 10, padding: 12,
+        minHeight: 400, border: `1px dashed ${isOver ? 'var(--medical-blue-500)' : 'var(--border-default)'}`,
+        flex: '1 0 260px', minWidth: 260,
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
         <Text strong style={{ fontSize: 13 }}>{label}</Text>
         <Tag>{tasks.length}</Tag>
       </div>
-      {tasks.map((t) => <PlanCard key={t.id} task={t} onDelete={() => onDelete(t.id)} />)}
+      {tasks.map((t) => <PlanCard key={t.id} task={t} onDelete={() => onDelete(t.id)} registerNode={(node) => registerCardNode(t.id, node)} />)}
       {tasks.length === 0 && <Text type="secondary" style={{ fontSize: 12 }}>Thả thẻ vào đây</Text>}
     </div>
   );
@@ -263,6 +282,9 @@ function TreatmentPlanKanban() {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
+  const cardNodes = useRef(new Map<number, HTMLDivElement>());
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
 
   const add = () => {
@@ -272,17 +294,40 @@ function TreatmentPlanKanban() {
   };
   const del = (id: number) => setTasks((p) => p.filter((t) => t.id !== id));
   const move = (id: number, col: string) => setTasks((p) => p.map((t) => (t.id === id ? { ...t, col } : t)));
+  const registerCardNode = (id: number, node: HTMLDivElement | null) => {
+    if (node) cardNodes.current.set(id, node);
+    else cardNodes.current.delete(id);
+  };
 
   const done = tasks.filter((t) => t.col === 'done').length;
   const pct = Math.round((done / tasks.length) * 100);
 
-  const handleDragStart = (e: DragStartEvent) => setActiveId(Number(e.active.id));
+  const handleDragStart = (e: DragStartEvent) => {
+    const id = Number(e.active.id);
+    setActiveId(id);
+    // Ghost trong DragOverlay không nằm trong cột nên không tự co giãn theo
+    // bề rộng cột — đo bề rộng thẻ gốc lúc bắt đầu kéo để ghost to đúng bằng
+    // thẻ thật, tránh bị hẹp lại khiến mô tả bị cắt cụt sớm.
+    setDragWidth(cardNodes.current.get(id)?.getBoundingClientRect().width ?? e.active.rect.current.initial?.width ?? null);
+  };
   const handleDragEnd = (e: DragEndEvent) => {
     setActiveId(null);
+    setDragWidth(null);
     const target = e.over?.id as string | undefined;
-    if (!target) return;
-    move(Number(e.active.id), target);
-    message.success('Đã cập nhật trạng thái bước điều trị.');
+    const id = Number(e.active.id);
+    const task = tasks.find((t) => t.id === id);
+    if (!target || !task || task.col === target) return;
+    const col = COLS.find((c) => c.id === target)!;
+    setPendingDrop({
+      title: 'Xác nhận chuyển bước điều trị',
+      question: `Chuyển bước "${task.title}" sang "${col.label}"?`,
+      confirmLabel: 'Xác nhận',
+      run: () => {
+        move(id, target);
+        message.success('Đã cập nhật trạng thái bước điều trị.');
+        setPendingDrop(null);
+      },
+    });
   };
   const activeTask = tasks.find((t) => t.id === activeId);
 
@@ -309,14 +354,12 @@ function TreatmentPlanKanban() {
       </Row>
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <Row gutter={12}>
+        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
           {COLS.map((col) => (
-            <Col xs={24} sm={12} md={8} key={col.id}>
-              <PlanColumn colId={col.id} label={col.label} tasks={tasks.filter((t) => t.col === col.id)} onDelete={del} />
-            </Col>
+            <PlanColumn key={col.id} colId={col.id} label={col.label} tasks={tasks.filter((t) => t.col === col.id)} onDelete={del} registerCardNode={registerCardNode} />
           ))}
-        </Row>
-        <DragOverlay>{activeTask ? <div style={{ width: 260 }}><PlanCard task={activeTask} onDelete={() => {}} /></div> : null}</DragOverlay>
+        </div>
+        <DragOverlay>{activeTask ? <div style={{ width: dragWidth ?? 260, boxSizing: 'border-box' }}><PlanCard task={activeTask} onDelete={() => {}} ghost /></div> : null}</DragOverlay>
       </DndContext>
 
       <Modal title="Thêm Bước Điều Trị Mới" open={modal} onCancel={() => setModal(false)} onOk={add} okText="Thêm bước" cancelText="Hủy">
@@ -329,6 +372,8 @@ function TreatmentPlanKanban() {
           <Input.TextArea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Chi tiết thêm..." />
         </div>
       </Modal>
+
+      {pendingDrop && <DragConfirmDialog pending={pendingDrop} onCancel={() => setPendingDrop(null)} />}
     </div>
   );
 }
@@ -344,6 +389,7 @@ export default function Records() {
 
       <Tabs
         defaultActiveKey="plan"
+        animated={false}
         items={[
           { key: 'plan', label: 'Kế hoạch điều trị', children: <TreatmentPlanKanban /> },
           { key: 'emr', label: 'Hồ sơ bệnh án (EMR)', children: <EMRWorkspace /> },
