@@ -254,10 +254,70 @@ export default function Reports() {
         activeKey={tab}
         onChange={setTab}
         items={[
-          { key: 'overview', label: <span><BarChart3 size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Tổng quan</span>, children: overviewTab },
-          { key: 'treatment', label: 'Điều trị', children: treatmentTab },
-          { key: 'medicine', label: 'Thuốc', children: medicineTab },
-          { key: 'ai', label: 'AI Báo cáo', children: aiReportTab },
+          {
+            key: 'overview',
+            label: (
+              <span
+                style={{
+                  opacity: tab === 'overview' ? 1 : 0.45,
+                  fontWeight: tab === 'overview' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <BarChart3 size={13} />
+                Tổng quan
+              </span>
+            ),
+            children: overviewTab,
+          },
+          {
+            key: 'treatment',
+            label: (
+              <span
+                style={{
+                  opacity: tab === 'treatment' ? 1 : 0.45,
+                  fontWeight: tab === 'treatment' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                Điều trị
+              </span>
+            ),
+            children: treatmentTab,
+          },
+          {
+            key: 'medicine',
+            label: (
+              <span
+                style={{
+                  opacity: tab === 'medicine' ? 1 : 0.45,
+                  fontWeight: tab === 'medicine' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                Thuốc
+              </span>
+            ),
+            children: medicineTab,
+          },
+          {
+            key: 'ai',
+            label: (
+              <span
+                style={{
+                  opacity: tab === 'ai' ? 1 : 0.45,
+                  fontWeight: tab === 'ai' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                AI Báo cáo
+              </span>
+            ),
+            children: aiReportTab,
+          },
         ]}
       />
     </div>
