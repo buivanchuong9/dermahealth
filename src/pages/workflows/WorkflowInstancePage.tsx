@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, type Node, type Edge, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { App as AntApp, Card, Button, Tag, Input, Typography, Empty, Result } from 'antd';
+import { Card, Button, Tag, Input, Typography, Result } from 'antd';
 import { ArrowLeft, Play, CheckCircle, RotateCcw, XCircle, TriangleAlert, PauseCircle, PlayCircle, Ban, SkipForward, UserPlus, SearchX } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
@@ -12,6 +12,8 @@ import { layoutByPrerequisites } from '../../domain/flowLayout';
 import { TASK_STATUS_LABEL, ROLE_LABEL } from '../../domain/core/enums';
 import type { WorkflowInstanceId, WorkflowTaskId } from '../../domain/core/ids';
 import type { WorkflowTask } from '../../domain/core/entities';
+import { useFriendlyError } from '../../components/feedback/useFriendlyError';
+import { ProfessionalEmpty } from '../../components/feedback/ProfessionalEmpty';
 
 const { Text } = Typography;
 
@@ -45,7 +47,7 @@ export default function WorkflowInstancePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const instanceId = id as WorkflowInstanceId;
-  const { message } = AntApp.useApp();
+  const showError = useFriendlyError();
   const { currentUser } = useAppState();
   const instances = useStore(workflowRepository.instances());
   const tasks = useStore(workflowRepository.tasks());
@@ -85,7 +87,7 @@ export default function WorkflowInstancePage() {
   }
 
   const guarded = (fn: () => void) => {
-    try { fn(); } catch (err) { message.error(err instanceof Error ? err.message : String(err)); }
+    try { fn(); } catch (err) { showError(err); }
   };
 
   const reason = (taskId: WorkflowTaskId) => reasonDraft[taskId] || 'Lý do mô phỏng (demo)';
@@ -111,7 +113,7 @@ export default function WorkflowInstancePage() {
         <div style={{ height: 380 }}>
           {instanceTasks.length === 0 ? (
             <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Empty description="Quy trình này chưa có tác vụ nào được khởi tạo" />
+              <ProfessionalEmpty title="Quy trình chưa có tác vụ" description="Tác vụ sẽ được tạo khi workflow được kích hoạt từ phiên bản đã xuất bản." primaryLabel="Xem mẫu quy trình" primaryHref="/app/workflows/templates" />
             </div>
           ) : (
             <ReactFlow
@@ -131,7 +133,7 @@ export default function WorkflowInstancePage() {
       </Card>
 
       <Card size="small" title="Chi tiết & hành động tác vụ">
-        {!selectedTask && <Empty description="Chọn một tác vụ trên sơ đồ để xem chi tiết" />}
+        {!selectedTask && <ProfessionalEmpty compact title="Chưa chọn tác vụ" description="Chọn một bước trên sơ đồ để xem thông tin và thao tác." showActions={false} />}
         {selectedTask && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>

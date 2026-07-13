@@ -9,7 +9,7 @@ export default function Login() {
   const handle = () => nav('/app/dashboard');
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', fontFamily: "'Be Vietnam Pro', sans-serif" }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', fontFamily: 'var(--font-system)' }}>
       {/* Left panel */}
       <div style={{ flex: 1, background: 'linear-gradient(160deg, #0c2d4f 0%, #123b66 55%, #1e5e9e 100%)', color: 'white', display: 'flex', flexDirection: 'column', padding: '48px 64px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'auto' }}>

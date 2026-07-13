@@ -6,11 +6,13 @@ import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
 import { workflowRepository } from '../../domain/repositories';
 import { workflowService } from '../../domain/services/workflowService';
+import { useFriendlyError } from '../../components/feedback/useFriendlyError';
 
 const { Text, Title, Paragraph } = Typography;
 
 export default function WorkflowTemplates() {
   const { message } = AntApp.useApp();
+  const showError = useFriendlyError();
   const { currentUser, role } = useAppState();
   const screens = Grid.useBreakpoint();
   const isStacked = screens.lg === false;
@@ -29,7 +31,7 @@ export default function WorkflowTemplates() {
       setName(''); setSpecialty(''); setDescription('');
       message.success('Đã tạo bản nháp quy trình mới.');
     } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
+      showError(err);
     }
   };
 

@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css';
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Empty, Grid } from 'antd';
+import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Grid } from 'antd';
 import { Plus, Trash2, Upload, Archive, ArrowLeft, Lock, GripVertical, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
@@ -16,6 +16,8 @@ import { ROLE_LABEL } from '../../domain/core/enums';
 import type { UserRole } from '../../domain/core/enums';
 import type { WorkflowTemplateId } from '../../domain/core/ids';
 import type { WorkflowStepDefinition } from '../../domain/core/entities';
+import { useFriendlyError } from '../../components/feedback/useFriendlyError';
+import { ProfessionalEmpty } from '../../components/feedback/ProfessionalEmpty';
 
 const { Text } = Typography;
 const ROLE_OPTIONS: UserRole[] = ['nurse', 'doctor', 'lab_technician', 'imaging_technician', 'pharmacist', 'receptionist', 'care_coordinator'];
@@ -92,6 +94,7 @@ export default function WorkflowTemplateEditor() {
   const navigate = useNavigate();
   const canonicalTemplateId = resolvedId as WorkflowTemplateId;
   const { message } = AntApp.useApp();
+  const showError = useFriendlyError();
   const { currentUser, role } = useAppState();
   const screens = Grid.useBreakpoint();
   const isStacked = screens.lg === false;
@@ -126,7 +129,7 @@ export default function WorkflowTemplateEditor() {
   }
 
   const guarded = (fn: () => void) => {
-    try { fn(); } catch (err) { message.error(err instanceof Error ? err.message : String(err)); }
+    try { fn(); } catch (err) { showError(err); }
   };
 
   const addStep = () => guarded(() => {
@@ -202,12 +205,12 @@ export default function WorkflowTemplateEditor() {
             )}
             {draft && draft.steps.length === 0 && (
               <div style={{ padding: 24 }}>
-                <Empty description="Chưa có bước nào — thêm bước ở panel bên phải" />
+                <ProfessionalEmpty compact title="Chưa có bước workflow" description="Dùng biểu mẫu bên phải để thêm bước đầu tiên." showActions={false} />
               </div>
             )}
             {!draft && !canDesign && (
               <div style={{ padding: 24 }}>
-                <Empty description="Chưa có bản nháp cho quy trình này" />
+                <ProfessionalEmpty compact title="Chưa có bản nháp" description="Tạo phiên bản mới từ bản đã xuất bản để tiếp tục thiết kế." showActions={false} />
               </div>
             )}
           </Card>
@@ -237,7 +240,7 @@ export default function WorkflowTemplateEditor() {
                   ))}
                 </SortableContext>
               </DndContext>
-              {draft.steps.length === 0 && <Empty description="Chưa có bước nào" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+              {draft.steps.length === 0 && <ProfessionalEmpty compact title="Chưa có bước nào" description="Thêm bước mới bằng biểu mẫu phía dưới." showActions={false} />}
             </Card>
           )}
 

@@ -1,10 +1,11 @@
-import { Button, Card, Descriptions, Empty, Result, Space, Tag, Typography } from 'antd';
+import { Button, Card, Descriptions, Result, Space, Tag, Typography } from 'antd';
 import { ArrowLeft, ClipboardList, MapPinned, QrCode } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { useStore } from '../state/useStore';
 import { useAppState } from '../state/useAppState';
 import { appointmentCheckInTokenRepository, appointmentRepository, queueRepository, userRepository } from '../domain/repositories';
 import { AppointmentQRCode } from '../components/appointments/AppointmentQRCode';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 const { Title, Text } = Typography;
 
 export default function AppointmentDetail({ consultation = false }: { consultation?: boolean }) {
@@ -25,6 +26,6 @@ export default function AppointmentDetail({ consultation = false }: { consultati
       {key:'encounter',label:'Lượt khám dự kiến',children:appointment.encounterId ?? 'Chưa tạo'},
     ]}/><Space wrap style={{marginTop:16}}><Button icon={<QrCode size={15}/>} href="/kiosk/check-in">Check-in bằng QR</Button>{appointment.encounterId&&<Button icon={<MapPinned size={15}/>} href={`/app/patient-journey/${appointment.encounterId}`}>Theo dõi hành trình</Button>}<Button icon={<ClipboardList size={15}/>} href={`/app/appointments/${appointment.id}/consultation`}>Chuẩn bị lượt khám</Button></Space></Card>
     {ticket && <Card title="Số thứ tự hiện tại"><Title>{ticket.number}</Title><Text>{ticket.department} · {ticket.room} · {ticket.estimatedWaitMinutes} phút dự kiến</Text></Card>}
-    {token ? <AppointmentQRCode appointment={appointment} token={token} doctorName={doctor?.name ?? 'Bác sĩ DermaHealth'} actorId={currentUser.id} canRegenerate={['receptionist','medical_administrator'].includes(currentUser.role)}/> : <Empty description="Lịch hẹn này chưa có QR đang hoạt động"/>}
+    {token ? <AppointmentQRCode appointment={appointment} token={token} doctorName={doctor?.name ?? 'Bác sĩ DermaHealth'} actorId={currentUser.id} canRegenerate={['receptionist','medical_administrator'].includes(currentUser.role)}/> : <ProfessionalEmpty title="Chưa có mã QR" description="Mã QR sẽ được phát hành khi lịch hẹn được xác nhận." primaryLabel="Về danh sách lịch hẹn" primaryHref="/app/appointments"/>}
   </div>;
 }

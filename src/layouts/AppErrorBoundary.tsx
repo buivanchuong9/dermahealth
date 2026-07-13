@@ -1,6 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { Result, Button } from 'antd';
-import { RotateCcw, Home } from 'lucide-react';
+import { FriendlyErrorPage } from '../components/feedback/FriendlyError';
 import { auditService } from '../domain/services/auditService';
 import { userRepository } from '../domain/repositories';
 
@@ -52,23 +51,7 @@ export class AppErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.hasError) return this.props.children;
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--surface-page)' }}>
-        <Result
-          status="error"
-          title="Đã xảy ra lỗi ngoài dự kiến"
-          subTitle="Ứng dụng gặp sự cố khi hiển thị trang này. Bạn có thể thử lại hoặc quay về trang tổng quan. Sự cố đã được ghi nhận."
-          extra={[
-            <Button key="retry" type="primary" icon={<RotateCcw size={15} />} onClick={this.reset}>Thử lại</Button>,
-            <Button key="home" icon={<Home size={15} />} onClick={() => { this.reset(); window.location.href = '/app/dashboard'; }}>Về trang tổng quan</Button>,
-          ]}
-        >
-          {import.meta.env.DEV && this.state.error && (
-            <pre style={{ textAlign: 'left', background: 'var(--surface-subtle)', padding: 12, borderRadius: 8, fontSize: 12, maxWidth: 640, overflow: 'auto' }}>
-              {this.state.error.stack ?? this.state.error.message}
-            </pre>
-          )}
-        </Result>
-      </div>
+      <FriendlyErrorPage error="Ứng dụng gặp sự cố khi hiển thị trang này. Bạn có thể thử lại hoặc quay về trang tổng quan." onRetry={this.reset} />
     );
   }
 }

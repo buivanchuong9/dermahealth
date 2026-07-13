@@ -36,7 +36,7 @@ export const HighchartsReact: HighchartsReactComponentType =
 // Medical design-system chart theme — flat, desaturated, no default Highcharts branding colors.
 Highcharts.setOptions({
   chart: {
-    style: { fontFamily: "'Be Vietnam Pro', sans-serif" },
+    style: { fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
     backgroundColor: 'transparent',
   },
   colors: ['#1e5e9e', '#2878c8', '#5da9ea', '#238a57', '#b7791f', '#c83e4d', '#8792a2'],

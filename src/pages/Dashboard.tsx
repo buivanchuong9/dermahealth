@@ -1,4 +1,4 @@
-import { Row, Col, Card, Statistic, Progress, Button, Tag, List, Avatar, Typography, Alert, Select, Empty } from 'antd';
+import { Row, Col, Card, Statistic, Progress, Button, Tag, List, Avatar, Typography, Alert, Select } from 'antd';
 import Highcharts, { HighchartsReact, chart3dDefaults } from '../charts/highchartsSetup';
 import {
   Video, Calendar, Camera, TrendingUp, Brain, TriangleAlert, Plus, ArrowRight, Bell, Pill, FileText,
@@ -8,6 +8,7 @@ import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, medicalRecordRepository, workflowRepository, carePlanRepository, notificationRepository, integrationRepository } from '../domain/repositories';
 import { ROLE_LABEL, ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -201,7 +202,7 @@ export default function Dashboard() {
             >
               {SCORES.length > 0
                 ? <HighchartsReact highcharts={Highcharts} options={recoveryChartOptions} />
-                : <Empty description="Chưa có dữ liệu theo dõi" />}
+                : <ProfessionalEmpty title="Chưa có dữ liệu theo dõi" description="Dữ liệu phục hồi sẽ xuất hiện sau lần cập nhật đầu tiên." primaryLabel="Cập nhật tiến triển" primaryHref="/app/progress" />}
             </Card>
 
             <Card title="Chi tiết tình trạng da" size="small">

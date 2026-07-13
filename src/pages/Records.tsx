@@ -18,6 +18,8 @@ import { medicalRecordService } from '../domain/services/medicalRecordService';
 import { auditService } from '../domain/services/auditService';
 import { RECORD_STATUS_LABEL, ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
 import type { EncounterId } from '../domain/core/ids';
+import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -172,7 +174,7 @@ function EMRWorkspace() {
         </div>
       </Card>
 
-      {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
+      {error && <FriendlyErrorInline error={error} onClose={() => setError(null)} />}
 
       <Row gutter={16}>
         <Col xs={24} md={12}>
@@ -222,7 +224,7 @@ function EMRWorkspace() {
               <List
                 size="small"
                 dataSource={encounterOrders}
-                locale={{ emptyText: 'Không có chỉ định nào.' }}
+                locale={{ emptyText: <ProfessionalEmpty compact title="Chưa có chỉ định" description="Chỉ định cận lâm sàng sẽ xuất hiện sau khi bác sĩ tạo yêu cầu." showActions={false} /> }}
                 renderItem={(o) => {
                   const result = o.resultId ? results.find((r) => r.id === o.resultId) : undefined;
                   return <List.Item>{o.type} — {o.status}{result ? `: ${result.summary}` : ''}</List.Item>;
@@ -234,7 +236,7 @@ function EMRWorkspace() {
               <List
                 size="small"
                 dataSource={encounterDocs}
-                locale={{ emptyText: 'Chưa có tài liệu nào.' }}
+                locale={{ emptyText: <ProfessionalEmpty compact title="Chưa có tài liệu" description="Tải tài liệu lâm sàng đầu tiên cho lượt khám này." showActions={false} /> }}
                 renderItem={(d) => (
                   <List.Item extra={<Tag>{d.reviewStatus} · {d.signatureStatus}</Tag>}>{d.fileName} (v{d.version})</List.Item>
                 )}

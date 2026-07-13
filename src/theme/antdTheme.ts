@@ -21,7 +21,7 @@ export const antdTheme: ThemeConfig = {
     borderRadius: 8,
     borderRadiusLG: 10,
     borderRadiusSM: 6,
-    fontFamily: "'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif",
     fontSize: 14,
     controlHeight: 36,
     boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 4px 12px rgba(16,24,40,0.04)',

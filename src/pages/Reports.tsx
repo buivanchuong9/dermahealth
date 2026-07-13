@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import Highcharts, { HighchartsReact, chart3dDefaults } from '../charts/highchartsSetup';
-import { Row, Col, Card, Tabs, Table, Tag, Progress, Button, Typography, Statistic, Rate, Empty } from 'antd';
+import { Row, Col, Card, Tabs, Table, Tag, Progress, Button, Typography, Statistic, Rate } from 'antd';
 import { BarChart3, TrendingUp, Calendar, Download, FileText, Brain, Star } from 'lucide-react';
 import { mockProgressData } from '../data/mockData';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -64,7 +65,7 @@ export default function Reports() {
           <Card title="Điểm sức khỏe da theo tuần" extra={<Tag color="success">+43 điểm</Tag>} size="small">
             {SCORES.length > 0
               ? <HighchartsReact highcharts={Highcharts} options={barChartOptions} />
-              : <Empty description="Chưa có dữ liệu theo dõi" />}
+              : <ProfessionalEmpty title="Chưa có dữ liệu theo dõi" description="Hãy hoàn thành lần đánh giá đầu tiên để tạo báo cáo." primaryLabel="Bắt đầu đánh giá" primaryHref="/app/ai-analysis" />}
           </Card>
 
           <Card title="Chi tiết cải thiện" size="small">
@@ -90,7 +91,7 @@ export default function Reports() {
           <Card title="Tỉ trọng cải thiện theo hạng mục" size="small">
             {IMPROVEMENT_BREAKDOWN.length > 0
               ? <HighchartsReact highcharts={Highcharts} options={donutChartOptions} />
-              : <Empty description="Chưa có dữ liệu cải thiện" />}
+              : <ProfessionalEmpty title="Chưa có dữ liệu cải thiện" description="Kết quả sẽ được tổng hợp sau khi có dữ liệu theo dõi." primaryLabel="Theo dõi tiến triển" primaryHref="/app/progress" />}
           </Card>
         </div>
       </Col>

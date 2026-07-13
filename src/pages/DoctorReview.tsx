@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Result, Typography, Space, Empty } from 'antd';
-import { ShieldAlert, Brain, CheckCircle, XCircle, MinusCircle, ClipboardList, FlaskConical, FileCheck2, Lock, Home } from 'lucide-react';
+import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Result, Typography, Space } from 'antd';
+import { Brain, CheckCircle, XCircle, MinusCircle, ClipboardList, FlaskConical, FileCheck2, Lock, Home } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, aiAssessmentRepository, clinicalOrderRepository } from '../domain/repositories';
@@ -10,6 +10,8 @@ import { clinicalOrderService } from '../domain/services/clinicalOrderService';
 import type { AIHumanReviewStatus } from '../domain/core/enums';
 import type { EncounterId, AIAssessmentId } from '../domain/core/ids';
 import type { ClinicalOrder, ConfidenceBand } from '../domain/core/entities';
+import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -49,7 +51,7 @@ export default function DoctorReview() {
   }
 
   if (!encounter) {
-    return <Card><Empty description="Không có lượt khám nào đang mở để xem xét" /></Card>;
+    return <Card><ProfessionalEmpty title="Không có lượt khám cần xem xét" description="Các lượt khám mới sẽ xuất hiện sau khi bệnh nhân check-in và hoàn thành đánh giá sơ bộ." primaryLabel="Mở hàng đợi" primaryHref="/app/work-queue" /></Card>;
   }
 
   const assessment = encounter.aiAssessmentIds.length
@@ -108,7 +110,7 @@ export default function DoctorReview() {
         <Select style={{ minWidth: 220 }} value={encounter.id} onChange={(v) => setSelectedId(v as EncounterId)} options={encounters.map((e) => ({ value: e.id, label: `${e.id} — ${e.status}` }))} />
       </div>
 
-      {error && <Alert type="error" showIcon icon={<ShieldAlert size={16} />} message={error} closable onClose={() => setError(null)} />}
+      {error && <FriendlyErrorInline error={error} onClose={() => setError(null)} />}
 
       <Row gutter={16}>
         <Col xs={24} md={12}>

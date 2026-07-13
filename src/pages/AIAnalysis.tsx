@@ -9,6 +9,7 @@ import { encounterService } from '../domain/services/encounterService';
 import { aiAssessmentService, SYMPTOM_OPTIONS, type IntakeDraft, type SymptomKey } from '../domain/services/aiAssessmentService';
 import type { AIPreliminaryAssessment, ClinicalRedFlag, ConfidenceBand } from '../domain/core/entities';
 import type { EncounterId } from '../domain/core/ids';
+import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -156,7 +157,7 @@ export default function AIAnalysis() {
                 </div>
 
                 {errors.length > 0 && (
-                  <Alert type="error" showIcon style={{ marginBottom: 14 }} message={<ul style={{ margin: 0, paddingLeft: 16 }}>{errors.map((e) => <li key={e}>{e}</li>)}</ul>} />
+                  <div style={{ marginBottom: 14 }}><FriendlyErrorInline title="Thông tin chưa đầy đủ" error={errors.join(' · ')} onClose={() => setErrors([])} /></div>
                 )}
 
                 <Button type="primary" block icon={<FlaskConical size={15} />} onClick={startAnalysis}>Bắt đầu phân tích AI</Button>

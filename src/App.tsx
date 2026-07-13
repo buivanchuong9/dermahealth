@@ -7,6 +7,8 @@ import { AppStateProvider } from './state/AppStateContext';
 import { AppErrorBoundary } from './layouts/AppErrorBoundary';
 import { FullPageLoadingFallback } from './layouts/RouteFallback';
 import AppShell from './layouts/AppShell';
+import { GlobalErrorListener } from './components/feedback/GlobalErrorListener';
+import { GlobalEmpty } from './components/feedback/ProfessionalEmpty';
 
 // Every routed page is code-split at the route level so the initial bundle
 // only carries the shell (AppShell/Sidebar/TopHeader/AppState) — heavy
@@ -43,8 +45,9 @@ const EncounterWorkflow = lazy(() => import('./pages/EncounterWorkflow'));
 
 export default function App() {
   return (
-    <ConfigProvider theme={antdTheme} locale={viVN}>
+    <ConfigProvider theme={antdTheme} locale={viVN} renderEmpty={(componentName) => <GlobalEmpty componentName={componentName} />}>
       <AntApp>
+        <GlobalErrorListener />
         <AppErrorBoundary>
           <AppStateProvider>
             <BrowserRouter>

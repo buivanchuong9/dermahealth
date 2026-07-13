@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { App, Alert, Button, Card, Col, Empty, Input, List, Modal, Progress, Row, Select, Space, Statistic, Tag, Typography } from 'antd';
+import { App, Alert, Button, Card, Col, Input, List, Modal, Progress, Row, Select, Space, Statistic, Tag, Typography } from 'antd';
 import { Bot, CheckCircle, CircleAlert, Clock, Play, Send, ShieldCheck, Sparkles, UserCheck, XCircle } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
@@ -7,6 +7,8 @@ import { carePlanRepository } from '../domain/repositories';
 import { crmService, ESCALATION_RULES, type EscalationTrigger } from '../domain/services/crmService';
 import { ITEM_TYPE_LABEL, type CarePlanItemType } from '../domain/carePlan';
 import type { FollowUpActivity } from '../domain/core/entities';
+import { useFriendlyError } from '../components/feedback/useFriendlyError';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text, Paragraph } = Typography;
 const AUTO_TYPES = new Set(['medication_reminder', 'lifestyle_guidance', 'patient_education', 'symptom_questionnaire', 'satisfaction_survey', 'adherence_check']);
@@ -14,6 +16,7 @@ const severityColor: Record<string, string> = { low: 'default', medium: 'gold', 
 
 export default function Care() {
   const { message } = App.useApp();
+  const showError = useFriendlyError();
   const { currentPatient, currentUser, role } = useAppState();
   const plans = useStore(carePlanRepository.plans());
   const activities = useStore(carePlanRepository.activities());
@@ -35,7 +38,7 @@ export default function Care() {
   const canCoordinate = ['care_coordinator', 'medical_administrator'].includes(role);
   const canDecide = ['doctor', 'medical_administrator'].includes(role);
 
-  const guard = (fn: () => void, success?: string) => { try { fn(); if (success) message.success(success); } catch (e) { message.error(e instanceof Error ? e.message : String(e)); } };
+  const guard = (fn: () => void, success?: string) => { try { fn(); if (success) message.success(success); } catch (e) { showError(e); } };
   const runAutomation = () => guard(() => { const result = crmService.runAutomation(currentPatient.id, currentUser.id); message.success(`CRM đã tự xử lý ${result.processed} hoạt động và gửi ${result.notifications} thông báo.`); });
   const confirm = (activity: FollowUpActivity) => guard(() => crmService.confirmPatientActivity(activity.id, currentUser.id), 'Đã ghi nhận hoàn thành.');
   const closeAlert = (id: string) => guard(() => crmService.closeAlert(id, currentUser.id), 'Đã xử lý ngoại lệ.');
@@ -57,20 +60,20 @@ export default function Care() {
     <Row gutter={[16,16]}>
       <Col xs={24} xl={15}><div style={{display:'flex',flexDirection:'column',gap:16}}>
         <Card title={<Space><Bot size={18} color="#6f42c1"/>CRM đang tự vận hành<Tag color="purple">Không cần bác sĩ thao tác</Tag></Space>}>
-          <List dataSource={automatic} locale={{emptyText:<Empty description="Chưa có kịch bản tự động"/>}} renderItem={(item)=><List.Item extra={<Tag color={item.lastAutomatedAt?'success':'processing'}>{item.lastAutomatedAt?'Đã tự chạy':'Đang chờ lịch'}</Tag>}><List.Item.Meta avatar={<span style={{width:38,height:38,borderRadius:10,background:'#f1eafa',color:'#6f42c1',display:'grid',placeItems:'center'}}><Bot size={20}/></span>} title={item.title} description={<><Text type="secondary">{item.automationAction ?? (item.type==='medication_reminder'?'Tự gửi nhắc đúng giờ':'Tự gửi nội dung và theo dõi phản hồi')}</Text><br/><Text type="secondary" style={{fontSize:11}}>Đã chạy {item.automationRunCount??0} lần · {item.lastAutomatedAt?new Date(item.lastAutomatedAt).toLocaleString('vi-VN'):item.dueDate}</Text></>}/></List.Item>}/>
+          <List dataSource={automatic} locale={{emptyText:<ProfessionalEmpty compact title="Chưa có kịch bản tự động" description="Kịch bản sẽ được tạo từ kế hoạch chăm sóc đã duyệt." />}} renderItem={(item)=><List.Item extra={<Tag color={item.lastAutomatedAt?'success':'processing'}>{item.lastAutomatedAt?'Đã tự chạy':'Đang chờ lịch'}</Tag>}><List.Item.Meta avatar={<span style={{width:38,height:38,borderRadius:10,background:'#f1eafa',color:'#6f42c1',display:'grid',placeItems:'center'}}><Bot size={20}/></span>} title={item.title} description={<><Text type="secondary">{item.automationAction ?? (item.type==='medication_reminder'?'Tự gửi nhắc đúng giờ':'Tự gửi nội dung và theo dõi phản hồi')}</Text><br/><Text type="secondary" style={{fontSize:11}}>Đã chạy {item.automationRunCount??0} lần · {item.lastAutomatedAt?new Date(item.lastAutomatedAt).toLocaleString('vi-VN'):item.dueDate}</Text></>}/></List.Item>}/>
         </Card>
 
         <Card title={<Space><UserCheck size={18}/>Việc bệnh nhân cần xác nhận<Tag>{patientActions.length}</Tag></Space>}>
-          <List dataSource={patientActions} locale={{emptyText:<Empty description="Bệnh nhân không có việc tồn đọng"/>}} renderItem={(item)=><List.Item actions={[<Button key="done" type="primary" icon={<CheckCircle size={14}/>} onClick={()=>confirm(item)}>Tôi đã thực hiện</Button>]}><List.Item.Meta title={item.title} description={<><Text type="secondary">{item.description}</Text><br/><Tag color="blue">{ITEM_TYPE_LABEL[item.type as CarePlanItemType]??item.type}</Tag><Text type="secondary"> · {item.dueDate}</Text></>}/></List.Item>}/>
+          <List dataSource={patientActions} locale={{emptyText:<ProfessionalEmpty compact title="Không có việc tồn đọng" description="Tất cả hoạt động cần bệnh nhân xác nhận đã hoàn tất." />}} renderItem={(item)=><List.Item actions={[<Button key="done" type="primary" icon={<CheckCircle size={14}/>} onClick={()=>confirm(item)}>Tôi đã thực hiện</Button>]}><List.Item.Meta title={item.title} description={<><Text type="secondary">{item.description}</Text><br/><Tag color="blue">{ITEM_TYPE_LABEL[item.type as CarePlanItemType]??item.type}</Tag><Text type="secondary"> · {item.dueDate}</Text></>}/></List.Item>}/>
         </Card>
 
-        {canCoordinate&&<Card title={<Space><Clock size={18}/>Ngoại lệ do điều phối viên xử lý<Tag color="gold">Không chuyển bác sĩ ngay</Tag></Space>}><List dataSource={coordinatorAlerts} locale={{emptyText:<Empty description="Không có ngoại lệ cần điều phối"/>}} renderItem={(item)=><List.Item actions={[<Button key="resolve" onClick={()=>closeAlert(item.id)}>Đã liên hệ và xử lý</Button>]}><List.Item.Meta title={<Space>{ESCALATION_RULES[item.trigger as EscalationTrigger]?.label??item.trigger}<Tag color={severityColor[item.severity]}>{item.severity}</Tag></Space>} description={`${item.note} · SLA ${item.responseDeadlineHours} giờ · ${item.responsibleActor}`}/></List.Item>}/></Card>}
+        {canCoordinate&&<Card title={<Space><Clock size={18}/>Ngoại lệ do điều phối viên xử lý<Tag color="gold">Không chuyển bác sĩ ngay</Tag></Space>}><List dataSource={coordinatorAlerts} locale={{emptyText:<ProfessionalEmpty compact title="Không có ngoại lệ" description="CRM chưa phát hiện trường hợp nào cần điều phối viên can thiệp." />}} renderItem={(item)=><List.Item actions={[<Button key="resolve" onClick={()=>closeAlert(item.id)}>Đã liên hệ và xử lý</Button>]}><List.Item.Meta title={<Space>{ESCALATION_RULES[item.trigger as EscalationTrigger]?.label??item.trigger}<Tag color={severityColor[item.severity]}>{item.severity}</Tag></Space>} description={`${item.note} · SLA ${item.responseDeadlineHours} giờ · ${item.responsibleActor}`}/></List.Item>}/></Card>}
       </div></Col>
 
       <Col xs={24} xl={9}><div style={{display:'flex',flexDirection:'column',gap:16}}>
         <Card title={<Space><ShieldCheck size={18} color="#c83e4d"/>Chỉ chuyển bác sĩ khi cần</Space>}>
           <Paragraph type="secondary">Bác sĩ chỉ nhận cảnh báo nguy cơ cao/cờ đỏ hoặc yêu cầu tạo lượt khám cần thẩm quyền lâm sàng.</Paragraph>
-          <List dataSource={clinicalAlerts} locale={{emptyText:<Empty description="Không có cảnh báo nguy cơ cao" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}} renderItem={(item)=><List.Item><List.Item.Meta title={<Space>{ESCALATION_RULES[item.trigger as EscalationTrigger]?.label??item.trigger}<Tag color="red">{item.severity}</Tag></Space>} description={item.note}/></List.Item>}/>
+          <List dataSource={clinicalAlerts} locale={{emptyText:<ProfessionalEmpty compact title="Không có cảnh báo nguy cơ cao" description="Bác sĩ không có quyết định lâm sàng khẩn cần xử lý." />}} renderItem={(item)=><List.Item><List.Item.Meta title={<Space>{ESCALATION_RULES[item.trigger as EscalationTrigger]?.label??item.trigger}<Tag color="red">{item.severity}</Tag></Space>} description={item.note}/></List.Item>}/>
           {canDecide&&pendingRequests.map((request)=><Card key={request.id} size="small" style={{marginTop:10}}><Text strong>Đề nghị tạo lượt tái khám</Text><Paragraph type="secondary" style={{margin:'6px 0 10px'}}>{request.reason}</Paragraph><Space><Button type="primary" icon={<CheckCircle size={14}/>} onClick={()=>decide(request.id,'approve')}>Duyệt</Button><Button icon={<XCircle size={14}/>} onClick={()=>decide(request.id,'reject')}>Từ chối</Button></Space></Card>)}
         </Card>
         <Card title="Mức độ tự động hóa"><Progress percent={Math.min(100,Math.round(automatic.length/Math.max(1,rows.filter(r=>['scheduled','due'].includes(r.status)).length)*100))} status="active"/><Text type="secondary">Tỷ lệ công việc đang được CRM xử lý tự động, không cần bác sĩ thao tác.</Text></Card>

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import Highcharts, { HighchartsReact, chart3dDefaults } from '../charts/highchartsSetup';
-import { Row, Col, Card, Tabs, Progress as ProgressBar, Tag, Button, Modal, Input, Typography, Rate, Empty } from 'antd';
+import { Row, Col, Card, Tabs, Progress as ProgressBar, Tag, Button, Modal, Input, Typography, Rate } from 'antd';
 import { Camera, ImageIcon, ChevronRight, ArrowRight, Upload, Brain } from 'lucide-react';
 import { mockProgressData, mockProgressPhotos } from '../data/mockData';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -29,7 +30,7 @@ export default function Progress() {
           <Card title="Biểu đồ phục hồi da theo tuần" extra={<Tag color="success">Cải thiện 43%</Tag>} size="small">
             {SCORES.length > 0
               ? <HighchartsReact highcharts={Highcharts} options={chartOptions} />
-              : <Empty description="Chưa có dữ liệu theo dõi" />}
+              : <ProfessionalEmpty title="Chưa có dữ liệu theo dõi" description="Thêm lần đánh giá đầu tiên để bắt đầu biểu đồ tiến triển." primaryLabel="Thêm đánh giá" onPrimary={() => setUploadModal(true)} />}
             <Row gutter={12} style={{ marginTop: 16 }}>
               {[
                 { label: 'Mụn viêm', start: 80, end: 22, color: 'var(--danger)' },
@@ -247,7 +248,7 @@ export default function Progress() {
         <Input.TextArea rows={2} placeholder="VD: Tuần 9 – Da đã bớt viêm..." />
       </Modal>
 
-      {mockProgressPhotos.length === 0 && <Empty description="Chưa có ảnh nào" />}
+      {mockProgressPhotos.length === 0 && <ProfessionalEmpty title="Chưa có ảnh theo dõi" description="Tải ảnh da mới để so sánh tiến triển theo thời gian." primaryLabel="Tải ảnh lên" onPrimary={() => setUploadModal(true)} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { App as AntApp, Card, Select, Table, Tag, Typography, Button, Empty } from 'antd';
+import { App as AntApp, Card, Select, Table, Tag, Typography, Button } from 'antd';
 import {
   DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCorners,
   useDroppable, useDraggable,
@@ -15,6 +15,8 @@ import { workflowService } from '../domain/services/workflowService';
 import { TASK_STATUS_LABEL, ROLE_LABEL } from '../domain/core/enums';
 import type { WorkflowTaskStatus, Priority, Urgency } from '../domain/core/enums';
 import type { WorkflowTask } from '../domain/core/entities';
+import { useFriendlyError } from '../components/feedback/useFriendlyError';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text } = Typography;
 
@@ -131,13 +133,14 @@ function Column({ col, tasks, encounterLabelFor }: { col: (typeof COLUMNS)[numbe
       </div>
       <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 10 }}>{col.hint}</Text>
       {tasks.map((t) => <TaskCard key={t.id} task={t} encounterLabel={encounterLabelFor(t)} />)}
-      {tasks.length === 0 && <Empty description="Không có tác vụ" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+      {tasks.length === 0 && <ProfessionalEmpty compact title="Không có tác vụ" description="Cột này chưa có công việc phù hợp." />}
     </div>
   );
 }
 
 export default function WorkQueue() {
   const { message } = AntApp.useApp();
+  const showError = useFriendlyError();
   const { currentUser, role } = useAppState();
   const tasks = useStore(workflowRepository.tasks());
   const encounters = useStore(encounterRepository);
@@ -207,7 +210,7 @@ export default function WorkQueue() {
       }
       message.success(`Đã cập nhật trạng thái tác vụ "${task.name}".`);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
+      showError(err);
     } finally {
       setPendingDrop(null);
     }

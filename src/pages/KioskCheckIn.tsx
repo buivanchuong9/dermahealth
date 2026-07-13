@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { App, Button, Card, Input, Result, Space, Statistic, Typography } from 'antd';
+import { Button, Card, Input, Result, Space, Statistic, Typography } from 'antd';
 import { QrCode, RotateCcw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { checkInService } from '../domain/services/checkInService';
 import type { QueueTicket } from '../domain/core/entities';
+import { useFriendlyError } from '../components/feedback/useFriendlyError';
 const { Title, Text } = Typography;
 
 export function QueueResult({ ticket, onReset }: { ticket: QueueTicket; onReset?: () => void }) {
@@ -16,10 +17,10 @@ export function QueueResult({ ticket, onReset }: { ticket: QueueTicket; onReset?
     </Space>} />;
 }
 export default function KioskCheckIn({ reception = false }: { reception?: boolean }) {
-  const { message } = App.useApp(); const nav = useNavigate(); const location = useLocation();
+  const showError = useFriendlyError(); const nav = useNavigate(); const location = useLocation();
   const initial = (location.state as { ticket?: QueueTicket } | null)?.ticket;
   const [token, setToken] = useState(''); const [ticket, setTicket] = useState<QueueTicket | undefined>(initial);
-  const submit = () => { const result = checkInService.checkIn({ token: token.trim(), clinicLocationId: 'CS-HCM-01', deviceId: reception ? 'RECEPTION-01' : 'KIOSK-01', actorId: reception ? 'U-0004' : 'U-0001' }); if (!result.ok) { message.error(result.message); return; } setTicket(result.ticket); if (!reception) nav('/kiosk/check-in/result', { replace: true, state: { ticket: result.ticket } }); };
+  const submit = () => { const result = checkInService.checkIn({ token: token.trim(), clinicLocationId: 'CS-HCM-01', deviceId: reception ? 'RECEPTION-01' : 'KIOSK-01', actorId: reception ? 'U-0004' : 'U-0001' }); if (!result.ok) { showError(result.message, 'Không thể check-in'); return; } setTicket(result.ticket); if (!reception) nav('/kiosk/check-in/result', { replace: true, state: { ticket: result.ticket } }); };
   return <div style={{ maxWidth: 720, margin: '40px auto', padding: 16 }}><Card>
     {ticket ? <QueueResult ticket={ticket} onReset={() => { setTicket(undefined); setToken(''); nav(reception ? '/app/reception/qr-check-in' : '/kiosk/check-in', { replace: true }); }}/> : <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <QrCode size={54} color="#1769aa"/><div><Title level={2}>{reception ? 'Check-in QR tại quầy lễ tân' : 'Chào mừng đến DermaHealth'}</Title><Text>Quét mã QR trên phiếu hẹn hoặc nhập mã token từ thiết bị quét.</Text></div>
