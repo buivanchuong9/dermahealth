@@ -6,7 +6,9 @@ import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, us
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Grid, Modal, Popconfirm, Drawer, Collapse } from 'antd';
-import { Plus, Trash2, Archive, ArrowLeft, Lock, GripVertical, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck } from 'lucide-react';
+import { Plus, Trash2, Upload, Archive, ArrowLeft, Lock, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck } from 'lucide-react';
+import { DragHandle } from '../../components/common/DragHandle';
+import { IconActionButton } from '../../components/common/IconActionButton';
 import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
 import { encounterRepository, patientRepository, workflowRepository } from '../../domain/repositories';
@@ -162,12 +164,12 @@ function SortableStepRow({ step, canDesign, onToggleMandatory, onIconChange, onR
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {canDesign && <span {...attributes} {...listeners} role="button" tabIndex={0} aria-label={`Kéo để sắp xếp lại bước "${step.name || step.code}"`} style={{ cursor: 'grab', color: 'var(--text-muted)', touchAction: 'none' }}><GripVertical size={14} /></span>}
+          {canDesign && <DragHandle attributes={attributes} listeners={listeners} label={`Kéo để sắp xếp lại bước "${step.name || step.code}"`} />}
           {canDesign ? <Select size="small" value={step.icon ?? defaultIconForRole(step.responsibleRole)} onChange={onIconChange} style={{width:150}} popupMatchSelectWidth={220} options={(Object.entries(ICON_META) as [StepIcon, (typeof ICON_META)[StepIcon]][]).map(([value,meta])=>{const Icon=meta.icon;return {value,label:<span title={meta.label} style={{display:'inline-flex',alignItems:'center',gap:6,color:meta.color}}><Icon size={16}/><span style={{color:'var(--text-primary)'}}>{meta.label}</span></span>};})}/> : <StepIconView step={step} size={17}/>}<Text strong style={{ fontSize: 13 }}>{step.name}</Text>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Checkbox checked={step.mandatory} disabled={!canDesign} onChange={(e) => onToggleMandatory(e.target.checked)} style={{ fontSize: 12 }}>Bắt buộc</Checkbox>
-          {canDesign && <Button size="small" danger type="text" icon={<Trash2 size={13} />} onClick={onRemove} />}
+          {canDesign && <IconActionButton icon={<Trash2 size={14} />} label="Xóa bước" danger onClick={onRemove} />}
         </div>
       </div>
       <Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>{step.description}</Text>

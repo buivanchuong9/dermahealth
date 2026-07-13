@@ -6,8 +6,9 @@ import {
   useDroppable, useDraggable,
   type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
-import { Zap, ShieldCheck, TriangleAlert, Hand } from 'lucide-react';
+import { Zap, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { DragHandle } from '../components/common/DragHandle';
+import { DragConfirmDialog, type PendingDrop } from '../components/common/DragConfirmDialog';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { workflowRepository, encounterRepository } from '../domain/repositories';
@@ -43,33 +44,28 @@ function columnFor(task: WorkflowTask, myUserId: string): ColumnKey | null {
   return null;
 }
 
-function TaskCard({ task, encounterLabel }: { task: WorkflowTask; encounterLabel: string }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id, data: { task } });
+function TaskCard({ task, encounterLabel, ghost }: { task: WorkflowTask; encounterLabel: string; ghost?: boolean }) {
+  // Không áp `transform` lên thẻ gốc — DragOverlay là bản ghost bay theo chuột;
+  // transform cả thẻ gốc sẽ tạo 2 thẻ cùng di chuyển, thẻ gốc bị overflow cắt.
+  // `ghost` = bản copy trong DragOverlay: hiển thị nét, không đăng ký ref trùng id.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, data: { task }, disabled: ghost });
   const minutesLeft = overdueMinutes(task);
   return (
     <div
-      ref={setNodeRef}
+      ref={ghost ? undefined : setNodeRef}
       style={{
-        transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1,
+        visibility: !ghost && isDragging ? 'hidden' : 'visible',
         background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 8,
         padding: '10px 12px', marginBottom: 8, cursor: 'grab',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
         <Link to={`/app/workflows/instances/${task.instanceId}`} style={{ fontWeight: 600, fontSize: 13, color: 'var(--medical-blue-700)' }}>{task.name}</Link>
-        <span
-          {...attributes}
-          {...listeners}
-          role="button"
-          tabIndex={0}
-          aria-label={`Kéo để chuyển tác vụ "${task.name}" sang cột khác`}
-          style={{
-            touchAction: 'none', color: 'var(--medical-blue-600)', cursor: 'grab',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 6, background: 'var(--surface-subtle)',
-            border: '1px solid var(--border-default)', flexShrink: 0,
-          }}
-        ><Hand size={16} /></span>
+        <DragHandle
+          attributes={attributes}
+          listeners={listeners}
+          label={`Kéo để chuyển tác vụ "${task.name}" sang cột khác`}
+        />
       </div>
       <Text type="secondary" style={{ fontSize: 11.5, display: 'block', margin: '4px 0' }}>{encounterLabel} · {ROLE_LABEL[task.responsibleRole]}</Text>
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -78,40 +74,6 @@ function TaskCard({ task, encounterLabel }: { task: WorkflowTask; encounterLabel
         {minutesLeft !== null && <Tag color={minutesLeft < 0 ? 'red' : minutesLeft < 15 ? 'gold' : 'default'} style={{ fontSize: 10.5 }}>{minutesLeft < 0 ? `Quá hạn ${Math.abs(minutesLeft)}p` : `Còn ${minutesLeft}p`}</Tag>}
       </div>
       {task.clinicalWarning && <Text type="warning" style={{ fontSize: 11, display: 'block', marginTop: 4 }}><TriangleAlert size={11} style={{ verticalAlign: -1 }} /> {task.clinicalWarning}</Text>}
-    </div>
-  );
-}
-
-type PendingDrop = { task: WorkflowTask; question: string; confirmLabel: string; run: () => void };
-
-function DropConfirmDialog({ pending, onCancel }: { pending: PendingDrop; onCancel: () => void }) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.45)', backdropFilter: 'blur(2px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-      }}
-      onClick={onCancel}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--surface-card)', borderRadius: 12, padding: '20px 22px', width: 360,
-          boxShadow: '0 12px 32px rgba(15, 23, 42, 0.25)', border: '1px solid var(--border-default)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <Hand size={18} color="var(--medical-blue-600)" />
-          <Text strong style={{ fontSize: 15 }}>Xác nhận chuyển tác vụ</Text>
-        </div>
-        <Text style={{ fontSize: 13, display: 'block', marginBottom: 18 }}>{pending.question}</Text>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Button onClick={onCancel}>Hủy</Button>
-          <Button type="primary" onClick={pending.run}>{pending.confirmLabel}</Button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -149,6 +111,7 @@ export default function WorkQueue() {
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [urgencyFilter, setUrgencyFilter] = useState<Urgency | 'all'>('all');
   const [activeTask, setActiveTask] = useState<WorkflowTask | null>(null);
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
@@ -181,6 +144,9 @@ export default function WorkQueue() {
   const handleDragStart = (e: DragStartEvent) => {
     const t = tasks.find((task) => task.id === e.active.id);
     setActiveTask(t ?? null);
+    // Đo bề rộng thẻ gốc để ghost trong DragOverlay to đúng bằng thẻ thật,
+    // tránh bị ép hẹp lại 260px khiến nội dung mô tả bị cắt cụt sớm.
+    setDragWidth(e.active.rect.current.initial?.width ?? null);
   };
 
   const dropError = (task: WorkflowTask, target: ColumnKey): string | null => {
@@ -229,6 +195,7 @@ export default function WorkQueue() {
 
   const handleDragEnd = (e: DragEndEvent) => {
     setActiveTask(null);
+    setDragWidth(null);
     const target = e.over?.id as ColumnKey | undefined;
     const task = tasks.find((t) => t.id === e.active.id);
     if (!task || !target) return;
@@ -239,7 +206,7 @@ export default function WorkQueue() {
     if (error) { message.error(error); return; }
 
     const { question, confirmLabel } = dropDescription(task, target);
-    setPendingDrop({ task, question, confirmLabel, run: () => applyDrop(task, target) });
+    setPendingDrop({ title: 'Xác nhận chuyển tác vụ', question, confirmLabel, run: () => applyDrop(task, target) });
   };
 
   return (
@@ -267,7 +234,7 @@ export default function WorkQueue() {
           {COLUMNS.map((col) => <Column key={col.key} col={col} tasks={byColumn(col.key)} encounterLabelFor={encounterLabelFor} />)}
         </div>
         <DragOverlay>
-          {activeTask ? <div style={{ width: 260 }}><TaskCard task={activeTask} encounterLabel={encounterLabelFor(activeTask)} /></div> : null}
+          {activeTask ? <div style={{ width: dragWidth ?? 260 }}><TaskCard task={activeTask} encounterLabel={encounterLabelFor(activeTask)} ghost /></div> : null}
         </DragOverlay>
       </DndContext>
 
@@ -288,7 +255,7 @@ export default function WorkQueue() {
         />
       </Card>
 
-      {pendingDrop && <DropConfirmDialog pending={pendingDrop} onCancel={() => setPendingDrop(null)} />}
+      {pendingDrop && <DragConfirmDialog pending={pendingDrop} onCancel={() => setPendingDrop(null)} />}
     </div>
   );
 }
