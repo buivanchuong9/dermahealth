@@ -7,7 +7,7 @@ import {
   type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { Zap, ShieldCheck, TriangleAlert, GripVertical } from 'lucide-react';
+import { Zap, ShieldCheck, TriangleAlert, Hand } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { workflowRepository, encounterRepository } from '../domain/repositories';
@@ -55,7 +55,19 @@ function TaskCard({ task, encounterLabel }: { task: WorkflowTask; encounterLabel
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
         <Link to={`/app/workflows/instances/${task.instanceId}`} style={{ fontWeight: 600, fontSize: 13, color: 'var(--medical-blue-700)' }}>{task.name}</Link>
-        <span {...attributes} {...listeners} role="button" tabIndex={0} aria-label={`Kéo để chuyển tác vụ "${task.name}" sang cột khác`} style={{ touchAction: 'none', color: 'var(--text-muted)' }}><GripVertical size={14} /></span>
+        <span
+          {...attributes}
+          {...listeners}
+          role="button"
+          tabIndex={0}
+          aria-label={`Kéo để chuyển tác vụ "${task.name}" sang cột khác`}
+          style={{
+            touchAction: 'none', color: 'var(--medical-blue-600)', cursor: 'grab',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 28, height: 28, borderRadius: 6, background: 'var(--surface-subtle)',
+            border: '1px solid var(--border-default)', flexShrink: 0,
+          }}
+        ><Hand size={16} /></span>
       </div>
       <Text type="secondary" style={{ fontSize: 11.5, display: 'block', margin: '4px 0' }}>{encounterLabel} · {ROLE_LABEL[task.responsibleRole]}</Text>
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -64,6 +76,40 @@ function TaskCard({ task, encounterLabel }: { task: WorkflowTask; encounterLabel
         {minutesLeft !== null && <Tag color={minutesLeft < 0 ? 'red' : minutesLeft < 15 ? 'gold' : 'default'} style={{ fontSize: 10.5 }}>{minutesLeft < 0 ? `Quá hạn ${Math.abs(minutesLeft)}p` : `Còn ${minutesLeft}p`}</Tag>}
       </div>
       {task.clinicalWarning && <Text type="warning" style={{ fontSize: 11, display: 'block', marginTop: 4 }}><TriangleAlert size={11} style={{ verticalAlign: -1 }} /> {task.clinicalWarning}</Text>}
+    </div>
+  );
+}
+
+type PendingDrop = { task: WorkflowTask; question: string; confirmLabel: string; run: () => void };
+
+function DropConfirmDialog({ pending, onCancel }: { pending: PendingDrop; onCancel: () => void }) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.45)', backdropFilter: 'blur(2px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+      }}
+      onClick={onCancel}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--surface-card)', borderRadius: 12, padding: '20px 22px', width: 360,
+          boxShadow: '0 12px 32px rgba(15, 23, 42, 0.25)', border: '1px solid var(--border-default)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <Hand size={18} color="var(--medical-blue-600)" />
+          <Text strong style={{ fontSize: 15 }}>Xác nhận chuyển tác vụ</Text>
+        </div>
+        <Text style={{ fontSize: 13, display: 'block', marginBottom: 18 }}>{pending.question}</Text>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <Button onClick={onCancel}>Hủy</Button>
+          <Button type="primary" onClick={pending.run}>{pending.confirmLabel}</Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -100,6 +146,7 @@ export default function WorkQueue() {
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [urgencyFilter, setUrgencyFilter] = useState<Urgency | 'all'>('all');
   const [activeTask, setActiveTask] = useState<WorkflowTask | null>(null);
+  const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
   const canSupervise = role === 'medical_administrator' || role === 'care_coordinator';
@@ -133,14 +180,7 @@ export default function WorkQueue() {
     setActiveTask(t ?? null);
   };
 
-  const handleDragEnd = (e: DragEndEvent) => {
-    setActiveTask(null);
-    const target = e.over?.id as ColumnKey | undefined;
-    const task = tasks.find((t) => t.id === e.active.id);
-    if (!task || !target) return;
-    const source = columnFor(task, currentUser.id);
-    if (source === target) return;
-
+  const applyDrop = (task: WorkflowTask, target: ColumnKey) => {
     try {
       if (target === 'in_progress') {
         if (task.status === 'ready') workflowService.acceptTask(task.id, currentUser.id);
@@ -162,7 +202,32 @@ export default function WorkQueue() {
       message.success(`Đã cập nhật trạng thái tác vụ "${task.name}".`);
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingDrop(null);
     }
+  };
+
+  const dropDescription = (task: WorkflowTask, target: ColumnKey): { question: string; confirmLabel: string } => {
+    const col = COLUMNS.find((c) => c.key === target)!;
+    if (target === 'in_progress' && task.status === 'escalated') {
+      return { question: `Mở lại tác vụ "${task.name}" và đưa về hàng "Sẵn sàng"?`, confirmLabel: 'Mở lại tác vụ' };
+    }
+    if (target === 'in_progress') return { question: `Chuyển tác vụ "${task.name}" sang "${col.title}"?`, confirmLabel: 'Xác nhận' };
+    if (target === 'completed') return { question: `Chuyển tác vụ "${task.name}" sang "${col.title}"?`, confirmLabel: 'Hoàn thành' };
+    if (target === 'escalated') return { question: `Chuyển tác vụ "${task.name}" sang "${col.title}"?`, confirmLabel: 'Báo cáo' };
+    return { question: `Chuyển tác vụ "${task.name}" sang "${col.title}"?`, confirmLabel: 'Xác nhận' };
+  };
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setActiveTask(null);
+    const target = e.over?.id as ColumnKey | undefined;
+    const task = tasks.find((t) => t.id === e.active.id);
+    if (!task || !target) return;
+    const source = columnFor(task, currentUser.id);
+    if (source === target) return;
+
+    const { question, confirmLabel } = dropDescription(task, target);
+    setPendingDrop({ task, question, confirmLabel, run: () => applyDrop(task, target) });
   };
 
   return (
@@ -210,6 +275,8 @@ export default function WorkQueue() {
           ]}
         />
       </Card>
+
+      {pendingDrop && <DropConfirmDialog pending={pendingDrop} onCancel={() => setPendingDrop(null)} />}
     </div>
   );
 }
