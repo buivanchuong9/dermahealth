@@ -1,6 +1,7 @@
 import { carePlanRepository, patientRepository, userRepository } from '../repositories';
 import { auditService } from './auditService';
 import { encounterService } from './encounterService';
+import { notificationService } from './notificationService';
 import { assertRole, PermissionError } from '../guards';
 import { nextId } from '../core/ids';
 import type { CRMCarePlan, FollowUpActivity, ClinicalAlert, EncounterCreationRequest } from '../core/entities';
@@ -86,6 +87,33 @@ function advanceActivity(activityId: string, to: FollowUpActivityStatus): Follow
   return carePlanRepository.activities().upsert({ ...activity, status: to });
 }
 
+function runAutomation(patientId: PatientId, actorId: UserId): { processed: number; notifications: number } {
+  const plan = getCarePlan(patientId);
+  if (!plan) throw new Error('Bệnh nhân chưa có kế hoạch chăm sóc sau khám.');
+  const patient = patientRepository.getById(patientId);
+  const recipient = userRepository.getAll().find((u) => u.role === 'patient' && u.name === patient?.name);
+  if (!recipient) throw new Error('Không tìm thấy tài khoản nhận thông báo của bệnh nhân.');
+  const automaticTypes: FollowUpActivity['type'][] = ['medication_reminder', 'lifestyle_guidance', 'patient_education', 'symptom_questionnaire', 'satisfaction_survey', 'adherence_check'];
+  const candidates = listActivities(plan.id).filter((a) => automaticTypes.includes(a.type) && ['scheduled', 'due'].includes(a.status));
+  const now = new Date().toISOString();
+  candidates.forEach((activity) => {
+    const action = activity.type.includes('questionnaire') || activity.type.includes('survey') || activity.type === 'adherence_check' ? 'Gửi bảng hỏi và tự động chấm điểm' : activity.type === 'medication_reminder' ? 'Gửi nhắc dùng thuốc tự động' : 'Gửi nội dung hướng dẫn tự động';
+    notificationService.send({ event: 'crm_automation', recipientId: recipient.id, recipientRole: 'patient', channel: 'in_app', message: `${activity.title}: ${activity.description || action}`, relatedPatientId: patientId, relatedEncounterId: plan.encounterId });
+    carePlanRepository.activities().upsert({ ...activity, automationMode: 'automatic', automationAction: action, lastAutomatedAt: now, automationRunCount: (activity.automationRunCount ?? 0) + 1, status: activity.status === 'due' ? 'completed' : activity.status });
+  });
+  auditService.log({ actorId, action: 'CRM_AUTOMATION_RUN', entityType: 'CRMCarePlan', entityId: plan.id, patientId, encounterId: plan.encounterId, newState: `${candidates.length} hoạt động đã xử lý`, sourceModule: 'CRM' });
+  return { processed: candidates.length, notifications: candidates.length };
+}
+
+function confirmPatientActivity(activityId: string, actorId: UserId): FollowUpActivity {
+  const activity = carePlanRepository.activities().getById(activityId);
+  if (!activity) throw new Error('Không tìm thấy hoạt động cần xác nhận.');
+  if (activity.status === 'scheduled') advanceActivity(activityId, 'due');
+  const updated = advanceActivity(activityId, 'completed');
+  auditService.log({ actorId, action: 'FOLLOW_UP_CONFIRMED_BY_PATIENT', entityType: 'FollowUpActivity', entityId: activityId, newState: 'completed', sourceModule: 'CRM' });
+  return updated;
+}
+
 function raiseAlert(carePlanId: CarePlanId, patientId: PatientId, trigger: EscalationTrigger, note: string, actorId: UserId): ClinicalAlert {
   const rule = ESCALATION_RULES[trigger];
   const alert: ClinicalAlert = {
@@ -163,6 +191,6 @@ function getUser(id: UserId) {
 
 export const crmService = {
   ESCALATION_RULES, CRM_PROHIBITED_ACTIONS, getCarePlan, ensureCarePlan, listActivities, addActivity,
-  canTransitionActivity, advanceActivity, raiseAlert, listAlerts, listOpenAlerts, closeAlert,
+  canTransitionActivity, advanceActivity, runAutomation, confirmPatientActivity, raiseAlert, listAlerts, listOpenAlerts, closeAlert,
   requestEncounterCreation, listEncounterRequests, decideEncounterCreationRequest, getUser,
 };

@@ -49,6 +49,27 @@ export interface Appointment {
   mode: 'video' | 'in_person';
   status: 'upcoming' | 'done' | 'cancelled' | 'missed';
   encounterId?: EncounterId;
+  clinicLocationId?: string;
+  clinicName?: string;
+  department?: string;
+  consultationType?: string;
+}
+
+export type CheckInTokenStatus = 'active' | 'used' | 'expired' | 'revoked' | 'replaced';
+export interface AppointmentCheckInToken {
+  id: string; appointmentId: AppointmentId; patientId: PatientId; plannedEncounterId: EncounterId;
+  clinicLocationId: string; token: string; tokenHash: string; issuedAt: string; validFrom: string;
+  expiresAt: string; status: CheckInTokenStatus; usedAt?: string; usedByDeviceId?: string;
+  revokedAt?: string; revokedReason?: string; version: number;
+}
+
+export type QueueTicketStatus = 'waiting' | 'called' | 'acknowledged' | 'in_service' | 'skipped' | 'completed' | 'routed';
+export interface QueueTicket {
+  id: string; appointmentId: AppointmentId; patientId: PatientId; encounterId: EncounterId;
+  number: string; department: string; serviceStation: string; room?: string; waitingArea: string;
+  priority: 'normal' | 'priority' | 'urgent'; status: QueueTicketStatus; issuedAt: string;
+  calledAt?: string; acknowledgedAt?: string; serviceStartedAt?: string; completedAt?: string;
+  peopleAhead: number; estimatedWaitMinutes: number; preparationInstructions: string[]; nextStation?: string;
 }
 
 export interface EncounterEvent {
@@ -189,6 +210,7 @@ export interface ClinicalResult {
 
 export interface WorkflowStepDefinition {
   code: string;
+  icon?: 'robot' | 'doctor' | 'nurse' | 'reception' | 'laboratory' | 'imaging' | 'pharmacy' | 'cashier' | 'procedure' | 'discharge' | 'task';
   name: string;
   description: string;
   taskType: string;
@@ -345,6 +367,10 @@ export interface FollowUpActivity {
   dueDate: string;
   priority: Priority;
   status: FollowUpActivityStatus;
+  automationMode?: 'automatic' | 'patient_action' | 'human_review';
+  automationAction?: string;
+  lastAutomatedAt?: string;
+  automationRunCount?: number;
 }
 
 export interface ClinicalAlert {

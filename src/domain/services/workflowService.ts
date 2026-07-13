@@ -75,6 +75,38 @@ function editStep(templateId: WorkflowTemplateId, stepCode: string, patch: Parti
   return updated;
 }
 
+function connectSteps(templateId: WorkflowTemplateId, sourceCode: string, targetCode: string, actorId: UserId): WorkflowTemplateVersion {
+  assertRole(actorId, ['clinical_process_designer', 'medical_administrator']);
+  const draft = getDraftVersion(templateId);
+  if (!draft) throw new InvalidTransitionError('Không có phiên bản nháp để chỉnh sửa.');
+  if (sourceCode === targetCode) throw new InvalidTransitionError('Một bước không thể tự nối với chính nó.');
+  const source = draft.steps.find((s) => s.code === sourceCode);
+  const target = draft.steps.find((s) => s.code === targetCode);
+  if (!source || !target) throw new InvalidTransitionError('Không tìm thấy bước nguồn hoặc bước đích.');
+  if (target.prerequisiteStepCodes.includes(sourceCode)) return draft;
+  const dependencies = new Map(draft.steps.map((s) => [s.code, s.prerequisiteStepCodes]));
+  const reaches = (from: string, wanted: string, seen = new Set<string>()): boolean => {
+    if (from === wanted) return true;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    return (dependencies.get(from) ?? []).some((parent) => reaches(parent, wanted, seen));
+  };
+  if (reaches(sourceCode, targetCode)) throw new InvalidTransitionError('Không thể nối vì sẽ tạo vòng lặp trong quy trình.');
+  const updated = editStep(templateId, targetCode, { prerequisiteStepCodes: [...target.prerequisiteStepCodes, sourceCode] }, actorId);
+  auditService.log({ actorId, action: 'WORKFLOW_EDGE_CREATED', entityType: 'WorkflowTemplateVersion', entityId: draft.id, newState: `${sourceCode}->${targetCode}`, sourceModule: 'BPM' });
+  return updated;
+}
+
+function disconnectSteps(templateId: WorkflowTemplateId, sourceCode: string, targetCode: string, actorId: UserId): WorkflowTemplateVersion {
+  assertRole(actorId, ['clinical_process_designer', 'medical_administrator']);
+  const draft = getDraftVersion(templateId);
+  const target = draft?.steps.find((s) => s.code === targetCode);
+  if (!draft || !target) throw new InvalidTransitionError('Không tìm thấy dây nối cần xóa.');
+  const updated = editStep(templateId, targetCode, { prerequisiteStepCodes: target.prerequisiteStepCodes.filter((code) => code !== sourceCode) }, actorId);
+  auditService.log({ actorId, action: 'WORKFLOW_EDGE_REMOVED', entityType: 'WorkflowTemplateVersion', entityId: draft.id, previousState: `${sourceCode}->${targetCode}`, sourceModule: 'BPM' });
+  return updated;
+}
+
 function reorderSteps(templateId: WorkflowTemplateId, orderedCodes: string[], actorId: UserId): WorkflowTemplateVersion {
   assertRole(actorId, ['clinical_process_designer', 'medical_administrator']);
   const draft = getDraftVersion(templateId);
@@ -322,7 +354,7 @@ function getVersion(versionId: WorkflowTemplateVersionId): WorkflowTemplateVersi
 
 export const workflowService = {
   ALLOWED_TASK_TRANSITIONS, canTransitionTask,
-  createDraftTemplate, getDraftVersion, addStep, editStep, reorderSteps, removeStep,
+  createDraftTemplate, getDraftVersion, addStep, editStep, connectSteps, disconnectSteps, reorderSteps, removeStep,
   publishVersion, archiveVersion, startNewDraftFromPublished, listTemplates, listVersions, recommendTemplate,
   activateWorkflow, transitionTask, acceptTask, startTask, completeTask, requestRedo, rejectResult,
   escalateTask, skipTask, reassignTask, suspendInstance, resumeInstance, cancelInstance,

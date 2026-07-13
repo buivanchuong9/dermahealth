@@ -4,6 +4,7 @@ import {
   Home, User, Cpu, Activity, TrendingUp, Heart, Calendar,
   BarChart2, Settings, MessageCircle, TriangleAlert, MapPinned,
   Stethoscope, ListChecks, Workflow, ShieldCheck, Plug,
+  QrCode, MonitorPlay,
 } from 'lucide-react';
 import { AppLogo } from '../components/brand';
 import { useAppState } from '../state/useAppState';
@@ -27,6 +28,9 @@ const NAV_MAIN: NavItem[] = [
   { key: '/app/progress', label: 'Theo dõi tiến triển', icon: TrendingUp, roles: ['patient'] },
   { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['patient', 'care_coordinator', 'customer_care_employee', 'medical_administrator'] },
   { key: '/app/appointments', label: 'Lịch hẹn', icon: Calendar, roles: ['patient', 'receptionist'] },
+  { key: '/app/reception/qr-check-in', label: 'Check-in QR', icon: QrCode, roles: ['receptionist', 'medical_administrator'] },
+  { key: '/app/reception', label: 'Trung tâm lễ tân', icon: User, roles: ['receptionist', 'medical_administrator'] },
+  { key: '/app/clinic-queue', label: 'Điều phối hàng đợi', icon: MonitorPlay, roles: ['receptionist', 'nurse', 'doctor', 'medical_administrator'] },
   { key: '/app/prescriptions', label: 'Đơn thuốc', icon: BarChart2, roles: ['patient'] },
   { key: '/app/reports', label: 'Báo cáo', icon: BarChart2, roles: ['patient'] },
   { key: '/app/audit', label: 'Nhật ký kiểm toán', icon: ShieldCheck, roles: ['medical_administrator', 'system_administrator'] },

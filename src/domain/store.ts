@@ -23,7 +23,7 @@ const SCHEMA_VERSION_KEY = 'dermahealth:schemaVersion';
 /** Bump this when a persisted entity's shape changes incompatibly. Any
  * mismatch (including a first-ever run with pre-existing v1 keys but no
  * version marker) wipes all persisted collections and falls back to seed. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 3;
 
 let recovered = false;
 /** True if this page load discarded persisted data because it was corrupted,

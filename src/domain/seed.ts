@@ -5,6 +5,7 @@ import type {
   ClinicalDocument, MedicalRecord, Prescription, CRMCarePlan, FollowUpActivity,
   ClinicalAlert, EncounterCreationRequest, Notification, Consent, AuditEvent,
   IntegrationConnection, IntegrationMessage,
+  AppointmentCheckInToken, QueueTicket,
 } from './core/entities';
 
 // One coherent, hand-written demo world. IDs are stable string literals (not
@@ -41,6 +42,8 @@ export interface DomainWorld {
   auditEvents: AuditEvent[];
   integrationConnections: IntegrationConnection[];
   integrationMessages: IntegrationMessage[];
+  appointmentCheckInTokens: AppointmentCheckInToken[];
+  queueTickets: QueueTicket[];
 }
 
 export function createSeedWorld(): DomainWorld {
@@ -71,6 +74,7 @@ export function createSeedWorld(): DomainWorld {
     { id: 'APT-1001', patientId: 'PT-1029', doctorId: 'U-0002', date: '15/09/2023', time: '10:00', mode: 'in_person', status: 'done', encounterId: 'ENC-1000' },
     { id: 'APT-1002', patientId: 'PT-1029', doctorId: 'U-0013', date: '22/10/2023', time: '14:00', mode: 'in_person', status: 'upcoming' },
     { id: 'APT-1003', patientId: 'PT-1029', doctorId: 'U-0002', date: '15/10/2023', time: '09:00', mode: 'in_person', status: 'done', encounterId: 'ENC-1001' },
+    { id: 'APT-2001', patientId: 'PT-1029', doctorId: 'U-0002', date: '13/07/2026', time: '09:00', mode: 'in_person', status: 'upcoming', encounterId: 'ENC-2001', clinicLocationId: 'CS-HCM-01', clinicName: 'DermaHealth TP.HCM', department: 'Khoa Da liễu', consultationType: 'Khám tại phòng khám' },
   ];
 
   const encounters: MedicalEncounter[] = [
@@ -112,6 +116,12 @@ export function createSeedWorld(): DomainWorld {
         { id: 'EV-1002-1', at: '18/10/2023 16:00', label: 'Yêu cầu tạo lượt tái khám từ CRM đã được duyệt', kind: 'info' },
         { id: 'EV-1002-2', at: '20/10/2023 09:45', label: 'Hồ sơ tái khám đã được ký', kind: 'success' },
       ],
+    },
+    {
+      id: 'ENC-2001', patientId: 'PT-1029', appointmentId: 'APT-2001', type: 'standard', origin: 'appointment',
+      status: 'registered', department: 'Khoa Da liễu', createdAt: '13/07/2026 08:00', updatedAt: '13/07/2026 08:00',
+      currentDoctorId: 'U-0002', aiAssessmentIds: [], doctorReviewIds: [], diagnosisIds: [], clinicalOrderIds: [],
+      events: [{ id: 'EV-2001-1', at: '13/07/2026 08:00', label: 'Đã tạo lượt khám dự kiến từ lịch hẹn', kind: 'info' }],
     },
   ];
 
@@ -302,11 +312,36 @@ export function createSeedWorld(): DomainWorld {
     { id: 'INTM-2004', connectionId: 'INTC-AI', correlationId: 'ENC-1001', idempotencyKey: 'ai-req-enc-1001-2', status: 'pending', createdAt: '21/10/2023 08:55' },
   ];
 
+  // Dữ liệu hợp đồng mẫu cho backend QR/queue. Các ID liên kết giống hệt quan hệ
+  // mà API thật sẽ trả về, giúp thay repository localStorage bằng HTTP adapter sau này.
+  const appointmentCheckInTokens: AppointmentCheckInToken[] = [
+    {
+      id: 'QRT-MOCK-001', appointmentId: 'APT-2001', patientId: 'PT-1029', plannedEncounterId: 'ENC-2001',
+      clinicLocationId: 'CS-HCM-01', token: 'DH1.APT-2001.1.1xqaxrw.1nlnofx', tokenHash: '1t73rsu',
+      issuedAt: '2026-07-13T01:00:00.000Z', validFrom: '2026-07-12T21:00:00.000Z', expiresAt: '2026-07-13T14:00:00.000Z',
+      status: 'active', version: 1,
+    },
+    {
+      id: 'QRT-MOCK-USED', appointmentId: 'APT-1003', patientId: 'PT-1029', plannedEncounterId: 'ENC-1001',
+      clinicLocationId: 'CS-HCM-01', token: 'DH1.MOCK.USED', tokenHash: '1vwzq9j', issuedAt: '2023-10-14T02:00:00.000Z',
+      validFrom: '2023-10-15T01:00:00.000Z', expiresAt: '2023-10-15T14:00:00.000Z', status: 'used',
+      usedAt: '2023-10-15T02:00:00.000Z', usedByDeviceId: 'KIOSK-01', version: 1,
+    },
+  ];
+
+  const queueTickets: QueueTicket[] = [
+    { id: 'QUEUE-MOCK-001', appointmentId: 'APT-1001', patientId: 'PT-1029', encounterId: 'ENC-1000', number: 'D001', department: 'Khoa Da liễu', serviceStation: 'Quầy khám Da liễu', room: 'Phòng 201', waitingArea: 'Khu chờ A, tầng 2', priority: 'normal', status: 'waiting', issuedAt: '2026-07-13T01:05:00.000Z', peopleAhead: 0, estimatedWaitMinutes: 5, preparationInstructions: ['Chuẩn bị giấy tờ tùy thân'] },
+    { id: 'QUEUE-MOCK-002', appointmentId: 'APT-1002', patientId: 'PT-1029', encounterId: 'ENC-1002', number: 'D002', department: 'Khoa Da liễu', serviceStation: 'Quầy khám Da liễu', room: 'Phòng 204', waitingArea: 'Khu chờ A, tầng 2', priority: 'priority', status: 'waiting', issuedAt: '2026-07-13T01:08:00.000Z', peopleAhead: 1, estimatedWaitMinutes: 17, preparationInstructions: ['Giữ điện thoại ở chế độ có âm thanh'] },
+    { id: 'QUEUE-MOCK-003', appointmentId: 'APT-1003', patientId: 'PT-1029', encounterId: 'ENC-1001', number: 'D003', department: 'Khoa Da liễu', serviceStation: 'Quầy khám Da liễu', room: 'Phòng 204', waitingArea: 'Khu chờ A, tầng 2', priority: 'normal', status: 'called', issuedAt: '2026-07-13T01:10:00.000Z', calledAt: '2026-07-13T01:18:00.000Z', peopleAhead: 0, estimatedWaitMinutes: 0, preparationInstructions: ['Di chuyển đến phòng được gọi'] },
+    { id: 'QUEUE-MOCK-004', appointmentId: 'APT-1001', patientId: 'PT-1029', encounterId: 'ENC-1000', number: 'D004', department: 'Khoa Da liễu', serviceStation: 'Quầy khám Da liễu', room: 'Phòng 205', waitingArea: 'Khu chờ A, tầng 2', priority: 'urgent', status: 'in_service', issuedAt: '2026-07-13T01:12:00.000Z', acknowledgedAt: '2026-07-13T01:14:00.000Z', serviceStartedAt: '2026-07-13T01:16:00.000Z', peopleAhead: 0, estimatedWaitMinutes: 0, preparationInstructions: [] },
+  ];
+
   return {
     users, patients, appointments, encounters, symptomIntakes, aiAssessments, doctorReviews,
     doctorDiagnoses, clinicalPlans, clinicalOrders, clinicalResults, workflowTemplates,
     workflowTemplateVersions, workflowInstances, workflowTasks, clinicalDocuments, medicalRecords,
     prescriptions, carePlans, followUpActivities, clinicalAlerts, encounterCreationRequests,
     notifications, consents, auditEvents, integrationConnections, integrationMessages,
+    appointmentCheckInTokens, queueTickets,
   };
 }

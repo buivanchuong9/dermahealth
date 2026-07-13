@@ -8,6 +8,7 @@ import type {
   ClinicalDocument, MedicalRecord, Prescription, CRMCarePlan, FollowUpActivity,
   ClinicalAlert, EncounterCreationRequest, Notification, Consent, AuditEvent,
   IntegrationConnection, IntegrationMessage,
+  AppointmentCheckInToken, QueueTicket,
 } from './core/entities';
 
 // Named, typed prototype repositories. Each is a thin wrapper around a
@@ -46,6 +47,8 @@ const consentStore: EntityStore<Consent> = createEntityStore('consents', world.c
 const auditStore: EntityStore<AuditEvent> = createEntityStore('auditEvents', world.auditEvents);
 const integrationConnectionStore: EntityStore<IntegrationConnection> = createEntityStore('integrationConnections', world.integrationConnections);
 const integrationMessageStore: EntityStore<IntegrationMessage> = createEntityStore('integrationMessages', world.integrationMessages);
+const checkInTokenStore: EntityStore<AppointmentCheckInToken> = createEntityStore('appointmentCheckInTokens', world.appointmentCheckInTokens);
+const queueTicketStore: EntityStore<QueueTicket> = createEntityStore('queueTickets', world.queueTickets);
 
 /** Cross-collection FK sanity check for whatever combination of persisted-vs-seed
  * collections ended up loaded (e.g. one corrupted key falling back to seed while a
@@ -81,6 +84,8 @@ export function wasDataAutoRecovered(): boolean {
 export const userRepository = userStore;
 export const patientRepository = patientStore;
 export const appointmentRepository = appointmentStore;
+export const appointmentCheckInTokenRepository = checkInTokenStore;
+export const queueRepository = queueTicketStore;
 
 export const encounterRepository = {
   ...encounterStore,
@@ -161,4 +166,6 @@ export function resetAllRepositoriesToSeed(): void {
   auditStore.replaceAll(world.auditEvents);
   integrationConnectionStore.replaceAll(world.integrationConnections);
   integrationMessageStore.replaceAll(world.integrationMessages);
+  checkInTokenStore.replaceAll(world.appointmentCheckInTokens);
+  queueTicketStore.replaceAll(world.queueTickets);
 }

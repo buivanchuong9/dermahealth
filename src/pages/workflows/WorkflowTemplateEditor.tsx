@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ReactFlow, Background, Controls, Handle, Position, type Node, type Edge, type NodeProps } from '@xyflow/react';
+import { ReactFlow, Background, Controls, Handle, Position, MiniMap, Panel, type Node, type Edge, type NodeProps, type Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Empty, Grid } from 'antd';
-import { Plus, Trash2, Upload, Archive, ArrowLeft, Lock, GripVertical, SearchX } from 'lucide-react';
+import { Plus, Trash2, Upload, Archive, ArrowLeft, Lock, GripVertical, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
 import { workflowRepository } from '../../domain/repositories';
@@ -20,8 +20,29 @@ import type { WorkflowStepDefinition } from '../../domain/core/entities';
 const { Text } = Typography;
 const ROLE_OPTIONS: UserRole[] = ['nurse', 'doctor', 'lab_technician', 'imaging_technician', 'pharmacist', 'receptionist', 'care_coordinator'];
 
+type StepIcon = NonNullable<WorkflowStepDefinition['icon']>;
+const ICON_META: Record<StepIcon, { label: string; icon: typeof Bot; color: string }> = {
+  robot: { label: 'AI / Robot', icon: Bot, color: '#6f42c1' },
+  doctor: { label: 'Bác sĩ', icon: Stethoscope, color: '#1769aa' },
+  nurse: { label: 'Điều dưỡng', icon: HeartPulse, color: '#d14f7b' },
+  reception: { label: 'Lễ tân / Tiếp đón', icon: UserRoundCheck, color: '#2878c8' },
+  laboratory: { label: 'Xét nghiệm', icon: FlaskConical, color: '#00897b' },
+  imaging: { label: 'Chẩn đoán hình ảnh', icon: ScanLine, color: '#5c6bc0' },
+  pharmacy: { label: 'Dược / Cấp thuốc', icon: Pill, color: '#2e7d32' },
+  cashier: { label: 'Thu ngân / Thanh toán', icon: CreditCard, color: '#b7791f' },
+  procedure: { label: 'Thủ thuật', icon: Activity, color: '#c83e4d' },
+  discharge: { label: 'Xuất viện', icon: LogOut, color: '#455a64' },
+  task: { label: 'Tác vụ chung', icon: ClipboardCheck, color: '#607d8b' },
+};
+const defaultIconForRole = (role: UserRole): StepIcon => ({ doctor: 'doctor', nurse: 'nurse', receptionist: 'reception', lab_technician: 'laboratory', imaging_technician: 'imaging', pharmacist: 'pharmacy' } as Partial<Record<UserRole, StepIcon>>)[role] ?? 'task';
+function StepIconView({ step, size = 22 }: { step: WorkflowStepDefinition; size?: number }) {
+  const meta = ICON_META[step.icon ?? defaultIconForRole(step.responsibleRole)];
+  const Icon = meta.icon;
+  return <span title={meta.label} style={{ width: size + 14, height: size + 14, borderRadius: 10, background: `${meta.color}16`, color: meta.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon size={size} strokeWidth={2.1}/></span>;
+}
+
 const EMPTY_STEP: WorkflowStepDefinition = {
-  code: '', name: '', description: '', taskType: 'clinical', responsibleRole: 'nurse', department: '',
+  code: '', icon: 'nurse', name: '', description: '', taskType: 'clinical', responsibleRole: 'nurse', department: '',
   mandatory: true, estimatedDurationMinutes: 10, maxWaitingMinutes: 20, skipPermission: [], prerequisiteStepCodes: [],
 };
 
@@ -30,17 +51,16 @@ function StepFlowNode({ data }: NodeProps) {
   const color = step.mandatory ? '#1e5e9e' : '#8792a2';
   return (
     <div style={{ background: '#fff', border: `2px solid ${color}`, borderRadius: 8, padding: '8px 12px', minWidth: 170, boxShadow: 'var(--shadow-card)' }}>
-      <Handle type="target" position={Position.Left} style={{ background: color }} />
-      <Text strong style={{ fontSize: 12.5, display: 'block' }}>{step.name || step.code}</Text>
-      <Text type="secondary" style={{ fontSize: 10.5 }}>{ROLE_LABEL[step.responsibleRole]}</Text>
+      <Handle type="target" position={Position.Left} style={{ background: '#fff', border: `3px solid ${color}`, width: 13, height: 13 }} />
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><StepIconView step={step} size={26}/><div><Text strong style={{ fontSize: 12.5, display: 'block' }}>{step.name || 'Bước chưa đặt tên'}</Text><Text type="secondary" style={{ fontSize: 10.5 }}>{ROLE_LABEL[step.responsibleRole]}</Text></div></div>
       <div style={{ marginTop: 4 }}><Tag color={step.mandatory ? 'blue' : 'default'} style={{ fontSize: 10, margin: 0 }}>{step.mandatory ? 'Bắt buộc' : 'Tuỳ chọn'}</Tag></div>
-      <Handle type="source" position={Position.Right} style={{ background: color }} />
+      <Handle type="source" position={Position.Right} style={{ background: color, border: '2px solid #fff', width: 13, height: 13 }} />
     </div>
   );
 }
 const nodeTypes = { stepNode: StepFlowNode };
 
-function SortableStepRow({ step, canDesign, onToggleMandatory, onRemove }: { step: WorkflowStepDefinition; canDesign: boolean; onToggleMandatory: (v: boolean) => void; onRemove: () => void }) {
+function SortableStepRow({ step, canDesign, onToggleMandatory, onIconChange, onRemove }: { step: WorkflowStepDefinition; canDesign: boolean; onToggleMandatory: (v: boolean) => void; onIconChange: (v: StepIcon) => void; onRemove: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.code });
   return (
     <div
@@ -50,7 +70,7 @@ function SortableStepRow({ step, canDesign, onToggleMandatory, onRemove }: { ste
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {canDesign && <span {...attributes} {...listeners} role="button" tabIndex={0} aria-label={`Kéo để sắp xếp lại bước "${step.name || step.code}"`} style={{ cursor: 'grab', color: 'var(--text-muted)', touchAction: 'none' }}><GripVertical size={14} /></span>}
-          <Text strong style={{ fontSize: 13 }}>{step.code} — {step.name}</Text>
+          {canDesign ? <Select size="small" value={step.icon ?? defaultIconForRole(step.responsibleRole)} onChange={onIconChange} style={{width:150}} popupMatchSelectWidth={220} options={(Object.entries(ICON_META) as [StepIcon, (typeof ICON_META)[StepIcon]][]).map(([value,meta])=>{const Icon=meta.icon;return {value,label:<span title={meta.label} style={{display:'inline-flex',alignItems:'center',gap:6,color:meta.color}}><Icon size={16}/><span style={{color:'var(--text-primary)'}}>{meta.label}</span></span>};})}/> : <StepIconView step={step} size={17}/>}<Text strong style={{ fontSize: 13 }}>{step.name}</Text>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Checkbox checked={step.mandatory} disabled={!canDesign} onChange={(e) => onToggleMandatory(e.target.checked)} style={{ fontSize: 12 }}>Bắt buộc</Checkbox>
@@ -67,9 +87,10 @@ function SortableStepRow({ step, canDesign, onToggleMandatory, onRemove }: { ste
 }
 
 export default function WorkflowTemplateEditor() {
-  const { id } = useParams<{ id: string }>();
+  const { id, templateId } = useParams<{ id: string; templateId: string }>();
+  const resolvedId = id ?? templateId;
   const navigate = useNavigate();
-  const templateId = id as WorkflowTemplateId;
+  const canonicalTemplateId = resolvedId as WorkflowTemplateId;
   const { message } = AntApp.useApp();
   const { currentUser, role } = useAppState();
   const screens = Grid.useBreakpoint();
@@ -80,8 +101,8 @@ export default function WorkflowTemplateEditor() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
-  const template = templates.find((t) => t.id === templateId);
-  const templateVersions = versions.filter((v) => v.templateId === templateId).sort((a, b) => a.version - b.version);
+  const template = templates.find((t) => t.id === canonicalTemplateId);
+  const templateVersions = versions.filter((v) => v.templateId === canonicalTemplateId).sort((a, b) => a.version - b.version);
   const draft = templateVersions.find((v) => v.status === 'draft');
   const canDesign = role === 'clinical_process_designer' || role === 'medical_administrator';
 
@@ -90,15 +111,15 @@ export default function WorkflowTemplateEditor() {
   const nodes: Node[] = flowSteps.map((s) => ({ id: s.code, type: 'stepNode', position: flowPositions[s.code] ?? { x: 0, y: 0 }, data: { step: s } }));
   const edges: Edge[] = [];
   flowSteps.forEach((s) => s.prerequisiteStepCodes.forEach((prereq) => {
-    if (flowSteps.some((x) => x.code === prereq)) edges.push({ id: `${prereq}-${s.code}`, source: prereq, target: s.code, style: { stroke: '#c6d2de' } });
+      if (flowSteps.some((x) => x.code === prereq)) edges.push({ id: `${prereq}-${s.code}`, source: prereq, target: s.code, type: 'smoothstep', animated: true, deletable: canDesign, style: { stroke: '#2878c8', strokeWidth: 2.5 } });
   }));
 
-  if (!id || !template) {
+  if (!resolvedId || !template) {
     return (
       <Result
         icon={<SearchX size={40} color="var(--text-muted)" />}
         title="Không tìm thấy quy trình"
-        subTitle={`Mã quy trình "${id ?? ''}" không tồn tại hoặc đã bị xóa. Vui lòng chọn lại từ danh sách.`}
+        subTitle={`Mã quy trình "${resolvedId ?? ''}" không tồn tại hoặc đã bị xóa. Vui lòng chọn lại từ danh sách.`}
         extra={<Button type="primary" onClick={() => navigate('/app/workflows/templates')}>Về danh sách quy trình</Button>}
       />
     );
@@ -110,15 +131,24 @@ export default function WorkflowTemplateEditor() {
 
   const addStep = () => guarded(() => {
     if (!draftStep.code.trim() || !draftStep.name.trim()) throw new Error('Cần nhập mã bước và tên bước.');
-    workflowService.addStep(templateId, { ...draftStep, department: draftStep.department || template.specialty }, currentUser.id);
+    workflowService.addStep(canonicalTemplateId, { ...draftStep, department: draftStep.department || template.specialty }, currentUser.id);
     setDraftStep(EMPTY_STEP);
   });
 
-  const removeStep = (code: string) => guarded(() => workflowService.removeStep(templateId, code, currentUser.id));
-  const toggleMandatory = (code: string, mandatory: boolean) => guarded(() => workflowService.editStep(templateId, code, { mandatory }, currentUser.id));
-  const startNewDraft = () => guarded(() => workflowService.startNewDraftFromPublished(templateId, currentUser.id));
-  const publish = () => guarded(() => { workflowService.publishVersion(templateId, currentUser.id); message.success('Đã xuất bản phiên bản mới.'); });
+  const removeStep = (code: string) => guarded(() => workflowService.removeStep(canonicalTemplateId, code, currentUser.id));
+  const toggleMandatory = (code: string, mandatory: boolean) => guarded(() => workflowService.editStep(canonicalTemplateId, code, { mandatory }, currentUser.id));
+  const startNewDraft = () => guarded(() => workflowService.startNewDraftFromPublished(canonicalTemplateId, currentUser.id));
+  const publish = () => guarded(() => { workflowService.publishVersion(canonicalTemplateId, currentUser.id); message.success('Đã xuất bản phiên bản mới.'); });
   const archive = (versionId: string) => guarded(() => workflowService.archiveVersion(versionId, currentUser.id));
+  const connect = (connection: Connection) => guarded(() => {
+    if (!connection.source || !connection.target) throw new Error('Cần chọn đủ bước nguồn và bước đích.');
+    workflowService.connectSteps(canonicalTemplateId, connection.source, connection.target, currentUser.id);
+    message.success('Đã nối hai bước và lưu quan hệ phụ thuộc.');
+  });
+  const deleteEdges = (deleted: Edge[]) => guarded(() => {
+    deleted.forEach((edge) => workflowService.disconnectSteps(canonicalTemplateId, edge.source, edge.target, currentUser.id));
+    message.success('Đã xóa dây nối.');
+  });
 
   const handleDragEnd = (e: DragEndEvent) => {
     if (!draft || !canDesign) return;
@@ -128,7 +158,7 @@ export default function WorkflowTemplateEditor() {
     const oldIndex = codes.indexOf(String(active.id));
     const newIndex = codes.indexOf(String(over.id));
     const reordered = arrayMove(codes, oldIndex, newIndex);
-    guarded(() => workflowService.reorderSteps(templateId, reordered, currentUser.id));
+    guarded(() => workflowService.reorderSteps(canonicalTemplateId, reordered, currentUser.id));
   };
 
   return (
@@ -149,9 +179,24 @@ export default function WorkflowTemplateEditor() {
             {!draft && canDesign && <div style={{ padding: 16 }}><Button icon={<Plus size={14} />} onClick={startNewDraft}>Tạo phiên bản mới từ bản đã xuất bản</Button></div>}
             {draft && draft.steps.length > 0 && (
               <div style={{ height: 340 }}>
-                <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView proOptions={{ hideAttribution: true }}>
+                <ReactFlow
+                  key={flowSteps.map((step) => `${step.code}:${step.prerequisiteStepCodes.join(',')}`).join('|')}
+                  defaultNodes={nodes}
+                  defaultEdges={edges}
+                  nodeTypes={nodeTypes}
+                  onConnect={canDesign ? connect : undefined}
+                  onEdgesDelete={canDesign ? deleteEdges : undefined}
+                  nodesDraggable={canDesign}
+                  nodesConnectable={canDesign}
+                  edgesReconnectable={false}
+                  deleteKeyCode={['Backspace', 'Delete']}
+                  fitView
+                  proOptions={{ hideAttribution: true }}
+                >
                   <Background gap={16} color="#e9eff4" />
-                  <Controls showInteractive={false} />
+                  <Controls />
+                  <MiniMap pannable zoomable />
+                  {canDesign && <Panel position="top-left"><div style={{background:'rgba(255,255,255,.94)',padding:'7px 10px',borderRadius:6,fontSize:12,boxShadow:'var(--shadow-card)'}}>Kéo chấm xanh bên phải → chấm trắng bên trái để nối. Chọn dây rồi nhấn Delete để xóa.</div></Panel>}
                 </ReactFlow>
               </div>
             )}
@@ -188,7 +233,7 @@ export default function WorkflowTemplateEditor() {
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={draft.steps.map((s) => s.code)} strategy={verticalListSortingStrategy}>
                   {draft.steps.map((s) => (
-                    <SortableStepRow key={s.code} step={s} canDesign={canDesign} onToggleMandatory={(v) => toggleMandatory(s.code, v)} onRemove={() => removeStep(s.code)} />
+                    <SortableStepRow key={s.code} step={s} canDesign={canDesign} onToggleMandatory={(v) => toggleMandatory(s.code, v)} onIconChange={(icon) => guarded(() => workflowService.editStep(canonicalTemplateId, s.code, { icon }, currentUser.id))} onRemove={() => removeStep(s.code)} />
                   ))}
                 </SortableContext>
               </DndContext>
@@ -201,7 +246,13 @@ export default function WorkflowTemplateEditor() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <Input placeholder="Mã bước (VD: XRAY)" value={draftStep.code} onChange={(e) => setDraftStep((p) => ({ ...p, code: e.target.value.toUpperCase() }))} />
                 <Input placeholder="Tên bước" value={draftStep.name} onChange={(e) => setDraftStep((p) => ({ ...p, name: e.target.value }))} />
-                <Select value={draftStep.responsibleRole} onChange={(v) => setDraftStep((p) => ({ ...p, responsibleRole: v }))} options={ROLE_OPTIONS.map((r) => ({ value: r, label: ROLE_LABEL[r] }))} />
+                <Select
+                  value={draftStep.icon}
+                  onChange={(v: StepIcon) => setDraftStep((p) => ({ ...p, icon: v }))}
+                  options={(Object.entries(ICON_META) as [StepIcon, (typeof ICON_META)[StepIcon]][]).map(([value, meta]) => { const Icon = meta.icon; return { value, label: <span style={{display:'inline-flex',alignItems:'center',gap:8,color:meta.color}}><Icon size={17}/><span style={{color:'var(--text-primary)'}}>{meta.label}</span></span> }; })}
+                  placeholder="Chọn biểu tượng cho bước"
+                />
+                <Select value={draftStep.responsibleRole} onChange={(v) => setDraftStep((p) => ({ ...p, responsibleRole: v, icon: p.icon ?? defaultIconForRole(v) }))} options={ROLE_OPTIONS.map((r) => ({ value: r, label: ROLE_LABEL[r] }))} />
                 <Input placeholder="Bộ phận" value={draftStep.department} onChange={(e) => setDraftStep((p) => ({ ...p, department: e.target.value }))} />
                 <div style={{ display: 'flex', gap: 8 }}>
                   <InputNumber style={{ width: '100%' }} placeholder="Thời lượng (phút)" value={draftStep.estimatedDurationMinutes} onChange={(v) => setDraftStep((p) => ({ ...p, estimatedDurationMinutes: v ?? 0 }))} />

@@ -11,3 +11,5 @@ export { medicalRecordService } from './medicalRecordService';
 export { crmService, ESCALATION_RULES, CRM_PROHIBITED_ACTIONS } from './crmService';
 export type { EscalationTrigger } from './crmService';
 export { notificationService } from './notificationService';
+export { checkInService } from './checkInService';
+export { queueService } from './queueService';

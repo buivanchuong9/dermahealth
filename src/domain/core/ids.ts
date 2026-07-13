@@ -36,6 +36,8 @@ export type ConsentId = Brand<string, 'ConsentId'>;
 export type AuditEventId = Brand<string, 'AuditEventId'>;
 export type IntegrationConnectionId = Brand<string, 'IntegrationConnectionId'>;
 export type IntegrationMessageId = Brand<string, 'IntegrationMessageId'>;
+export type AppointmentCheckInTokenId = Brand<string, 'AppointmentCheckInTokenId'>;
+export type QueueTicketId = Brand<string, 'QueueTicketId'>;
 
 let seq = 0;
 

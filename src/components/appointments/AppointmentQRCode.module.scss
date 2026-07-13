@@ -1,0 +1,7 @@
+.card { break-inside: avoid; }
+.layout { display: flex; gap: 24px; align-items: center; }
+.qr, .large { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.details { flex: 1; min-width: 260px; }
+.large { padding: 16px; }
+@media (max-width: 700px) { .layout { flex-direction: column; align-items: stretch; } }
+@media print { :global(.ant-layout-sider), :global(.ant-layout-header), :global(button) { display: none !important; } .layout { flex-direction: row; } }

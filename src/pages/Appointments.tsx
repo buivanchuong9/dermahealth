@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { Row, Col, Card, Calendar, Segmented, Input, Button, Tag, Typography, Result, Space } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { Video, Clock, MapPin, Search, CheckCircle, Star } from 'lucide-react';
+import { useAppState } from '../state/useAppState';
+import { useStore } from '../state/useStore';
+import { appointmentCheckInTokenRepository, appointmentRepository, userRepository } from '../domain/repositories';
+import { appointmentService } from '../domain/services/appointmentService';
+import { AppointmentQRCode } from '../components/appointments/AppointmentQRCode';
+import type { Appointment } from '../domain/core/entities';
 
 const { Title, Text } = Typography;
 
@@ -15,28 +21,39 @@ const TIMES_AM = ['08:00', '08:30', '09:00', '09:30', '10:00', '10:30'];
 const TIMES_PM = ['13:30', '14:00', '14:30', '15:00', '15:30', '16:00'];
 
 export default function Appointments() {
+  const { currentPatient, currentUser } = useAppState();
+  const appointments = useStore(appointmentRepository);
+  const tokens = useStore(appointmentCheckInTokenRepository);
+  const users = useStore(userRepository);
   const [docId, setDocId] = useState(1);
   const [selDate, setSelDate] = useState<Dayjs | null>(null);
   const [selTime, setSelTime] = useState('09:00');
   const [name, setName] = useState('Nguyễn Văn A');
   const [phone, setPhone] = useState('0912 345 678');
   const [reason, setReason] = useState('Mụn viêm lan rộng sau khi đổi kem dưỡng, xuất hiện từ tuần trước.');
-  const [done, setDone] = useState(false);
+  const [created, setCreated] = useState<Appointment | null>(null);
   const doc = DOCTORS.find((d) => d.id === docId)!;
 
-  if (done) {
+  const submit = () => {
+    if (!selDate) return;
+    const doctorId = docId === 1 ? 'U-0002' : 'U-0013';
+    setCreated(appointmentService.bookAppointment({ patientId: currentPatient.id, doctorId, date: selDate.format('DD/MM/YYYY'), time: selTime, mode: 'in_person', clinicLocationId: 'CS-HCM-01', clinicName: 'DermaHealth TP.HCM', department: 'Khoa Da liễu' }, currentUser.id));
+  };
+  if (created) {
+    const token = tokens.filter(t => t.appointmentId === created.id && t.status === 'active').sort((a,b)=>b.version-a.version)[0];
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <Card style={{ maxWidth: 520 }}>
+      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        <Card>
           <Result
             status="success"
             title="Đặt lịch thành công"
             subTitle={<>Lịch khám với <Text strong>{doc.name}</Text> vào <Text strong>{selTime}{selDate ? `, ${selDate.format('DD/MM/YYYY')}` : ''}</Text> đã được xác nhận. Thông báo đã gửi qua SMS.</>}
             extra={[
-              <Button key="view" onClick={() => setDone(false)}>Xem lịch hẹn</Button>,
-              <Button key="call" type="primary" icon={<Video size={16} />}>Chuẩn bị cuộc gọi</Button>,
+              <Button key="view" onClick={() => setCreated(null)}>Đặt lịch khác</Button>,
+              <Button key="kiosk" type="primary" href="/kiosk/check-in">Đến trang check-in</Button>,
             ]}
           />
+          {token && <AppointmentQRCode appointment={created} token={token} doctorName={doc.name} actorId={currentUser.id} canRegenerate={currentUser.role === 'receptionist' || currentUser.role === 'medical_administrator'} />}
         </Card>
       </div>
     );
@@ -137,11 +154,12 @@ export default function Appointments() {
               <Text type="secondary" style={{ fontSize: 13 }}>Phí dự kiến</Text>
               <Text strong style={{ fontSize: 16, color: 'var(--medical-blue-700)' }}>500.000đ</Text>
             </div>
-            <Button type="primary" block onClick={() => setDone(true)}>Xác nhận đặt lịch</Button>
+            <Button type="primary" block disabled={!selDate || !name.trim() || !phone.trim()} onClick={submit}>Xác nhận đặt lịch</Button>
             <Text type="secondary" style={{ fontSize: 11.5, display: 'block', textAlign: 'center', marginTop: 8 }}>Hủy miễn phí trước 2 tiếng</Text>
           </Card>
         </Col>
       </Row>
+      {appointments.filter(a => a.patientId === currentPatient.id && a.status === 'upcoming').map(a => { const token = tokens.filter(t=>t.appointmentId===a.id && (t.status==='active'||t.status==='used')).sort((x,y)=>y.version-x.version)[0]; const doctor = users.find(u=>u.id===a.doctorId); return token ? <div key={a.id} style={{display:'flex',flexDirection:'column',gap:8}}><AppointmentQRCode appointment={a} token={token} doctorName={doctor?.name ?? 'Bác sĩ DermaHealth'} actorId={currentUser.id} canRegenerate={currentUser.role === 'receptionist' || currentUser.role === 'medical_administrator'} /><Button href={`/app/appointments/${a.id}`}>Xem chi tiết lịch hẹn</Button></div> : null; })}
     </div>
   );
 }

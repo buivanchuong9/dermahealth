@@ -32,6 +32,14 @@ const WorkflowInstancePage = lazy(() => import('./pages/workflows/WorkflowInstan
 const WorkQueue = lazy(() => import('./pages/WorkQueue'));
 const AuditViewer = lazy(() => import('./pages/AuditViewer'));
 const Integrations = lazy(() => import('./pages/Integrations'));
+const KioskCheckIn = lazy(() => import('./pages/KioskCheckIn'));
+const KioskResult = lazy(() => import('./pages/KioskResult'));
+const ClinicQueue = lazy(() => import('./pages/ClinicQueue'));
+const AppointmentDetail = lazy(() => import('./pages/AppointmentDetail'));
+const Reception = lazy(() => import('./pages/Reception'));
+const QueueStations = lazy(() => import('./pages/QueueStations'));
+const PatientJourneyDetail = lazy(() => import('./pages/PatientJourneyDetail'));
+const EncounterWorkflow = lazy(() => import('./pages/EncounterWorkflow'));
 
 export default function App() {
   return (
@@ -44,10 +52,17 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Navigate to="/login" replace />} />
                   <Route path="/login" element={<Login />} />
+                  <Route path="/kiosk/check-in" element={<KioskCheckIn />} />
+                  <Route path="/kiosk/check-in/result" element={<KioskResult />} />
+                  <Route path="/display/queue" element={<ClinicQueue board />} />
+                  <Route path="/queue-display/:locationId" element={<ClinicQueue board />} />
+                  <Route path="/queue-display/station/:stationId" element={<ClinicQueue board />} />
                   <Route path="/app" element={<AppShell />}>
                     <Route index element={<Navigate to="/app/dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
                     <Route path="appointments" element={<Appointments />} />
+                    <Route path="appointments/:appointmentId" element={<AppointmentDetail />} />
+                    <Route path="appointments/:appointmentId/consultation" element={<AppointmentDetail consultation />} />
                     <Route path="ai-analysis" element={<AIAnalysis />} />
                     <Route path="doctor-review" element={<DoctorReview />} />
                     <Route path="journey" element={<Journey />} />
@@ -58,11 +73,23 @@ export default function App() {
                     <Route path="care" element={<Care />} />
                     <Route path="reports" element={<Reports />} />
                     <Route path="workflows/templates" element={<WorkflowTemplates />} />
+                    <Route path="workflows" element={<WorkflowTemplates />} />
+                    <Route path="workflows/templates/new" element={<WorkflowTemplates />} />
                     <Route path="workflows/templates/:id" element={<WorkflowTemplateEditor />} />
+                    <Route path="workflows/templates/:templateId/versions/:versionId" element={<WorkflowTemplateEditor />} />
                     <Route path="workflows/instances/:id" element={<WorkflowInstancePage />} />
+                    <Route path="workflows/instances/:id/edit" element={<WorkflowInstancePage />} />
+                    <Route path="encounters/:encounterId/workflow" element={<EncounterWorkflow />} />
+                    <Route path="patient-journey/:encounterId" element={<PatientJourneyDetail />} />
                     <Route path="work-queue" element={<WorkQueue />} />
                     <Route path="audit" element={<AuditViewer />} />
                     <Route path="integrations" element={<Integrations />} />
+                    <Route path="reception/qr-check-in" element={<KioskCheckIn reception />} />
+                    <Route path="reception" element={<Reception />} />
+                    <Route path="reception/queue" element={<ClinicQueue />} />
+                    <Route path="queue" element={<ClinicQueue />} />
+                    <Route path="queue/stations" element={<QueueStations />} />
+                    <Route path="clinic-queue" element={<ClinicQueue />} />
                     <Route path="settings" element={<SettingsPage />} />
                     <Route path="support" element={<Support />} />
                   </Route>
