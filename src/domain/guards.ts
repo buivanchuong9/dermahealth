@@ -1,4 +1,4 @@
-import type { UserRole } from './core/enums';
+import { hasRoleAccess, type UserRole } from './core/enums';
 import { userRepository } from './repositories';
 import type { UserId } from './core/ids';
 
@@ -23,7 +23,7 @@ export class InvalidTransitionError extends Error {
 export function assertRole(actorId: UserId, allowed: UserRole[]): UserRole {
   const user = userRepository.getById(actorId);
   if (!user) throw new PermissionError(`Không tìm thấy người dùng ${actorId}`);
-  if (!allowed.includes(user.role)) {
+  if (!hasRoleAccess(user.role, allowed)) {
     throw new PermissionError(`Hành động này yêu cầu vai trò [${allowed.join(', ')}], nhưng ${user.name} có vai trò "${user.role}".`);
   }
   return user.role;

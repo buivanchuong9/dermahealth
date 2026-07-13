@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Table, Tag, Button, Typography, Result, App as AntApp } from 'antd';
-import { Plug, RotateCcw, RefreshCw, Lock, Home } from 'lucide-react';
+import { Row, Col, Card, Table, Tag, Button, Typography, App as AntApp } from 'antd';
+import { Plug, RotateCcw, RefreshCw } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { integrationRepository } from '../domain/repositories';
 import type { IntegrationConnection } from '../domain/core/entities';
-import type { IntegrationStatus } from '../domain/core/enums';
+import { hasRoleAccess, type IntegrationStatus } from '../domain/core/enums';
+import { AccessDenied } from '../components/feedback/AccessDenied';
 
 const { Title, Text } = Typography;
 const STATUS_COLOR: Record<IntegrationStatus, string> = { healthy: 'success', degraded: 'gold', down: 'red' };
@@ -14,24 +14,14 @@ const STATUS_LABEL: Record<IntegrationStatus, string> = { healthy: 'Hoạt độ
 const MSG_STATUS_LABEL: Record<string, string> = { pending: 'Đang chờ', delivered: 'Đã gửi', failed: 'Thất bại', duplicate_rejected: 'Trùng lặp (đã từ chối)' };
 
 export default function Integrations() {
-  const navigate = useNavigate();
   const { message } = AntApp.useApp();
   const { role } = useAppState();
   const connections = useStore(integrationRepository.connections());
   const messages = useStore(integrationRepository.messages());
   const [selected, setSelected] = useState<IntegrationConnection | null>(null);
 
-  if (role !== 'system_administrator' && role !== 'medical_administrator') {
-    return (
-      <Card>
-        <Result
-          icon={<Lock size={40} color="var(--text-muted)" />}
-          title="Không có quyền truy cập"
-          subTitle="Trang tình trạng tích hợp chỉ dành cho Quản trị viên hệ thống và Quản trị viên y tế."
-          extra={<Button type="primary" icon={<Home size={14} />} onClick={() => navigate('/app/dashboard')}>Về trang tổng quan</Button>}
-        />
-      </Card>
-    );
+  if (!hasRoleAccess(role, ['system_administrator', 'medical_administrator'])) {
+    return <AccessDenied featureName="Tình trạng tích hợp" allowedRoles={['system_administrator', 'medical_administrator']} />;
   }
 
   const retry = (connectionId: string) => {

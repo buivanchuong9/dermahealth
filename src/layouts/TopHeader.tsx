@@ -1,5 +1,7 @@
-import { Layout, Input, Badge, Avatar, Popover, Button, Typography, Tag, Empty, Divider, Grid } from 'antd';
-import { Search, Bell, Settings, ListChecks, CheckCheck, Menu as MenuIcon } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Layout, Input, Badge, Avatar, Popover, Button, Typography, Tag, Empty, Divider, Grid, Select } from 'antd';
+import { Search, Bell, Settings, ListChecks, CheckCheck, Menu as MenuIcon, ChevronDown, UserRound } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { notificationRepository } from '../domain/repositories';
@@ -13,7 +15,9 @@ const STATUS_LABEL: Record<string, string> = { queued: 'Đang xếp hàng', sent
 const STATUS_COLOR: Record<string, string> = { queued: 'default', sent: 'processing', delivered: 'success', failed: 'error', retrying: 'warning' };
 
 export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () => void }) {
-  const { currentUser } = useAppState();
+  const navigate = useNavigate();
+  const { currentUser, allUsers, setCurrentUserId } = useAppState();
+  const [accountOpen, setAccountOpen] = useState(false);
   const screens = Grid.useBreakpoint();
   const isNarrow = screens.md === false;
   useStore(notificationRepository);
@@ -43,6 +47,61 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
     </div>
   );
 
+  const accountContent = (
+    <div className="top-header__account-menu">
+      <div className="top-header__account-summary">
+        <Avatar size={40} style={{ background: 'var(--medical-blue-700)', flexShrink: 0 }}>{currentUser.name.trim().slice(-1)}</Avatar>
+        <div style={{ minWidth: 0 }}>
+          <Text strong className="top-header__account-name">{currentUser.name}</Text>
+          <Text type="secondary" className="top-header__account-meta">
+            {ROLE_LABEL[currentUser.role]}{currentUser.department ? ` · ${currentUser.department}` : ''}
+          </Text>
+        </div>
+      </div>
+      <Divider style={{ margin: '12px 0' }} />
+      <Text strong className="top-header__account-label">Chuyển tài khoản và vai trò</Text>
+      <Select
+        value={currentUser.id}
+        onChange={(userId) => {
+          setCurrentUserId(userId);
+          setAccountOpen(false);
+        }}
+        style={{ width: '100%', marginTop: 7 }}
+        optionLabelProp="label"
+        options={allUsers.map((user) => ({
+          value: user.id,
+          label: user.name,
+          searchText: `${user.name} ${ROLE_LABEL[user.role]} ${user.department ?? ''}`,
+          content: (
+            <div className="top-header__account-option">
+              <Avatar size={28} style={{ background: 'var(--medical-blue-100)', color: 'var(--medical-blue-700)', flexShrink: 0 }}>{user.name.trim().slice(-1)}</Avatar>
+              <div style={{ minWidth: 0 }}>
+                <Text className="top-header__account-option-name">{user.name}</Text>
+                <Text type="secondary" className="top-header__account-option-role">{ROLE_LABEL[user.role]}{user.department ? ` · ${user.department}` : ''}</Text>
+              </div>
+            </div>
+          ),
+        }))}
+        optionRender={(option) => option.data.content}
+        showSearch
+        filterOption={(input, option) => (option?.searchText ?? '').toLowerCase().includes(input.toLowerCase())}
+        placeholder="Chọn tài khoản"
+      />
+      <Button
+        type="text"
+        block
+        icon={<UserRound size={15} />}
+        className="top-header__account-settings"
+        onClick={() => {
+          setAccountOpen(false);
+          navigate('/app/settings');
+        }}
+      >
+        Quản lý tài khoản
+      </Button>
+    </div>
+  );
+
   return (
     <Header className={`top-header${isNarrow ? ' top-header--narrow' : ''}`}>
       <div className="top-header__start">
@@ -65,20 +124,23 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
         </Popover>
         {!isNarrow && (
           <>
-            <Button shape="circle" icon={<ListChecks size={16} />} onClick={() => (window.location.href = '/app/work-queue')} title="Hàng đợi công việc" />
-            <Button shape="circle" icon={<Settings size={16} />} onClick={() => (window.location.href = '/app/settings')} />
+            <Button shape="circle" icon={<ListChecks size={16} />} onClick={() => navigate('/app/work-queue')} title="Hàng đợi công việc" />
+            <Button shape="circle" icon={<Settings size={16} />} onClick={() => navigate('/app/settings')} title="Cài đặt" />
             <Divider type="vertical" style={{ height: 24 }} />
           </>
         )}
-        <div className="top-header__user">
-          <Avatar size={32} style={{ background: 'var(--medical-blue-700)', flexShrink: 0 }}>{currentUser.name.trim().slice(-1)}</Avatar>
-          {!isNarrow && (
-            <div className="top-header__user-copy">
-              <Text className="top-header__user-name" title={currentUser.name}>{currentUser.name}</Text>
-              <Text className="top-header__user-role">{ROLE_LABEL[currentUser.role]}</Text>
-            </div>
-          )}
-        </div>
+        <Popover content={accountContent} trigger="click" placement="bottomRight" open={accountOpen} onOpenChange={setAccountOpen}>
+          <Button type="text" className="top-header__user" aria-label="Mở menu tài khoản">
+            <Avatar size={32} style={{ background: 'var(--medical-blue-700)', flexShrink: 0 }}>{currentUser.name.trim().slice(-1)}</Avatar>
+            {!isNarrow && (
+              <div className="top-header__user-copy">
+                <Text className="top-header__user-name" title={currentUser.name}>{currentUser.name}</Text>
+                <Text className="top-header__user-role">{ROLE_LABEL[currentUser.role]}</Text>
+              </div>
+            )}
+            <ChevronDown size={14} className="top-header__user-chevron" />
+          </Button>
+        </Popover>
       </div>
     </Header>
   );

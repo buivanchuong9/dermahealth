@@ -8,6 +8,7 @@ import { appointmentCheckInTokenRepository, appointmentRepository, userRepositor
 import { appointmentService } from '../domain/services/appointmentService';
 import { AppointmentQRCode } from '../components/appointments/AppointmentQRCode';
 import type { Appointment } from '../domain/core/entities';
+import { hasRoleAccess } from '../domain/core/enums';
 
 const { Title, Text } = Typography;
 
@@ -53,7 +54,7 @@ export default function Appointments() {
               <Button key="kiosk" type="primary" href="/kiosk/check-in">Đến trang check-in</Button>,
             ]}
           />
-          {token && <AppointmentQRCode appointment={created} token={token} doctorName={doc.name} actorId={currentUser.id} canRegenerate={currentUser.role === 'receptionist' || currentUser.role === 'medical_administrator'} />}
+          {token && <AppointmentQRCode appointment={created} token={token} doctorName={doc.name} actorId={currentUser.id} canRegenerate={hasRoleAccess(currentUser.role, ['receptionist', 'medical_administrator'])} />}
         </Card>
       </div>
     );
@@ -159,7 +160,7 @@ export default function Appointments() {
           </Card>
         </Col>
       </Row>
-      {appointments.filter(a => a.patientId === currentPatient.id && a.status === 'upcoming').map(a => { const token = tokens.filter(t=>t.appointmentId===a.id && (t.status==='active'||t.status==='used')).sort((x,y)=>y.version-x.version)[0]; const doctor = users.find(u=>u.id===a.doctorId); return token ? <div key={a.id} style={{display:'flex',flexDirection:'column',gap:8}}><AppointmentQRCode appointment={a} token={token} doctorName={doctor?.name ?? 'Bác sĩ DermaHealth'} actorId={currentUser.id} canRegenerate={currentUser.role === 'receptionist' || currentUser.role === 'medical_administrator'} /><Button href={`/app/appointments/${a.id}`}>Xem chi tiết lịch hẹn</Button></div> : null; })}
+      {appointments.filter(a => a.patientId === currentPatient.id && a.status === 'upcoming').map(a => { const token = tokens.filter(t=>t.appointmentId===a.id && (t.status==='active'||t.status==='used')).sort((x,y)=>y.version-x.version)[0]; const doctor = users.find(u=>u.id===a.doctorId); return token ? <div key={a.id} style={{display:'flex',flexDirection:'column',gap:8}}><AppointmentQRCode appointment={a} token={token} doctorName={doctor?.name ?? 'Bác sĩ DermaHealth'} actorId={currentUser.id} canRegenerate={hasRoleAccess(currentUser.role, ['receptionist', 'medical_administrator'])} /><Button href={`/app/appointments/${a.id}`}>Xem chi tiết lịch hẹn</Button></div> : null; })}
     </div>
   );
 }

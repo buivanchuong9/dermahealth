@@ -1,11 +1,13 @@
-import { Suspense, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Layout, Drawer, Grid } from 'antd';
 import Sidebar, { SidebarContent } from './Sidebar';
 import TopHeader from './TopHeader';
 import { ContentLoadingFallback } from './RouteFallback';
 
 export default function AppShell() {
+  const location = useLocation();
+  const contentRef = useRef<HTMLElement>(null);
   // `screens.lg` is `undefined` until the first `matchMedia` measurement
   // resolves; comparing with `=== false` (rather than `!screens.lg`) means
   // we default to the desktop layout during that first tick instead of
@@ -13,6 +15,10 @@ export default function AppShell() {
   const screens = Grid.useBreakpoint();
   const isMobile = screens.lg === false;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname]);
 
   return (
     <Layout className="app-shell">
@@ -32,7 +38,7 @@ export default function AppShell() {
       )}
       <Layout className="app-shell__main">
         <TopHeader onOpenMobileNav={isMobile ? () => setMobileNavOpen(true) : undefined} />
-        <Layout.Content className="app-content">
+        <Layout.Content ref={contentRef} className="app-content">
           <Suspense fallback={<ContentLoadingFallback />}>
             <Outlet />
           </Suspense>

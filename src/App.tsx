@@ -9,6 +9,13 @@ import { FullPageLoadingFallback } from './layouts/RouteFallback';
 import AppShell from './layouts/AppShell';
 import { GlobalErrorListener } from './components/feedback/GlobalErrorListener';
 import { GlobalEmpty } from './components/feedback/ProfessionalEmpty';
+import { RoleProtectedRoute } from './components/feedback/AccessDenied';
+import type { UserRole } from './domain/core/enums';
+
+const STAFF_QUEUE_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator'];
+const QUEUE_CONTROL_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'medical_administrator'];
+const RECEPTION_ROLES: UserRole[] = ['receptionist', 'medical_administrator'];
+const WORKFLOW_DESIGN_ROLES: UserRole[] = ['clinical_process_designer', 'medical_administrator'];
 
 // Every routed page is code-split at the route level so the initial bundle
 // only carries the shell (AppShell/Sidebar/TopHeader/AppState) — heavy
@@ -63,36 +70,36 @@ export default function App() {
                   <Route path="/app" element={<AppShell />}>
                     <Route index element={<Navigate to="/app/dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
-                    <Route path="appointments" element={<Appointments />} />
-                    <Route path="appointments/:appointmentId" element={<AppointmentDetail />} />
-                    <Route path="appointments/:appointmentId/consultation" element={<AppointmentDetail consultation />} />
-                    <Route path="ai-analysis" element={<AIAnalysis />} />
-                    <Route path="doctor-review" element={<DoctorReview />} />
+                    <Route path="appointments" element={<RoleProtectedRoute allowed={['patient', 'receptionist']} featureName="Lịch hẹn"><Appointments /></RoleProtectedRoute>} />
+                    <Route path="appointments/:appointmentId" element={<RoleProtectedRoute allowed={['patient', 'receptionist']} featureName="Chi tiết lịch hẹn"><AppointmentDetail /></RoleProtectedRoute>} />
+                    <Route path="appointments/:appointmentId/consultation" element={<RoleProtectedRoute allowed={['patient', 'receptionist', 'doctor']} featureName="Chuẩn bị lượt khám"><AppointmentDetail consultation /></RoleProtectedRoute>} />
+                    <Route path="ai-analysis" element={<RoleProtectedRoute allowed={['patient']} featureName="Phân tích AI"><AIAnalysis /></RoleProtectedRoute>} />
+                    <Route path="doctor-review" element={<RoleProtectedRoute allowed={['doctor']} featureName="Xem xét và chẩn đoán"><DoctorReview /></RoleProtectedRoute>} />
                     <Route path="journey" element={<Journey />} />
                     <Route path="records" element={<Records />} />
-                    <Route path="profile" element={<Profile />} />
-                    <Route path="prescriptions" element={<Prescriptions />} />
-                    <Route path="progress" element={<Progress />} />
-                    <Route path="care" element={<Care />} />
-                    <Route path="reports" element={<Reports />} />
-                    <Route path="workflows/templates" element={<WorkflowTemplates />} />
-                    <Route path="workflows" element={<WorkflowTemplates />} />
-                    <Route path="workflows/templates/new" element={<WorkflowTemplates />} />
-                    <Route path="workflows/templates/:id" element={<WorkflowTemplateEditor />} />
-                    <Route path="workflows/templates/:templateId/versions/:versionId" element={<WorkflowTemplateEditor />} />
-                    <Route path="workflows/instances/:id" element={<WorkflowInstancePage />} />
-                    <Route path="workflows/instances/:id/edit" element={<WorkflowInstancePage />} />
-                    <Route path="encounters/:encounterId/workflow" element={<EncounterWorkflow />} />
+                    <Route path="profile" element={<RoleProtectedRoute allowed={['patient']} featureName="Hồ sơ bệnh nhân"><Profile /></RoleProtectedRoute>} />
+                    <Route path="prescriptions" element={<RoleProtectedRoute allowed={['patient']} featureName="Đơn thuốc"><Prescriptions /></RoleProtectedRoute>} />
+                    <Route path="progress" element={<RoleProtectedRoute allowed={['patient']} featureName="Theo dõi tiến triển"><Progress /></RoleProtectedRoute>} />
+                    <Route path="care" element={<RoleProtectedRoute allowed={['patient', 'care_coordinator', 'customer_care_employee', 'medical_administrator']} featureName="Chăm sóc sau khám"><Care /></RoleProtectedRoute>} />
+                    <Route path="reports" element={<RoleProtectedRoute allowed={['patient']} featureName="Báo cáo"><Reports /></RoleProtectedRoute>} />
+                    <Route path="workflows/templates" element={<RoleProtectedRoute allowed={WORKFLOW_DESIGN_ROLES} featureName="Thiết kế quy trình"><WorkflowTemplates /></RoleProtectedRoute>} />
+                    <Route path="workflows" element={<RoleProtectedRoute allowed={WORKFLOW_DESIGN_ROLES} featureName="Thiết kế quy trình"><WorkflowTemplates /></RoleProtectedRoute>} />
+                    <Route path="workflows/templates/new" element={<RoleProtectedRoute allowed={WORKFLOW_DESIGN_ROLES} featureName="Tạo quy trình"><WorkflowTemplates /></RoleProtectedRoute>} />
+                    <Route path="workflows/templates/:id" element={<RoleProtectedRoute allowed={WORKFLOW_DESIGN_ROLES} featureName="Chỉnh sửa quy trình"><WorkflowTemplateEditor /></RoleProtectedRoute>} />
+                    <Route path="workflows/templates/:templateId/versions/:versionId" element={<RoleProtectedRoute allowed={WORKFLOW_DESIGN_ROLES} featureName="Phiên bản quy trình"><WorkflowTemplateEditor /></RoleProtectedRoute>} />
+                    <Route path="workflows/instances/:id" element={<RoleProtectedRoute allowed={STAFF_QUEUE_ROLES} featureName="Quy trình đang chạy"><WorkflowInstancePage /></RoleProtectedRoute>} />
+                    <Route path="workflows/instances/:id/edit" element={<RoleProtectedRoute allowed={STAFF_QUEUE_ROLES} featureName="Điều hành quy trình"><WorkflowInstancePage /></RoleProtectedRoute>} />
+                    <Route path="encounters/:encounterId/workflow" element={<RoleProtectedRoute allowed={STAFF_QUEUE_ROLES} featureName="Quy trình lượt khám"><EncounterWorkflow /></RoleProtectedRoute>} />
                     <Route path="patient-journey/:encounterId" element={<PatientJourneyDetail />} />
-                    <Route path="work-queue" element={<WorkQueue />} />
-                    <Route path="audit" element={<AuditViewer />} />
-                    <Route path="integrations" element={<Integrations />} />
-                    <Route path="reception/qr-check-in" element={<KioskCheckIn reception />} />
-                    <Route path="reception" element={<Reception />} />
-                    <Route path="reception/queue" element={<ClinicQueue />} />
-                    <Route path="queue" element={<ClinicQueue />} />
-                    <Route path="queue/stations" element={<QueueStations />} />
-                    <Route path="clinic-queue" element={<ClinicQueue />} />
+                    <Route path="work-queue" element={<RoleProtectedRoute allowed={STAFF_QUEUE_ROLES} featureName="Hàng đợi công việc"><WorkQueue /></RoleProtectedRoute>} />
+                    <Route path="audit" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator']} featureName="Nhật ký kiểm toán"><AuditViewer /></RoleProtectedRoute>} />
+                    <Route path="integrations" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator']} featureName="Tình trạng tích hợp"><Integrations /></RoleProtectedRoute>} />
+                    <Route path="reception/qr-check-in" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Check-in QR tại lễ tân"><KioskCheckIn reception /></RoleProtectedRoute>} />
+                    <Route path="reception" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Trung tâm lễ tân"><Reception /></RoleProtectedRoute>} />
+                    <Route path="reception/queue" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Hàng đợi lễ tân"><ClinicQueue /></RoleProtectedRoute>} />
+                    <Route path="queue" element={<RoleProtectedRoute allowed={QUEUE_CONTROL_ROLES} featureName="Điều phối hàng đợi"><ClinicQueue /></RoleProtectedRoute>} />
+                    <Route path="queue/stations" element={<RoleProtectedRoute allowed={QUEUE_CONTROL_ROLES} featureName="Trạm phục vụ"><QueueStations /></RoleProtectedRoute>} />
+                    <Route path="clinic-queue" element={<RoleProtectedRoute allowed={QUEUE_CONTROL_ROLES} featureName="Điều phối hàng đợi"><ClinicQueue /></RoleProtectedRoute>} />
                     <Route path="settings" element={<SettingsPage />} />
                     <Route path="support" element={<Support />} />
                   </Route>

@@ -7,6 +7,7 @@ import type {
   IntegrationConnection, IntegrationMessage,
   AppointmentCheckInToken, QueueTicket,
 } from './core/entities';
+import { createWorkflowIdentity } from './workflowIdentity';
 
 // One coherent, hand-written demo world. IDs are stable string literals (not
 // generated) so that every page can hardcode a reference like "the active
@@ -48,6 +49,10 @@ export interface DomainWorld {
 
 export function createSeedWorld(): DomainWorld {
   const users: User[] = [
+    { id: 'U-0014', name: 'Đào Văn Dương', role: 'super_administrator', department: 'Ban quản trị hệ thống' },
+    { id: 'U-0015', name: 'Nguyễn Mạnh Cường', role: 'super_administrator', department: 'Ban quản trị hệ thống' },
+    { id: 'U-0016', name: 'Phạm Thị Hồng Chúc', role: 'super_administrator', department: 'Ban quản trị hệ thống' },
+    { id: 'U-0017', name: 'Bùi Văn Chương', role: 'super_administrator', department: 'Ban quản trị hệ thống' },
     { id: 'U-0001', name: 'Nguyễn Văn A', role: 'patient' },
     { id: 'U-0002', name: 'Bs. Nguyễn Thị An', role: 'doctor', department: 'Khoa Da liễu', specialty: 'Da liễu', online: true },
     { id: 'U-0003', name: 'ĐD. Trần Thị Bích', role: 'nurse', department: 'Khoa Da liễu' },
@@ -57,10 +62,12 @@ export function createSeedWorld(): DomainWorld {
     { id: 'U-0007', name: 'DS. Vũ Văn Long', role: 'pharmacist', department: 'Dược' },
     { id: 'U-0008', name: 'Ngô Thị Lan', role: 'care_coordinator', department: 'Điều phối chăm sóc' },
     { id: 'U-0009', name: 'Bùi Văn Tùng', role: 'customer_care_employee', department: 'Chăm sóc khách hàng' },
-    { id: 'U-0010', name: 'Hoàng Thị Nga', role: 'medical_administrator', department: 'Quản trị y tế' },
-    { id: 'U-0011', name: 'Trịnh Văn Đức', role: 'system_administrator', department: 'CNTT' },
-    { id: 'U-0012', name: 'Đặng Thị Thu', role: 'clinical_process_designer', department: 'Thiết kế quy trình' },
-    { id: 'U-0013', name: 'Bs. Trần Văn Nam', role: 'doctor', department: 'Khoa Da liễu thẩm mỹ', specialty: 'Da liễu thẩm mỹ', online: true },
+    { id: 'U-0010', name: 'Bùi Văn Chương', role: 'medical_administrator', department: 'Quản trị y tế' },
+    { id: 'U-0011', name: 'Đào văn Dương', role: 'medical_administrator', department: 'Quản trị y tế' },
+    { id: 'U-0012', name: 'Nguyễn Mạnh Cường', role: 'medical_administrator', department: 'Quản trị y tế' },
+    { id: 'U-0013', name: 'Trịnh Văn Đức', role: 'system_administrator', department: 'CNTT' },
+    { id: 'U-0014', name: 'Đặng Thị Thu', role: 'clinical_process_designer', department: 'Thiết kế quy trình' },
+    { id: 'U-0015', name: 'Bs. Trần Văn Nam', role: 'doctor', department: 'Khoa Da liễu thẩm mỹ', specialty: 'Da liễu thẩm mỹ', online: true },
   ];
 
   const patients: Patient[] = [
@@ -195,8 +202,9 @@ export function createSeedWorld(): DomainWorld {
     { id: 'WFT-DERM', name: 'Quy trình khám Da liễu tiêu chuẩn', specialty: 'Da liễu', description: 'Quy trình vận hành chuẩn cho một lượt khám da liễu ngoại trú.', createdBy: 'U-0012', versionIds: ['WFV-DERM-1'], latestPublishedVersionId: 'WFV-DERM-1' },
   ];
 
+  const seedWorkflowIdentity = createWorkflowIdentity({ instanceId: 'WFI-1001', patientId: 'PT-1029', encounterId: 'ENC-1001', templateVersionId: 'WFV-DERM-1', activatedAt: '2023-10-15T09:50:00.000Z' });
   const workflowInstances: WorkflowInstance[] = [
-    { id: 'WFI-1001', encounterId: 'ENC-1001', templateId: 'WFT-DERM', templateVersionId: 'WFV-DERM-1', status: 'active', activatedBy: 'U-0002', activatedAt: '15/10/2023 09:50', taskIds: ['TASK-1001', 'TASK-1002', 'TASK-1003', 'TASK-1004', 'TASK-1005', 'TASK-1006'] },
+    { id: 'WFI-1001', encounterId: 'ENC-1001', templateId: 'WFT-DERM', templateVersionId: 'WFV-DERM-1', status: 'active', activatedBy: 'U-0002', activatedAt: '2023-10-15T09:50:00.000Z', taskIds: ['TASK-1001', 'TASK-1002', 'TASK-1003', 'TASK-1004', 'TASK-1005', 'TASK-1006'], ...seedWorkflowIdentity },
   ];
 
   const workflowTasks: WorkflowTask[] = [
@@ -287,8 +295,11 @@ export function createSeedWorld(): DomainWorld {
     { id: 'AUD-0006', at: '15/10/2023 10:00', actorId: 'U-0007', actorName: 'DS. Vũ Văn Long', role: 'pharmacist', action: 'TASK_STARTED', entityType: 'WorkflowTask', entityId: 'TASK-1005', patientId: 'PT-1029', encounterId: 'ENC-1001', sourceModule: 'BPM', severity: 'info' },
     { id: 'AUD-0007', at: '17/10/2023 08:00', actorId: 'U-0008', actorName: 'Ngô Thị Lan', role: 'care_coordinator', action: 'ESCALATION_TRIGGERED', entityType: 'ClinicalAlert', entityId: 'ALRT-1000', patientId: 'PT-1029', sourceModule: 'CRM', severity: 'warning' },
     { id: 'AUD-0008', at: '18/10/2023 16:00', actorId: 'U-0010', actorName: 'Hoàng Thị Nga', role: 'medical_administrator', action: 'ENCOUNTER_CREATION_REQUEST_APPROVED', entityType: 'EncounterCreationRequest', entityId: 'ECR-1000', newState: 'approved', patientId: 'PT-1029', sourceModule: 'CRM', severity: 'info' },
-    { id: 'AUD-0009', at: '15/09/2023 11:10', actorId: 'U-0002', actorName: 'Bs. Nguyễn Thị An', role: 'doctor', action: 'MEDICAL_RECORD_SIGNED', entityType: 'MedicalRecord', entityId: 'MREC-1000', newState: 'signed', patientId: 'PT-1029', encounterId: 'ENC-1000', sourceModule: 'EMR', severity: 'info' },
-    { id: 'AUD-0010', at: '20/10/2023 07:30', actorId: 'U-0011', actorName: 'Trịnh Văn Đức', role: 'system_administrator', action: 'INTEGRATION_RETRY_EXHAUSTED', entityType: 'IntegrationMessage', entityId: 'INTM-2001', reason: 'LIS không phản hồi sau 3 lần thử lại', sourceModule: 'Integration', severity: 'critical' },
+    { id: 'AUD-0009', at: '08/10/2023 16:00', actorId: 'U-0011', actorName: 'Bùi Văn Chương', role: 'medical_administrator', action: 'ENCOUNTER_CREATION_REQUEST_APPROVED', entityType: 'EncounterCreationRequest', entityId: 'ECR-1000', newState: 'approved', patientId: 'PT-1029', sourceModule: 'CRM', severity: 'info' },
+    { id: 'AUD-0010', at: '14/10/2023 16:00', actorId: 'U-0013', actorName: 'Nguyễn Mạnh Cường', role: 'medical_administrator', action: 'ENCOUNTER_CREATION_REQUEST_APPROVED', entityType: 'EncounterCreationRequest', entityId: 'ECR-1000', newState: 'approved', patientId: 'PT-1029', sourceModule: 'CRM', severity: 'info' },
+    { id: 'AUD-0011', at: '12/10/2023 16:00', actorId: 'U-0012', actorName: 'Đào Văn Dương', role: 'medical_administrator', action: 'ENCOUNTER_CREATION_REQUEST_APPROVED', entityType: 'EncounterCreationRequest', entityId: 'ECR-1000', newState: 'approved', patientId: 'PT-1029', sourceModule: 'CRM', severity: 'info' },
+    { id: 'AUD-0012', at: '15/09/2023 11:10', actorId: 'U-0002', actorName: 'Bs. Nguyễn Thị An', role: 'doctor', action: 'MEDICAL_RECORD_SIGNED', entityType: 'MedicalRecord', entityId: 'MREC-1000', newState: 'signed', patientId: 'PT-1029', encounterId: 'ENC-1000', sourceModule: 'EMR', severity: 'info' },
+    { id: 'AUD-0013', at: '20/10/2023 07:30', actorId: 'U-0011', actorName: 'Trịnh Văn Đức', role: 'system_administrator', action: 'INTEGRATION_RETRY_EXHAUSTED', entityType: 'IntegrationMessage', entityId: 'INTM-2001', reason: 'LIS không phản hồi sau 3 lần thử lại', sourceModule: 'Integration', severity: 'critical' },
   ];
 
   const integrationConnections: IntegrationConnection[] = [

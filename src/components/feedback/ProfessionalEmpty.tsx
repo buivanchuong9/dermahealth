@@ -1,6 +1,6 @@
 import { Button, Space, Typography } from 'antd';
 import { ArrowRight, RefreshCw } from 'lucide-react';
-import noDataImage from '../../../nodata.png';
+const noDataImage = `${import.meta.env.BASE_URL}nodata.png`;
 
 const { Title, Text } = Typography;
 

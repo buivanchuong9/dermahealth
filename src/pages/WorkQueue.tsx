@@ -13,7 +13,7 @@ import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { workflowRepository, encounterRepository } from '../domain/repositories';
 import { workflowService } from '../domain/services/workflowService';
-import { TASK_STATUS_LABEL, ROLE_LABEL } from '../domain/core/enums';
+import { hasRoleAccess, TASK_STATUS_LABEL, ROLE_LABEL } from '../domain/core/enums';
 import type { WorkflowTaskStatus, Priority, Urgency } from '../domain/core/enums';
 import type { WorkflowTask } from '../domain/core/entities';
 import { useFriendlyError } from '../components/feedback/useFriendlyError';
@@ -115,10 +115,10 @@ export default function WorkQueue() {
   const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
-  const canSupervise = role === 'medical_administrator' || role === 'care_coordinator';
+  const canSupervise = hasRoleAccess(role, ['medical_administrator', 'care_coordinator']);
 
   const departments = useMemo(() => Array.from(new Set(tasks.map((t) => t.department))), [tasks]);
-  const visibleForRole = tasks.filter((t) => role === 'medical_administrator' || role === 'system_administrator' || t.responsibleRole === role);
+  const visibleForRole = tasks.filter((t) => hasRoleAccess(role, ['medical_administrator', 'system_administrator']) || t.responsibleRole === role);
   const filtered = visibleForRole.filter((t) =>
     (department === 'all' || t.department === department) &&
     (statusFilter === 'all' || t.status === statusFilter) &&
