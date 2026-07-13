@@ -47,14 +47,17 @@ export default function Care() {
   const report = () => guard(() => { if (!plan) throw new Error('Chưa có kế hoạch chăm sóc.'); crmService.raiseAlert(plan.id, currentPatient.id, trigger, note || ESCALATION_RULES[trigger].label, currentUser.id); setReportOpen(false); setNote(''); }, 'Hệ thống đã phân loại và chuyển đúng người phụ trách.');
 
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-    <div style={{display:'flex',justifyContent:'space-between',gap:16,flexWrap:'wrap'}}><div><Text type="secondary" style={{fontSize:12,fontWeight:700,color:'var(--medical-blue-600)'}}>CRM TỰ ĐỘNG · CHĂM SÓC THEO NGOẠI LỆ</Text><Title level={3} style={{margin:'4px 0'}}>Chăm sóc sau khám</Title><Text type="secondary">Hệ thống xử lý việc thường quy; điều phối viên sàng lọc; bác sĩ chỉ nhận quyết định lâm sàng cần thiết.</Text></div><Space><Button icon={<CircleAlert size={15}/>} onClick={()=>setReportOpen(true)}>Báo tình trạng bất thường</Button>{canRunAutomation&&<Button type="primary" icon={<Play size={15}/>} onClick={runAutomation}>Chạy tự động ngay</Button>}</Space></div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+      <div>
+        <Title level={3} style={{ margin: '4px 0 0' }}>Quản Lý Chăm Sóc</Title>
+      </div><Space><Button icon={<CircleAlert size={15} />} onClick={() => setReportOpen(true)}>Báo tình trạng bất thường</Button>{canRunAutomation && <Button type="primary" icon={<Play size={15} />} onClick={runAutomation}>Chạy tự động ngay</Button>}</Space></div>
 
-    <Alert type="success" showIcon icon={<Sparkles size={17}/>} message="Bác sĩ không phải theo dõi danh sách thường quy" description="Nhắc thuốc, nội dung giáo dục và bảng hỏi được CRM gửi tự động. Chỉ kết quả vượt ngưỡng an toàn mới được chuyển thành ngoại lệ cần con người xem xét."/>
+    <Alert type="success" showIcon icon={<Sparkles size={17} />} message="Bác sĩ không phải theo dõi danh sách thường quy" description="Nhắc thuốc, nội dung giáo dục và bảng hỏi được CRM gửi tự động. Chỉ kết quả vượt ngưỡng an toàn mới được chuyển thành ngoại lệ cần con người xem xét." />
 
-    <Row gutter={[12,12]}>
-      <Col xs={12} lg={6}><Card><Statistic title="Tác vụ CRM tự chạy" value={automatic.length} prefix={<Bot size={18}/>} /></Card></Col>
-      <Col xs={12} lg={6}><Card><Statistic title="Bệnh nhân cần làm" value={patientActions.length} prefix={<UserCheck size={18}/>} /></Card></Col>
-      <Col xs={12} lg={6}><Card><Statistic title="Điều phối xử lý" value={coordinatorAlerts.length} prefix={<Clock size={18}/>} /></Card></Col>
+    <Row gutter={[12, 12]}>
+      <Col xs={12} lg={6}><Card><Statistic title="Tác vụ CRM tự chạy" value={automatic.length} prefix={<Bot size={18} />} /></Card></Col>
+      <Col xs={12} lg={6}><Card><Statistic title="Bệnh nhân cần làm" value={patientActions.length} prefix={<UserCheck size={18} />} /></Card></Col>
+      <Col xs={12} lg={6}><Card><Statistic title="Điều phối xử lý" value={coordinatorAlerts.length} prefix={<Clock size={18} />} /></Card></Col>
       <Col xs={12} lg={6}><Card><Statistic title="Cần bác sĩ quyết định" value={clinicalAlerts.length+pendingRequests.length} prefix={<ShieldCheck size={18}/>} valueStyle={{color:clinicalAlerts.length?'var(--danger)':undefined}}/></Card></Col>
     </Row>
 

@@ -28,9 +28,7 @@ export default function AuditViewer() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Bảo mật & Tuân thủ</Text>
         <Title level={3} style={{ margin: '4px 0 0' }}>Nhật Ký Kiểm Toán</Title>
-        <Text type="secondary">{events.length} sự kiện được ghi nhận trên toàn hệ thống — bất biến, không thể chỉnh sửa.</Text>
       </div>
 
       <Card size="small">

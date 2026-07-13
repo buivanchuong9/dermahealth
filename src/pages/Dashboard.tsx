@@ -85,11 +85,8 @@ function OperationalDashboard() {
   return (
     <div className="dashboard-page operational-dashboard">
       <div>
-        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Tổng quan vận hành</Text>
-        <Title level={3} style={{ margin: '4px 0 0' }}>Xin chào, {currentUser.name}</Title>
-        <Text type="secondary">{ROLE_LABEL[role]} — theo dõi tình trạng vận hành toàn hệ thống.</Text>
+        <Title level={3} style={{ margin: '4px 0 0' }}>Xin chào, {currentUser.name}  ! </Title>
       </div>
-
       <Row gutter={[12, 12]}>
         {WIDGETS.map((w) => (
           <Col xs={24} sm={12} md={6} key={w.label}>

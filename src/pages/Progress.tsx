@@ -22,6 +22,7 @@ const chartOptions: Highcharts.Options = {
 
 export default function Progress() {
   const [uploadModal, setUploadModal] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
 
   const overviewTab = (
     <Row gutter={16}>
@@ -200,12 +201,9 @@ export default function Progress() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>AI Phân tích</Text>
           <Title level={3} style={{ margin: '4px 0 0' }}>Theo Dõi Tiến Triển</Title>
-          <Text type="secondary">Theo dõi sự cải thiện da theo thời gian với AI phân tích hình ảnh.</Text>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Button icon={<Brain size={15} />}>Phân tích AI</Button>
           <Button type="primary" icon={<Upload size={16} />} onClick={() => setUploadModal(true)}>Upload ảnh mới</Button>
         </div>
       </div>
@@ -228,10 +226,54 @@ export default function Progress() {
       </Row>
 
       <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
         items={[
-          { key: 'overview', label: 'Biểu đồ', children: overviewTab },
-          { key: 'photos', label: 'Ảnh tiến triển', children: photosTab },
-          { key: 'comparison', label: 'So sánh AI', children: comparisonTab },
+          {
+            key: 'overview',
+            label: (
+              <span
+                style={{
+                  opacity: activeTab === 'overview' ? 1 : 0.45,
+                  fontWeight: activeTab === 'overview' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                Biểu đồ
+              </span>
+            ),
+            children: overviewTab,
+          },
+          {
+            key: 'photos',
+            label: (
+              <span
+                style={{
+                  opacity: activeTab === 'photos' ? 1 : 0.45,
+                  fontWeight: activeTab === 'photos' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                Ảnh tiến triển
+              </span>
+            ),
+            children: photosTab,
+          },
+          {
+            key: 'comparison',
+            label: (
+              <span
+                style={{
+                  opacity: activeTab === 'comparison' ? 1 : 0.45,
+                  fontWeight: activeTab === 'comparison' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                So sánh AI
+              </span>
+            ),
+            children: comparisonTab,
+          },
         ]}
       />
 

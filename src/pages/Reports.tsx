@@ -229,9 +229,7 @@ export default function Reports() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Báo cáo sức khỏe</Text>
           <Title level={3} style={{ margin: '4px 0 0' }}>Báo Cáo & Thống Kê</Title>
-          <Text type="secondary">Tổng hợp kết quả điều trị và phân tích sức khỏe da của bạn.</Text>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Button icon={<Download size={15} />}>Xuất PDF</Button>
@@ -256,10 +254,70 @@ export default function Reports() {
         activeKey={tab}
         onChange={setTab}
         items={[
-          { key: 'overview', label: <span><BarChart3 size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Tổng quan</span>, children: overviewTab },
-          { key: 'treatment', label: 'Điều trị', children: treatmentTab },
-          { key: 'medicine', label: 'Thuốc', children: medicineTab },
-          { key: 'ai', label: 'AI Báo cáo', children: aiReportTab },
+          {
+            key: 'overview',
+            label: (
+              <span
+                style={{
+                  opacity: tab === 'overview' ? 1 : 0.45,
+                  fontWeight: tab === 'overview' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <BarChart3 size={13} />
+                Tổng quan
+              </span>
+            ),
+            children: overviewTab,
+          },
+          {
+            key: 'treatment',
+            label: (
+              <span
+                style={{
+                  opacity: tab === 'treatment' ? 1 : 0.45,
+                  fontWeight: tab === 'treatment' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                Điều trị
+              </span>
+            ),
+            children: treatmentTab,
+          },
+          {
+            key: 'medicine',
+            label: (
+              <span
+                style={{
+                  opacity: tab === 'medicine' ? 1 : 0.45,
+                  fontWeight: tab === 'medicine' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                Thuốc
+              </span>
+            ),
+            children: medicineTab,
+          },
+          {
+            key: 'ai',
+            label: (
+              <span
+                style={{
+                  opacity: tab === 'ai' ? 1 : 0.45,
+                  fontWeight: tab === 'ai' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                AI Báo cáo
+              </span>
+            ),
+            children: aiReportTab,
+          },
         ]}
       />
     </div>

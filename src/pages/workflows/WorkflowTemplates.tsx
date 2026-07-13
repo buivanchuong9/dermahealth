@@ -39,8 +39,7 @@ export default function WorkflowTemplates() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Title level={3} style={{ margin: 0 }}>Quy trình khám bệnh</Title>
-        <Text type="secondary">Tạo và quản lý các quy trình đang áp dụng tại phòng khám.</Text>
+        <Title level={3} style={{ margin: 0 }}>Quản Lý Quy Trình Khám Bệnh</Title>
       </div>
 
       {!canDesign && (

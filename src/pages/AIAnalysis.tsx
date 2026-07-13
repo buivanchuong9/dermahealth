@@ -89,9 +89,7 @@ export default function AIAnalysis() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>AI Preliminary Assessment</Text>
           <Title level={3} style={{ margin: '4px 0 0' }}>Phân Tích Da Bằng AI</Title>
-          <Text type="secondary">Tải lên hình ảnh và mô tả triệu chứng để nhận đánh giá sơ bộ từ hệ thống AI của DermaHealth.</Text>
         </div>
         <Tag color="blue" style={{ padding: '4px 10px' }}>AI Diagnosis v2.4</Tag>
       </div>
