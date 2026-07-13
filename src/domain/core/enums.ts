@@ -4,6 +4,7 @@
 // exhaustiveness checks in switch statements.
 
 export type UserRole =
+  | 'super_administrator'
   | 'patient'
   | 'doctor'
   | 'nurse'
@@ -18,6 +19,7 @@ export type UserRole =
   | 'clinical_process_designer';
 
 export const ROLE_LABEL: Record<UserRole, string> = {
+  super_administrator: 'Quản trị viên cấp cao',
   patient: 'Bệnh nhân',
   doctor: 'Bác sĩ',
   nurse: 'Điều dưỡng',
@@ -31,6 +33,13 @@ export const ROLE_LABEL: Record<UserRole, string> = {
   system_administrator: 'Quản trị viên hệ thống',
   clinical_process_designer: 'Chuyên viên thiết kế quy trình',
 };
+
+/** Super administrators are an explicit break-glass platform role and pass
+ * every role gate. Keeping the override here prevents route, menu and service
+ * authorization from drifting apart. */
+export function hasRoleAccess(role: UserRole, allowed: readonly UserRole[]): boolean {
+  return role === 'super_administrator' || allowed.includes(role);
+}
 
 export type EncounterStatus =
   | 'registered'

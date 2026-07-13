@@ -8,6 +8,7 @@ import type {
 } from '../core/entities';
 import type { WorkflowTaskStatus } from '../core/enums';
 import type { EncounterId, UserId, WorkflowTemplateId, WorkflowTemplateVersionId, WorkflowInstanceId, WorkflowTaskId } from '../core/ids';
+import { createWorkflowIdentity, verifyWorkflowIdentity } from '../workflowIdentity';
 
 // BPM boundary: this module creates and tracks operational tasks only. It
 // never writes a DoctorDiagnosis, never touches Prescription content, and
@@ -51,6 +52,30 @@ function createDraftTemplate(name: string, specialty: string, description: strin
   return template;
 }
 
+function updateTemplateDetails(
+  templateId: WorkflowTemplateId,
+  details: Pick<WorkflowTemplate, 'name' | 'specialty' | 'description'>,
+  actorId: UserId,
+): WorkflowTemplate {
+  assertRole(actorId, ['clinical_process_designer', 'medical_administrator']);
+  const template = workflowRepository.templates().getById(templateId);
+  if (!template) throw new Error(`Không tìm thấy quy trình ${templateId}`);
+  const name = details.name.trim();
+  const specialty = details.specialty.trim();
+  if (!name || !specialty) throw new Error('Vui lòng nhập tên quy trình và chuyên khoa.');
+  const updated = workflowRepository.templates().upsert({ ...template, name, specialty, description: details.description.trim() });
+  auditService.log({
+    actorId,
+    action: 'WORKFLOW_TEMPLATE_DETAILS_UPDATED',
+    entityType: 'WorkflowTemplate',
+    entityId: templateId,
+    previousState: `${template.name} | ${template.specialty}`,
+    newState: `${updated.name} | ${updated.specialty}`,
+    sourceModule: 'BPM',
+  });
+  return updated;
+}
+
 function getDraftVersion(templateId: WorkflowTemplateId): WorkflowTemplateVersion | undefined {
   const template = workflowRepository.templates().getById(templateId);
   if (!template) return undefined;
@@ -70,7 +95,25 @@ function editStep(templateId: WorkflowTemplateId, stepCode: string, patch: Parti
   assertRole(actorId, ['clinical_process_designer', 'medical_administrator']);
   const draft = getDraftVersion(templateId);
   if (!draft) throw new InvalidTransitionError('Không có phiên bản nháp để chỉnh sửa.');
-  const updated = { ...draft, steps: draft.steps.map((s) => (s.code === stepCode ? { ...s, ...patch } : s)) };
+  const steps = draft.steps.map((s) => (s.code === stepCode ? { ...s, ...patch } : s));
+  const codes = new Set(steps.map((step) => step.code));
+  for (const step of steps) {
+    if (step.prerequisiteStepCodes.includes(step.code)) throw new InvalidTransitionError('Một bước không thể phụ thuộc vào chính nó.');
+    if (step.prerequisiteStepCodes.some((code) => !codes.has(code))) throw new InvalidTransitionError('Có bước phía trước không còn tồn tại trong quy trình.');
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const assertAcyclic = (code: string) => {
+    if (visiting.has(code)) throw new InvalidTransitionError('Quan hệ này tạo vòng lặp trong quy trình.');
+    if (visited.has(code)) return;
+    visiting.add(code);
+    const step = steps.find((item) => item.code === code);
+    step?.prerequisiteStepCodes.forEach(assertAcyclic);
+    visiting.delete(code);
+    visited.add(code);
+  };
+  steps.forEach((step) => assertAcyclic(step.code));
+  const updated = { ...draft, steps };
   workflowRepository.versions().upsert(updated);
   return updated;
 }
@@ -118,13 +161,24 @@ function reorderSteps(templateId: WorkflowTemplateId, orderedCodes: string[], ac
   return updated;
 }
 
+function saveNodePositions(templateId: WorkflowTemplateId, positions: Record<string, { x: number; y: number }>, actorId: UserId): WorkflowTemplateVersion {
+  assertRole(actorId, ['clinical_process_designer', 'medical_administrator']);
+  const draft = getDraftVersion(templateId);
+  if (!draft) throw new InvalidTransitionError('Không có phiên bản nháp để lưu vị trí sơ đồ.');
+  const updated = { ...draft, nodePositions: { ...draft.nodePositions, ...positions } };
+  workflowRepository.versions().upsert(updated);
+  return updated;
+}
+
 function removeStep(templateId: WorkflowTemplateId, stepCode: string, actorId: UserId): WorkflowTemplateVersion {
   assertRole(actorId, ['clinical_process_designer', 'medical_administrator']);
   const draft = getDraftVersion(templateId);
   if (!draft) throw new InvalidTransitionError('Không có phiên bản nháp để chỉnh sửa.');
   const target = draft.steps.find((s) => s.code === stepCode);
   if (target?.mandatory) throw new InvalidTransitionError('Không thể xóa bước bắt buộc — hãy đổi thành không bắt buộc trước.');
-  const updated = { ...draft, steps: draft.steps.filter((s) => s.code !== stepCode) };
+  const remainingPositions = { ...draft.nodePositions };
+  delete remainingPositions[stepCode];
+  const updated = { ...draft, steps: draft.steps.filter((s) => s.code !== stepCode), nodePositions: remainingPositions };
   workflowRepository.versions().upsert(updated);
   return updated;
 }
@@ -161,6 +215,7 @@ function startNewDraftFromPublished(templateId: WorkflowTemplateId, actorId: Use
   const nextVersion: WorkflowTemplateVersion = {
     id: nextId('WFV'), templateId, version: (base?.version ?? 0) + 1, status: 'draft',
     steps: base ? base.steps.map((s) => ({ ...s })) : [], createdAt: new Date().toISOString(),
+    nodePositions: base?.nodePositions ? { ...base.nodePositions } : {},
   };
   workflowRepository.versions().upsert(nextVersion);
   workflowRepository.templates().upsert({ ...template, versionIds: [...template.versionIds, nextVersion.id] });
@@ -176,15 +231,30 @@ function listVersions(templateId: WorkflowTemplateId): WorkflowTemplateVersion[]
 }
 
 function recommendTemplate(specialty: string): WorkflowTemplate | undefined {
-  return listTemplates().find((t) => t.specialty === specialty && t.latestPublishedVersionId);
+  const normalized = specialty.toLocaleLowerCase('vi').replace(/^khoa\s+/, '').trim();
+  return listTemplates()
+    .filter((template) => {
+      if (!template.latestPublishedVersionId) return false;
+      const candidate = template.specialty.toLocaleLowerCase('vi').replace(/^khoa\s+/, '').trim();
+      return candidate === normalized || candidate.includes(normalized) || normalized.includes(candidate);
+    })
+    .sort((left, right) => {
+      const leftPublished = left.latestPublishedVersionId ? workflowRepository.versions().getById(left.latestPublishedVersionId)?.publishedAt ?? '' : '';
+      const rightPublished = right.latestPublishedVersionId ? workflowRepository.versions().getById(right.latestPublishedVersionId)?.publishedAt ?? '' : '';
+      return rightPublished.localeCompare(leftPublished);
+    })[0];
 }
 
 // ---- Instance activation & task runtime ----
 
-function activateWorkflow(encounterId: EncounterId, templateId: WorkflowTemplateId, doctorId: UserId): WorkflowInstance {
-  assertRole(doctorId, ['doctor']);
+function activateWorkflow(encounterId: EncounterId, templateId: WorkflowTemplateId, actorId: UserId): WorkflowInstance {
+  assertRole(actorId, ['doctor', 'medical_administrator']);
   const encounter = encounterRepository.getById(encounterId);
   if (!encounter) throw new Error(`Không tìm thấy lượt khám ${encounterId}`);
+  if (encounter.workflowInstanceId) {
+    const existing = workflowRepository.instances().getById(encounter.workflowInstanceId);
+    if (existing) return existing;
+  }
   const gate = encounterService.canActivateWorkflow(encounter);
   if (!gate.ok) throw new InvalidTransitionError(gate.reason ?? 'Không thể kích hoạt quy trình.');
 
@@ -192,9 +262,12 @@ function activateWorkflow(encounterId: EncounterId, templateId: WorkflowTemplate
   const version = template?.latestPublishedVersionId ? workflowRepository.versions().getById(template.latestPublishedVersionId) : undefined;
   if (!template || !version) throw new Error('Quy trình chưa có phiên bản đã xuất bản.');
 
+  const instanceId = nextId<WorkflowInstanceId>('WFI');
+  const activatedAt = new Date().toISOString();
+  const identity = createWorkflowIdentity({ instanceId, patientId: encounter.patientId, encounterId, templateVersionId: version.id, activatedAt });
   const instance: WorkflowInstance = {
-    id: nextId('WFI'), encounterId, templateId, templateVersionId: version.id, status: 'active',
-    activatedBy: doctorId, activatedAt: new Date().toISOString(), taskIds: [],
+    id: instanceId, encounterId, templateId, templateVersionId: version.id, status: 'active',
+    activatedBy: actorId, activatedAt, taskIds: [], ...identity,
   };
 
   // copy-on-instantiate: tasks are generated from the pinned version's steps now;
@@ -211,13 +284,13 @@ function activateWorkflow(encounterId: EncounterId, templateId: WorkflowTemplate
   workflowRepository.instances().upsert(instance);
 
   encounterRepository.upsert({ ...encounter, workflowInstanceId: instance.id });
-  auditService.log({ actorId: doctorId, action: 'WORKFLOW_INSTANCE_ACTIVATED', entityType: 'WorkflowInstance', entityId: instance.id, patientId: encounter.patientId, encounterId, sourceModule: 'BPM', newState: 'active' });
+  auditService.log({ actorId, action: 'WORKFLOW_INSTANCE_ACTIVATED', entityType: 'WorkflowInstance', entityId: instance.id, patientId: encounter.patientId, encounterId, sourceModule: 'BPM', newState: 'active' });
   if (encounterService.canTransition(encounter.status, 'workflow_active')) {
-    encounterService.transitionStatus(encounterId, 'workflow_active', doctorId);
+    encounterService.transitionStatus(encounterId, 'workflow_active', actorId);
   }
   const current = encounterRepository.getById(encounterId)!;
   if (encounterService.canTransition(current.status, 'in_progress')) {
-    encounterService.transitionStatus(encounterId, 'in_progress', doctorId);
+    encounterService.transitionStatus(encounterId, 'in_progress', actorId);
   }
   return instance;
 }
@@ -352,11 +425,15 @@ function getVersion(versionId: WorkflowTemplateVersionId): WorkflowTemplateVersi
   return workflowRepository.versions().getById(versionId);
 }
 
+function listInstancesForPatient(patientId: WorkflowInstance['patientId']): WorkflowInstance[] {
+  return workflowRepository.instances().getAll().filter((instance) => instance.patientId === patientId);
+}
+
 export const workflowService = {
   ALLOWED_TASK_TRANSITIONS, canTransitionTask,
-  createDraftTemplate, getDraftVersion, addStep, editStep, connectSteps, disconnectSteps, reorderSteps, removeStep,
+  createDraftTemplate, updateTemplateDetails, getDraftVersion, addStep, editStep, connectSteps, disconnectSteps, reorderSteps, saveNodePositions, removeStep,
   publishVersion, archiveVersion, startNewDraftFromPublished, listTemplates, listVersions, recommendTemplate,
   activateWorkflow, transitionTask, acceptTask, startTask, completeTask, requestRedo, rejectResult,
   escalateTask, skipTask, reassignTask, suspendInstance, resumeInstance, cancelInstance,
-  checkAndCompleteInstance, listTasksForEncounter, listTasksForRole, listTasksForAssignee, getInstance, getVersion,
+  checkAndCompleteInstance, listTasksForEncounter, listTasksForRole, listTasksForAssignee, listInstancesForPatient, getInstance, getVersion, verifyWorkflowIdentity,
 };

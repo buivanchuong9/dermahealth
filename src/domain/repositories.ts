@@ -1,6 +1,7 @@
 import { createEntityStore, clearPersistedState, wasRecoveredFromCorruption, type EntityStore } from './store';
 import { createSeedWorld } from './seed';
 import { resetIdSequence } from './core/ids';
+import { createWorkflowIdentity } from './workflowIdentity';
 import type {
   User, Patient, Appointment, MedicalEncounter, SymptomIntake, AIPreliminaryAssessment,
   DoctorReview, DoctorDiagnosis, ClinicalPlan, ClinicalOrder, ClinicalResult,
@@ -49,6 +50,30 @@ const integrationConnectionStore: EntityStore<IntegrationConnection> = createEnt
 const integrationMessageStore: EntityStore<IntegrationMessage> = createEntityStore('integrationMessages', world.integrationMessages);
 const checkInTokenStore: EntityStore<AppointmentCheckInToken> = createEntityStore('appointmentCheckInTokens', world.appointmentCheckInTokens);
 const queueTicketStore: EntityStore<QueueTicket> = createEntityStore('queueTickets', world.queueTickets);
+
+// Seed additions are merged without resetting the user's local prototype data.
+// This keeps newly provisioned platform administrators available immediately.
+world.users.filter((user) => user.role === 'super_administrator').forEach((user) => {
+  if (!userStore.getById(user.id)) userStore.upsert(user);
+});
+
+// Non-destructive migration for workflow instances created before patient
+// ownership and integrity seals were introduced. Existing tasks and status are
+// preserved; only the missing identity envelope is added.
+workflowInstanceStore.getAll().forEach((instance) => {
+  const legacy = instance as WorkflowInstance & { patientId?: WorkflowInstance['patientId']; instanceCode?: string; integrityHash?: string; identityVersion?: number };
+  if (legacy.patientId && legacy.instanceCode && legacy.integrityHash && legacy.identityVersion) return;
+  const encounter = encounterStore.getById(instance.encounterId);
+  if (!encounter) return;
+  const identity = createWorkflowIdentity({
+    instanceId: instance.id,
+    patientId: encounter.patientId,
+    encounterId: instance.encounterId,
+    templateVersionId: instance.templateVersionId,
+    activatedAt: instance.activatedAt,
+  });
+  workflowInstanceStore.upsert({ ...instance, ...identity });
+});
 
 /** Cross-collection FK sanity check for whatever combination of persisted-vs-seed
  * collections ended up loaded (e.g. one corrupted key falling back to seed while a

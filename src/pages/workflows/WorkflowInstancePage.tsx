@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, type Node, type Edge, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Card, Button, Tag, Input, Typography, Result } from 'antd';
-import { ArrowLeft, Play, CheckCircle, RotateCcw, XCircle, TriangleAlert, PauseCircle, PlayCircle, Ban, SkipForward, UserPlus, SearchX } from 'lucide-react';
+import { Card, Button, Tag, Input, Typography, Result, Descriptions } from 'antd';
+import { ArrowLeft, Play, CheckCircle, RotateCcw, XCircle, TriangleAlert, PauseCircle, PlayCircle, Ban, SkipForward, UserPlus, SearchX, ShieldCheck } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
-import { workflowRepository } from '../../domain/repositories';
+import { encounterRepository, patientRepository, workflowRepository } from '../../domain/repositories';
 import { workflowService } from '../../domain/services/workflowService';
 import { layoutByPrerequisites } from '../../domain/flowLayout';
 import { TASK_STATUS_LABEL, ROLE_LABEL } from '../../domain/core/enums';
@@ -51,11 +51,16 @@ export default function WorkflowInstancePage() {
   const { currentUser } = useAppState();
   const instances = useStore(workflowRepository.instances());
   const tasks = useStore(workflowRepository.tasks());
+  const encounters = useStore(encounterRepository);
+  const patients = useStore(patientRepository);
   const [reasonDraft, setReasonDraft] = useState<Record<string, string>>({});
   const [selectedTaskId, setSelectedTaskId] = useState<WorkflowTaskId | null>(null);
 
   const instance = instances.find((i) => i.id === instanceId);
   const instanceTasks = useMemo(() => tasks.filter((t) => t.instanceId === instanceId), [tasks, instanceId]);
+  const encounter = encounters.find((item) => item.id === instance?.encounterId);
+  const patient = patients.find((item) => item.id === (instance?.patientId ?? encounter?.patientId));
+  const identityValid = instance ? workflowService.verifyWorkflowIdentity(instance) : false;
 
   const { nodes, edges }: { nodes: Node[]; edges: Edge[] } = useMemo(() => {
     const positions = layoutByPrerequisites(instanceTasks.map((t) => ({ code: t.stepCode, prerequisiteCodes: t.dependsOnStepCodes })));
@@ -98,8 +103,8 @@ export default function WorkflowInstancePage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <Link to="/app/work-queue" style={{ fontSize: 12.5, color: 'var(--medical-blue-600)', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 6 }}><ArrowLeft size={13} /> Quay lại hàng đợi</Link>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>Quy Trình {instance.id}</div>
-          <Text type="secondary">Lượt khám {instance.encounterId} · Trạng thái: <strong>{instance.status}</strong></Text>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>Quy trình của {patient?.name ?? 'bệnh nhân'}</div>
+          <Text type="secondary">Mã vận hành: <strong>{instance.instanceCode ?? instance.id}</strong></Text>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {instance.status === 'active' && <Button icon={<PauseCircle size={14} />} onClick={() => guarded(() => workflowService.suspendInstance(instance.id, currentUser.id, 'Tạm dừng theo yêu cầu'))}>Tạm dừng</Button>}
@@ -108,6 +113,15 @@ export default function WorkflowInstancePage() {
           {instance.status === 'active' && <Button type="primary" icon={<CheckCircle size={14} />} onClick={() => guarded(() => workflowService.checkAndCompleteInstance(instance.id, currentUser.id))}>Kiểm tra hoàn tất</Button>}
         </div>
       </div>
+
+      <Card size="small">
+        <Descriptions column={{ xs: 1, sm: 2, lg: 4 }} size="small" items={[
+          { key: 'patient', label: 'Bệnh nhân', children: patient ? `${patient.name} · ${patient.code}` : 'Không xác định' },
+          { key: 'encounter', label: 'Lượt khám', children: instance.encounterId },
+          { key: 'version', label: 'Phiên bản mẫu', children: instance.templateVersionId },
+          { key: 'seal', label: 'Liên kết dữ liệu', children: <Tag icon={<ShieldCheck size={12} />} color={identityValid ? 'success' : 'error'}>{identityValid ? 'Đã đối soát' : 'Cần kiểm tra'}</Tag> },
+        ]} />
+      </Card>
 
       <Card size="small" styles={{ body: { padding: 0 } }}>
         <div style={{ height: 380 }}>

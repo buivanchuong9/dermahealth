@@ -1,6 +1,7 @@
 import { encounterRepository, diagnosisRepository, aiAssessmentRepository } from '../repositories';
 import { auditService } from './auditService';
 import { encounterService } from './encounterService';
+import { workflowService } from './workflowService';
 import { assertRole, PermissionError } from '../guards';
 import { nextId } from '../core/ids';
 import type { DoctorReview, DoctorDiagnosis, ClinicalPlan } from '../core/entities';
@@ -74,6 +75,11 @@ function approveClinicalPlan(encounterId: EncounterId, doctorId: UserId, diagnos
   auditService.log({ actorId: doctorId, action: 'CLINICAL_PLAN_APPROVED', entityType: 'ClinicalPlan', entityId: plan.id, patientId: encounter?.patientId, encounterId, sourceModule: 'DoctorDecision' });
   if (encounter && encounterService.canTransition(encounter.status, 'plan_approved')) {
     encounterService.transitionStatus(encounterId, 'plan_approved', doctorId);
+  }
+  const approvedEncounter = encounterRepository.getById(encounterId);
+  if (approvedEncounter && !approvedEncounter.workflowInstanceId) {
+    const recommendedTemplate = workflowService.recommendTemplate(approvedEncounter.department);
+    if (recommendedTemplate) workflowService.activateWorkflow(encounterId, recommendedTemplate.id, doctorId);
   }
   return plan;
 }

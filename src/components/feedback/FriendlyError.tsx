@@ -1,6 +1,6 @@
 import { Button, Typography } from 'antd';
 import { Home, RotateCcw } from 'lucide-react';
-import errorImage from '../../../error.png';
+const errorImage = `${import.meta.env.BASE_URL}error.png`;
 
 const { Title, Text } = Typography;
 

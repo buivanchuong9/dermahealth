@@ -1,18 +1,18 @@
 import { useState } from 'react';
 import {
-  Row, Col, Card, Steps, Select, Button, Alert, Tag, List, Descriptions, Timeline, Table, Typography, Statistic,
+  Row, Col, Card, Steps, Select, Button, Alert, Tag, List, Descriptions, Timeline, Table, Typography, Progress,
 } from 'antd';
 import {
-  MapPin, Hash, Clock, ClipboardCheck, FlaskConical, PhoneCall, TriangleAlert, PlayCircle, Users,
+  MapPin, Hash, Clock, ClipboardCheck, FlaskConical, PhoneCall, TriangleAlert, Users, CheckCircle2, ArrowRight,
 } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, clinicalOrderRepository, workflowRepository, medicalRecordRepository, carePlanRepository } from '../domain/repositories';
 import { encounterService } from '../domain/services/encounterService';
 import { MILESTONES, milestoneIndexForStatus, overallProgressPct } from '../domain/journeyView';
-import { applyScenario, SCENARIO_LABEL, type ScenarioKey } from '../domain/journeyScenarios';
-import { ENCOUNTER_STATUS_LABEL, TASK_STATUS_LABEL, RECORD_STATUS_LABEL } from '../domain/core/enums';
+import { ENCOUNTER_STATUS_LABEL, TASK_STATUS_LABEL, RECORD_STATUS_LABEL, ROLE_LABEL } from '../domain/core/enums';
 import type { EncounterId } from '../domain/core/ids';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text } = Typography;
 
@@ -24,8 +24,45 @@ const PREP_INSTRUCTIONS = [
 
 const EVENT_COLOR: Record<string, string> = { info: 'blue', success: 'green', warning: 'orange', danger: 'red' };
 
+const ENCOUNTER_TYPE_LABEL = {
+  standard: 'Khám thông thường',
+  emergency: 'Khám cấp cứu',
+  follow_up: 'Tái khám',
+  remote: 'Khám từ xa',
+} as const;
+
+const CARE_PLAN_STATUS_LABEL = {
+  not_started: 'Chưa bắt đầu',
+  active: 'Đang theo dõi',
+  completed: 'Đã hoàn tất',
+  suspended: 'Tạm dừng',
+} as const;
+
+const WORKFLOW_STATUS_LABEL = {
+  created: 'Chưa bắt đầu',
+  active: 'Đang thực hiện',
+  suspended: 'Tạm dừng',
+  completed: 'Đã hoàn tất',
+  cancelled: 'Đã hủy',
+} as const;
+
+const ORDER_TYPE_LABEL = { laboratory: 'Xét nghiệm', imaging: 'Chẩn đoán hình ảnh', consultation: 'Hội chẩn' } as const;
+const ORDER_STATUS_LABEL = {
+  requested: 'Đã tạo yêu cầu',
+  in_progress: 'Đang thực hiện',
+  invalid_sample: 'Mẫu không hợp lệ',
+  result_ready: 'Đã có kết quả',
+  completed: 'Đã hoàn tất',
+  cancelled: 'Đã hủy',
+} as const;
+
+function formatEncounterDate(value: string) {
+  const [date, time] = value.split(' ');
+  return time ? `${date} lúc ${time}` : date;
+}
+
 export default function Journey() {
-  const { currentPatient, currentUser, role } = useAppState();
+  const { currentPatient, role } = useAppState();
   const encounters = useStore(encounterRepository).filter((e) => e.patientId === currentPatient.id);
   const orders = useStore(clinicalOrderRepository.orders());
   const results = useStore(clinicalOrderRepository.results());
@@ -37,8 +74,6 @@ export default function Journey() {
 
   const defaultId = encounterService.getActiveEncounter(currentPatient.id)?.id ?? encounters[0]?.id;
   const [selectedId, setSelectedId] = useState<EncounterId | undefined>(defaultId);
-  const [scenario, setScenario] = useState<ScenarioKey>('standard');
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
 
@@ -50,7 +85,7 @@ export default function Journey() {
   const openAlerts = alerts.filter((a) => a.patientId === currentPatient.id && a.status !== 'resolved');
 
   if (!encounter) {
-    return <Card>Chưa có lượt khám nào cho bệnh nhân này.</Card>;
+    return <Card><ProfessionalEmpty title="Chưa có lượt khám" description="Hành trình sẽ xuất hiện sau khi bệnh nhân có lịch hẹn hoặc được tiếp nhận tại phòng khám." primaryLabel="Xem lịch hẹn" primaryHref="/app/appointments" /></Card>;
   }
 
   const pct = overallProgressPct(encounter.status);
@@ -58,58 +93,37 @@ export default function Journey() {
   const outstandingTasks = encounterTasks.filter((t) => t.status === 'pending' || t.status === 'blocked' || t.status === 'ready');
   const resultStatus = encounterOrders.length === 0 ? 'not_ordered' : encounterOrders.some((o) => o.status === 'requested' || o.status === 'in_progress') ? 'pending' : 'ready';
   const currentTask = encounterTasks.find((t) => t.status === 'in_progress' || t.status === 'accepted') ?? encounterTasks.find((t) => t.status === 'ready' || t.status === 'assigned');
-
-  const handleApplyScenario = () => {
-    try {
-      const { message } = applyScenario(scenario, encounter.id, currentUser.id);
-      setFeedback({ type: 'success', text: message });
-      if (scenario === 'follow_up_visit') {
-        const followUp = encounters.find((e) => e.parentEncounterId === encounter.id || e.id === 'ENC-1002');
-        if (followUp) setSelectedId(followUp.id);
-      }
-    } catch (err) {
-      setFeedback({ type: 'error', text: err instanceof Error ? err.message : String(err) });
-    }
-  };
+  const currentMilestone = MILESTONES[Math.max(0, milestoneIdx)];
+  const nextMilestone = milestoneIdx >= 0 ? MILESTONES[milestoneIdx + 1] : undefined;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Theo dõi trực tiếp</Text>
-          <Title level={3} style={{ margin: '4px 0 0' }}>Hành Trình Khám Bệnh</Title>
-          <Text type="secondary">{currentPatient.name} · {currentPatient.code} · Lượt khám {encounter.id}</Text>
+          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Theo dõi tại phòng khám</Text>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Hành trình khám bệnh</Title>
+          <Text type="secondary">{currentPatient.name} · {ENCOUNTER_TYPE_LABEL[encounter.type]} · {encounter.department}</Text>
         </div>
-        <Statistic value={pct} suffix="%" valueStyle={{ color: 'var(--medical-blue-700)', fontSize: 28 }} title="Hoàn tất" />
+        <div style={{ width: 220, paddingTop: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><Text type="secondary">Tiến độ lượt khám</Text><Text strong>{pct}%</Text></div>
+          <Progress percent={pct} showInfo={false} strokeColor="var(--medical-blue-700)" />
+        </div>
       </div>
 
       <Card size="small">
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ minWidth: 260 }}>
-            <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Lượt khám</Text>
+        <div style={{ maxWidth: 520 }}>
+            <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Lượt khám đang theo dõi</Text>
             <Select
               style={{ width: '100%' }}
               value={encounter.id}
               onChange={(v) => setSelectedId(v as EncounterId)}
-              options={encounters.map((e) => ({ value: e.id, label: `${e.id} — ${ENCOUNTER_STATUS_LABEL[e.status]} (${e.type})` }))}
+              options={encounters.map((e) => ({
+                value: e.id,
+                label: `${ENCOUNTER_TYPE_LABEL[e.type]} · ${formatEncounterDate(e.createdAt)} · ${ENCOUNTER_STATUS_LABEL[e.status]}`,
+              }))}
             />
-          </div>
-          <div style={{ minWidth: 280 }}>
-            <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Kịch bản mô phỏng (demo)</Text>
-            <Select
-              style={{ width: '100%' }}
-              value={scenario}
-              onChange={(v) => setScenario(v as ScenarioKey)}
-              options={Object.entries(SCENARIO_LABEL).map(([k, v]) => ({ value: k, label: v }))}
-            />
-          </div>
-          <Button type="primary" icon={<PlayCircle size={15} />} onClick={handleApplyScenario}>Áp dụng kịch bản</Button>
         </div>
       </Card>
-
-      {feedback && (
-        <Alert type={feedback.type === 'success' ? 'success' : 'error'} showIcon message={feedback.text} closable onClose={() => setFeedback(null)} />
-      )}
 
       {encounter.status === 'escalated' && (
         <Alert
@@ -126,11 +140,24 @@ export default function Journey() {
 
       <Row gutter={16}>
         <Col xs={24} md={16}>
-          <Card size="small">
-            <div style={{ marginBottom: 16 }}>
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                Trạng thái hiện tại: <Text strong style={{ color: 'var(--medical-blue-700)' }}>{ENCOUNTER_STATUS_LABEL[encounter.status]}</Text>
-              </Text>
+          <Card size="small" title="Tiến trình khám">
+            <Row gutter={[12, 12]} style={{ marginBottom: 22 }}>
+              <Col xs={24} sm={12}>
+                <div style={{ padding: 14, borderRadius: 10, background: '#eef6ff', height: '100%' }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>ĐANG THỰC HIỆN</Text>
+                  <div style={{ marginTop: 5 }}><Text strong style={{ color: 'var(--medical-blue-700)' }}>{currentTask?.name ?? currentMilestone?.label ?? ENCOUNTER_STATUS_LABEL[encounter.status]}</Text></div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{ENCOUNTER_STATUS_LABEL[encounter.status]}</Text>
+                </div>
+              </Col>
+              <Col xs={24} sm={12}>
+                <div style={{ padding: 14, borderRadius: 10, background: '#f6f8fa', height: '100%' }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>BƯỚC TIẾP THEO</Text>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5 }}><ArrowRight size={15} /><Text strong>{nextMilestone?.label ?? 'Hoàn tất hành trình khám'}</Text></div>
+                </div>
+              </Col>
+            </Row>
+            <div style={{ marginBottom: 14 }}>
+              <Text strong>Các giai đoạn</Text>
             </div>
             <Steps
               direction="vertical"
@@ -153,8 +180,11 @@ export default function Journey() {
             </Card>
 
             <Card size="small" title={<span><ClipboardCheck size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Yêu cầu còn thiếu</span>}>
-              {outstandingTasks.length === 0 && <Text type="secondary" style={{ fontSize: 13 }}>Không có yêu cầu nào đang chờ.</Text>}
-              <List size="small" dataSource={outstandingTasks} renderItem={(t) => <List.Item>{t.name}</List.Item>} />
+              {outstandingTasks.length === 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#25834b' }}><CheckCircle2 size={18} /><Text>Không có việc nào đang chờ xử lý</Text></div>
+              ) : (
+                <List size="small" dataSource={outstandingTasks} renderItem={(t) => <List.Item>{t.name}</List.Item>} />
+              )}
             </Card>
 
             <Card size="small" title={<span><FlaskConical size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Trạng thái kết quả</span>}>
@@ -168,7 +198,7 @@ export default function Journey() {
             </Card>
 
             <Card size="small" title="Cần hỗ trợ?">
-              <Button block icon={<PhoneCall size={15} />}>Tổng đài hỗ trợ bệnh nhân: 1900 6363</Button>
+              <Button block icon={<PhoneCall size={15} />} href="tel:19006363">Gọi tổng đài 1900 6363</Button>
             </Card>
           </div>
         </Col>
@@ -180,15 +210,15 @@ export default function Journey() {
           size="small"
         >
           <Descriptions column={3} size="small" bordered style={{ marginBottom: 20 }}>
-            <Descriptions.Item label="Vai trò chịu trách nhiệm hiện tại">{currentTask ? currentTask.responsibleRole : 'Không có tác vụ đang hoạt động'}</Descriptions.Item>
+            <Descriptions.Item label="Người phụ trách hiện tại">{currentTask ? ROLE_LABEL[currentTask.responsibleRole] : 'Chưa có công việc đang thực hiện'}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái hồ sơ bệnh án">{record ? RECORD_STATUS_LABEL[record.status] : 'Chưa tạo'}</Descriptions.Item>
-            <Descriptions.Item label="Bàn giao CRM sau khám">{carePlan ? `${carePlan.status} · ${openAlerts.length} cảnh báo đang mở` : 'Chưa bàn giao'}</Descriptions.Item>
+            <Descriptions.Item label="Theo dõi sau khám">{carePlan ? `${CARE_PLAN_STATUS_LABEL[carePlan.status]} · ${openAlerts.length} cảnh báo đang mở` : 'Chưa bắt đầu'}</Descriptions.Item>
           </Descriptions>
 
           {instance && (
             <div style={{ marginBottom: 20 }}>
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-                Quy trình BPM: {instance.status} ({encounterTasks.filter((t) => t.status === 'completed' || t.status === 'skipped').length}/{encounterTasks.length} bước xong)
+                Quy trình vận hành: {WORKFLOW_STATUS_LABEL[instance.status]} ({encounterTasks.filter((t) => t.status === 'completed' || t.status === 'skipped').length}/{encounterTasks.length} bước hoàn tất)
               </Text>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {encounterTasks.map((t) => <Tag key={t.id}>{t.name}: {TASK_STATUS_LABEL[t.status]}</Tag>)}
@@ -205,9 +235,9 @@ export default function Journey() {
               rowKey="id"
               dataSource={encounterOrders}
               columns={[
-                { title: 'Loại chỉ định', dataIndex: 'type' },
+                { title: 'Loại chỉ định', dataIndex: 'type', render: (v: keyof typeof ORDER_TYPE_LABEL) => ORDER_TYPE_LABEL[v] },
                 { title: 'Lý do', dataIndex: 'justification' },
-                { title: 'Trạng thái', dataIndex: 'status', render: (v: string) => <Tag>{v}</Tag> },
+                { title: 'Trạng thái', dataIndex: 'status', render: (v: keyof typeof ORDER_STATUS_LABEL) => <Tag>{ORDER_STATUS_LABEL[v]}</Tag> },
                 {
                   title: 'Kết quả', render: (_, o) => {
                     const result = o.resultId ? results.find((r) => r.id === o.resultId) : undefined;

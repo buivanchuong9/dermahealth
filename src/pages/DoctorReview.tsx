@@ -1,17 +1,17 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Result, Typography, Space } from 'antd';
-import { Brain, CheckCircle, XCircle, MinusCircle, ClipboardList, FlaskConical, FileCheck2, Lock, Home } from 'lucide-react';
+import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Typography, Space } from 'antd';
+import { Brain, CheckCircle, XCircle, MinusCircle, ClipboardList, FlaskConical, FileCheck2 } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, aiAssessmentRepository, clinicalOrderRepository } from '../domain/repositories';
 import { doctorDecisionService } from '../domain/services/doctorDecisionService';
 import { clinicalOrderService } from '../domain/services/clinicalOrderService';
-import type { AIHumanReviewStatus } from '../domain/core/enums';
+import { hasRoleAccess, type AIHumanReviewStatus } from '../domain/core/enums';
 import type { EncounterId, AIAssessmentId } from '../domain/core/ids';
 import type { ClinicalOrder, ConfidenceBand } from '../domain/core/entities';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
+import { AccessDenied } from '../components/feedback/AccessDenied';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -19,7 +19,6 @@ const BAND_COLOR: Record<ConfidenceBand, string> = { high: 'red', moderate: 'gol
 const BAND_LABEL: Record<ConfidenceBand, string> = { high: 'Khả năng cao', moderate: 'Khả năng trung bình', low: 'Khả năng thấp' };
 
 export default function DoctorReview() {
-  const navigate = useNavigate();
   const { currentUser, currentPatient, role } = useAppState();
   const encounters = useStore(encounterRepository).filter((e) => e.patientId === currentPatient.id && e.status !== 'closed');
   const assessments = useStore(aiAssessmentRepository);
@@ -37,17 +36,8 @@ export default function DoctorReview() {
 
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
 
-  if (role !== 'doctor') {
-    return (
-      <Card>
-        <Result
-          icon={<Lock size={40} color="var(--text-muted)" />}
-          title="Không có quyền truy cập"
-          subTitle='Trang "Xem xét & Chẩn đoán" chỉ dành cho vai trò Bác sĩ. Hãy đổi vai trò xem thử ở thanh bên để tiếp tục.'
-          extra={<Button type="primary" icon={<Home size={14} />} onClick={() => navigate('/app/dashboard')}>Về trang tổng quan</Button>}
-        />
-      </Card>
-    );
+  if (!hasRoleAccess(role, ['doctor'])) {
+    return <AccessDenied featureName="Xem xét và chẩn đoán" allowedRoles={['doctor']} />;
   }
 
   if (!encounter) {

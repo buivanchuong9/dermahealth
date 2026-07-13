@@ -208,9 +208,28 @@ export interface ClinicalResult {
   recordedBy: UserId;
 }
 
+export type WorkflowExecutorType =
+  | 'patient'
+  | 'receptionist'
+  | 'nurse'
+  | 'doctor'
+  | 'lab_technician'
+  | 'imaging_technician'
+  | 'pharmacist'
+  | 'procedure_team'
+  | 'cashier'
+  | 'care_coordinator'
+  | 'customer_care'
+  | 'clinic_manager'
+  | 'ai_automation'
+  | 'system_automation'
+  | 'decision'
+  | 'waiting';
+
 export interface WorkflowStepDefinition {
   code: string;
-  icon?: 'robot' | 'doctor' | 'nurse' | 'reception' | 'laboratory' | 'imaging' | 'pharmacy' | 'cashier' | 'procedure' | 'discharge' | 'task';
+  icon?: 'robot' | 'doctor' | 'nurse' | 'reception' | 'laboratory' | 'imaging' | 'pharmacy' | 'cashier' | 'procedure' | 'discharge' | 'patient' | 'decision' | 'waiting' | 'system' | 'customer_care' | 'manager' | 'task';
+  executorType?: WorkflowExecutorType;
   name: string;
   description: string;
   taskType: string;
@@ -236,6 +255,7 @@ export interface WorkflowTemplateVersion {
   version: number;
   status: WorkflowTemplateStatus;
   steps: WorkflowStepDefinition[];
+  nodePositions?: Record<string, { x: number; y: number }>;
   createdAt: string;
   publishedAt?: string;
 }
@@ -274,9 +294,17 @@ export interface WorkflowTask {
 
 export interface WorkflowInstance {
   id: WorkflowInstanceId;
+  /** Patient ownership is duplicated from the encounter deliberately so every
+   * query can be tenant-scoped without walking an untrusted client relation. */
+  patientId: PatientId;
   encounterId: EncounterId;
   templateId: WorkflowTemplateId;
   templateVersionId: WorkflowTemplateVersionId;
+  /** Human-readable operational reference; never contains patient PII. */
+  instanceCode: string;
+  /** Prototype integrity seal over patient + encounter + pinned template version. */
+  integrityHash: string;
+  identityVersion: number;
   status: WorkflowInstanceStatus;
   activatedBy: UserId;
   activatedAt: string;

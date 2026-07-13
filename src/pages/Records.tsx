@@ -16,7 +16,7 @@ import { useStore } from '../state/useStore';
 import { encounterRepository, medicalRecordRepository, clinicalOrderRepository, workflowRepository, auditRepository } from '../domain/repositories';
 import { medicalRecordService } from '../domain/services/medicalRecordService';
 import { auditService } from '../domain/services/auditService';
-import { RECORD_STATUS_LABEL, ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
+import { RECORD_STATUS_LABEL, ENCOUNTER_STATUS_LABEL, hasRoleAccess, type UserRole } from '../domain/core/enums';
 import type { EncounterId } from '../domain/core/ids';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
@@ -105,8 +105,8 @@ function EMRWorkspace() {
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
   if (!encounter) return <Text type="secondary">Chưa có lượt khám nào.</Text>;
 
-  const NORMAL_ACCESS_ROLES = ['patient', 'doctor', 'medical_administrator'];
-  if (!NORMAL_ACCESS_ROLES.includes(role) && !breakGlassGranted) {
+  const NORMAL_ACCESS_ROLES: UserRole[] = ['patient', 'doctor', 'medical_administrator'];
+  if (!hasRoleAccess(role, NORMAL_ACCESS_ROLES) && !breakGlassGranted) {
     return (
       <Card style={{ maxWidth: 520 }}>
         <ShieldAlert size={28} color="var(--warning)" style={{ marginBottom: 12 }} />
@@ -134,8 +134,8 @@ function EMRWorkspace() {
   const encounterTasks = tasks.filter((t) => t.encounterId === encounter.id);
   const encounterAudit = auditService.listByEncounter(encounter.id);
 
-  const isDoctor = role === 'doctor';
-  const isAdmin = role === 'medical_administrator';
+  const isDoctor = hasRoleAccess(role, ['doctor']);
+  const isAdmin = hasRoleAccess(role, ['medical_administrator']);
 
   const guarded = (fn: () => void) => {
     setError(null);

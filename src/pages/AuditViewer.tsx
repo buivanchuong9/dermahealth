@@ -1,18 +1,17 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, Select, Table, Tag, Typography, Alert, Result, Button } from 'antd';
-import { ShieldCheck, Lock, ArrowRight, Home } from 'lucide-react';
+import { Card, Select, Table, Tag, Typography, Alert } from 'antd';
+import { ShieldCheck, ArrowRight } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { auditRepository } from '../domain/repositories';
-import { ROLE_LABEL } from '../domain/core/enums';
+import { hasRoleAccess, ROLE_LABEL } from '../domain/core/enums';
 import type { AuditEvent } from '../domain/core/entities';
+import { AccessDenied } from '../components/feedback/AccessDenied';
 
 const { Title, Text } = Typography;
 const SEVERITY_COLOR: Record<string, string> = { info: 'default', warning: 'gold', critical: 'red' };
 
 export default function AuditViewer() {
-  const navigate = useNavigate();
   const { role } = useAppState();
   const events = useStore(auditRepository);
   const [module, setModule] = useState('all');
@@ -22,17 +21,8 @@ export default function AuditViewer() {
   const sorted = [...events].sort((a, b) => b.at.localeCompare(a.at));
   const filtered = sorted.filter((e) => (module === 'all' || e.sourceModule === module) && (severity === 'all' || e.severity === severity));
 
-  if (role !== 'medical_administrator' && role !== 'system_administrator') {
-    return (
-      <Card>
-        <Result
-          icon={<Lock size={40} color="var(--text-muted)" />}
-          title="Không có quyền truy cập"
-          subTitle="Nhật ký kiểm toán chỉ dành cho Quản trị viên y tế và Quản trị viên hệ thống."
-          extra={<Button type="primary" icon={<Home size={14} />} onClick={() => navigate('/app/dashboard')}>Về trang tổng quan</Button>}
-        />
-      </Card>
-    );
+  if (!hasRoleAccess(role, ['medical_administrator', 'system_administrator'])) {
+    return <AccessDenied featureName="Nhật ký kiểm toán" allowedRoles={['medical_administrator', 'system_administrator']} />;
   }
 
   return (

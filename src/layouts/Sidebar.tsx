@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Select, Avatar, Typography, Button, Divider } from 'antd';
+import { Layout, Menu, Typography, Button, Divider } from 'antd';
 import {
   Home, User, Cpu, Activity, TrendingUp, Heart, Calendar,
   BarChart2, Settings, MessageCircle, TriangleAlert, MapPinned,
@@ -8,8 +8,7 @@ import {
 } from 'lucide-react';
 import { AppLogo } from '../components/brand';
 import { useAppState } from '../state/useAppState';
-import { ROLE_LABEL } from '../domain/core/enums';
-import type { UserRole } from '../domain/core/enums';
+import { hasRoleAccess, type UserRole } from '../domain/core/enums';
 
 const { Sider } = Layout;
 const { Text } = Typography;
@@ -57,8 +56,8 @@ function iconEl(Icon: typeof Home) {
 export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const nav = useNavigate();
   const location = useLocation();
-  const { currentUser, role, allUsers, setCurrentUserId } = useAppState();
-  const items = NAV_MAIN.filter((i) => i.roles === 'all' || i.roles.includes(role));
+  const { role } = useAppState();
+  const items = NAV_MAIN.filter((i) => i.roles === 'all' || hasRoleAccess(role, i.roles));
 
   const goTo = (key: string) => {
     nav(key);
@@ -75,24 +74,6 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <Text className="app-sidebar__brand-name">DermaHealth</Text>
           <Text className="app-sidebar__brand-tagline">Chăm sóc da toàn diện</Text>
         </div>
-      </div>
-
-      <div className="app-sidebar__identity-wrap">
-        <div className="app-sidebar__identity">
-          <Avatar size={32} style={{ background: '#2878c8', flexShrink: 0 }}>{currentUser.name.trim().slice(-1)}</Avatar>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <Text style={{ color: '#fff', fontSize: 13, fontWeight: 600, display: 'block' }} ellipsis>{currentUser.name}</Text>
-            <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{ROLE_LABEL[role]}{currentUser.department ? ` · ${currentUser.department}` : ''}</Text>
-          </div>
-        </div>
-        <Select
-          value={currentUser.id}
-          onChange={(v) => setCurrentUserId(v)}
-          size="small"
-          style={{ width: '100%' }}
-          options={allUsers.map((u) => ({ value: u.id, label: `${u.name} — ${ROLE_LABEL[u.role]}` }))}
-          title="Đổi vai trò xem thử (demo)"
-        />
       </div>
 
       {role === 'patient' && (
@@ -120,7 +101,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           theme="dark"
           mode="inline"
           selectedKeys={[location.pathname]}
-          items={toMenuItems(NAV_BOTTOM.filter((i) => i.roles === 'all' || i.roles.includes(role)))}
+          items={toMenuItems(NAV_BOTTOM.filter((i) => i.roles === 'all' || hasRoleAccess(role, i.roles)))}
           onClick={({ key }) => goTo(key)}
           style={{ background: 'transparent' }}
         />

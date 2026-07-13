@@ -9,6 +9,7 @@ import { ITEM_TYPE_LABEL, type CarePlanItemType } from '../domain/carePlan';
 import type { FollowUpActivity } from '../domain/core/entities';
 import { useFriendlyError } from '../components/feedback/useFriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
+import { hasRoleAccess } from '../domain/core/enums';
 
 const { Title, Text, Paragraph } = Typography;
 const AUTO_TYPES = new Set(['medication_reminder', 'lifestyle_guidance', 'patient_education', 'symptom_questionnaire', 'satisfaction_survey', 'adherence_check']);
@@ -34,9 +35,9 @@ export default function Care() {
   const coordinatorAlerts = openAlerts.filter((a) => ['low', 'medium'].includes(a.severity));
   const clinicalAlerts = openAlerts.filter((a) => ['high', 'critical'].includes(a.severity));
   const pendingRequests = requests.filter((r) => r.patientId === currentPatient.id && r.status === 'requested');
-  const canRunAutomation = ['care_coordinator', 'medical_administrator', 'system_administrator'].includes(role);
-  const canCoordinate = ['care_coordinator', 'medical_administrator'].includes(role);
-  const canDecide = ['doctor', 'medical_administrator'].includes(role);
+  const canRunAutomation = hasRoleAccess(role, ['care_coordinator', 'medical_administrator', 'system_administrator']);
+  const canCoordinate = hasRoleAccess(role, ['care_coordinator', 'medical_administrator']);
+  const canDecide = hasRoleAccess(role, ['doctor', 'medical_administrator']);
 
   const guard = (fn: () => void, success?: string) => { try { fn(); if (success) message.success(success); } catch (e) { showError(e); } };
   const runAutomation = () => guard(() => { const result = crmService.runAutomation(currentPatient.id, currentUser.id); message.success(`CRM đã tự xử lý ${result.processed} hoạt động và gửi ${result.notifications} thông báo.`); });

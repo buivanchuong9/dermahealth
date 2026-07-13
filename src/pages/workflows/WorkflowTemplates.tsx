@@ -7,6 +7,7 @@ import { useStore } from '../../state/useStore';
 import { workflowRepository } from '../../domain/repositories';
 import { workflowService } from '../../domain/services/workflowService';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
+import { hasRoleAccess } from '../../domain/core/enums';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -22,7 +23,7 @@ export default function WorkflowTemplates() {
   const [specialty, setSpecialty] = useState('');
   const [description, setDescription] = useState('');
 
-  const canDesign = role === 'clinical_process_designer' || role === 'medical_administrator';
+  const canDesign = hasRoleAccess(role, ['clinical_process_designer', 'medical_administrator']);
 
   const create = () => {
     try {
@@ -38,9 +39,8 @@ export default function WorkflowTemplates() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>BPM · Workflow Template Design</Text>
-        <Title level={3} style={{ margin: '4px 0 0' }}>Quy Trình Vận Hành (Workflow Templates)</Title>
-        <Text type="secondary">Tách biệt Workflow Template (mẫu) và Workflow Instance (áp dụng cho từng lượt khám cụ thể).</Text>
+        <Title level={3} style={{ margin: 0 }}>Quy trình khám bệnh</Title>
+        <Text type="secondary">Tạo và quản lý các quy trình đang áp dụng tại phòng khám.</Text>
       </div>
 
       {!canDesign && (
@@ -58,12 +58,15 @@ export default function WorkflowTemplates() {
                 <List.Item>
                   <Link to={`/app/workflows/templates/${t.id}`} style={{ width: '100%' }}>
                     <div style={{ padding: 12, background: 'var(--surface-subtle)', borderRadius: 8, border: '1px solid var(--border-default)', width: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <Text strong><Workflow size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{t.name}</Text>
-                        <Tag color={published ? 'success' : 'default'}>{published ? `v${published.version} đã xuất bản` : 'Chưa xuất bản'}</Tag>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: t.description ? 4 : 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
+                          <Text strong><Workflow size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{t.name}</Text>
+                          <Tag color="blue" style={{ margin: 0 }}>{t.specialty}</Tag>
+                        </div>
+                        <Tag color={published ? 'success' : 'default'} style={{ margin: 0, flexShrink: 0 }}>{published ? `Đang sử dụng · v${published.version}` : 'Đang thiết kế'}</Tag>
                       </div>
-                      <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 4 }}>{t.description}</Paragraph>
-                      <Text type="secondary" style={{ fontSize: 11.5 }}>{t.specialty} · <History size={11} style={{ verticalAlign: -1 }} /> {tVersions.length} phiên bản</Text>
+                      {t.description && <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 4 }}>{t.description}</Paragraph>}
+                      <Text type="secondary" style={{ fontSize: 11.5 }}><History size={11} style={{ verticalAlign: -1 }} /> {tVersions.length} phiên bản</Text>
                     </div>
                   </Link>
                 </List.Item>
@@ -74,7 +77,7 @@ export default function WorkflowTemplates() {
         </Card>
 
         {canDesign && (
-          <Card size="small" title={<span><Plus size={15} style={{ verticalAlign: -2 }} /> Tạo quy trình mới (bản nháp)</span>}>
+          <Card size="small" title={<span><Plus size={15} style={{ verticalAlign: -2 }} /> Tạo quy trình mới</span>}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tên quy trình *</Text>
@@ -88,7 +91,7 @@ export default function WorkflowTemplates() {
                 <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Mô tả</Text>
                 <Input.TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
               </div>
-              <Button type="primary" block onClick={create}>Tạo bản nháp</Button>
+              <Button type="primary" block onClick={create}>Bắt đầu thiết kế</Button>
             </div>
           </Card>
         )}
