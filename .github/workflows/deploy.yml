@@ -7,7 +7,7 @@ on:
 env:
   NODE_VERSION: '20'
   BUILD_OUTPUT_DIR: 'dist'
-  NGINX_ROOT: '/home/phonglv/FE_Y_TE/crm/bundle'
+  NGINX_ROOT: '/home/phonglv/FE_Y_TE/crm/build'
   BACKUP_DIR: '/home/phonglv/FE_Y_TE/crm/backup'
   INCOMING_DIR: '/tmp/crm-incoming'
 
