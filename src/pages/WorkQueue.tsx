@@ -180,24 +180,30 @@ export default function WorkQueue() {
     setActiveTask(t ?? null);
   };
 
+  const dropError = (task: WorkflowTask, target: ColumnKey): string | null => {
+    if (target === 'in_progress') {
+      if (task.status === 'escalated' && !canSupervise) return 'Chỉ giám sát viên (Điều phối viên chăm sóc / Quản trị viên y tế) mới có thể mở lại tác vụ đã báo cáo bất thường.';
+      if (task.status === 'ready' || task.status === 'accepted' || task.status === 'assigned' || task.status === 'escalated') return null;
+      return `Không thể chuyển tác vụ "${task.name}" sang Đang thực hiện từ trạng thái hiện tại.`;
+    }
+    if (target === 'completed') {
+      if (task.status !== 'in_progress') return 'Chỉ có thể hoàn thành tác vụ đang ở trạng thái "Đang thực hiện".';
+      return null;
+    }
+    if (target === 'ready') return 'Không thể kéo tác vụ trở lại trạng thái "Sẵn sàng" thủ công.';
+    return null;
+  };
+
   const applyDrop = (task: WorkflowTask, target: ColumnKey) => {
     try {
       if (target === 'in_progress') {
-        if (task.status === 'ready') workflowService.acceptTask(task.id, currentUser.id);
-        else if (task.status === 'accepted' || task.status === 'assigned') workflowService.startTask(task.id, currentUser.id);
-        else if (task.status === 'escalated') {
-          if (!canSupervise) throw new Error('Chỉ giám sát viên (Điều phối viên chăm sóc / Quản trị viên y tế) mới có thể mở lại tác vụ đã báo cáo bất thường.');
-          workflowService.transitionTask(task.id, 'ready', currentUser.id, { reason: 'Giám sát viên đã xem xét và mở lại tác vụ' });
-        } else {
-          throw new Error(`Không thể chuyển tác vụ "${task.name}" sang Đang thực hiện từ trạng thái hiện tại.`);
-        }
+        if (task.status === 'escalated') workflowService.transitionTask(task.id, 'ready', currentUser.id, { reason: 'Giám sát viên đã xem xét và mở lại tác vụ' });
+        else if (task.status === 'ready') workflowService.acceptTask(task.id, currentUser.id);
+        else workflowService.startTask(task.id, currentUser.id);
       } else if (target === 'completed') {
-        if (task.status !== 'in_progress') throw new Error('Chỉ có thể hoàn thành tác vụ đang ở trạng thái "Đang thực hiện".');
         workflowService.completeTask(task.id, currentUser.id);
       } else if (target === 'escalated') {
         workflowService.escalateTask(task.id, currentUser.id, 'Chuyển bằng kéo thả trong hàng đợi công việc');
-      } else if (target === 'ready') {
-        throw new Error('Không thể kéo tác vụ trở lại trạng thái "Sẵn sàng" thủ công.');
       }
       message.success(`Đã cập nhật trạng thái tác vụ "${task.name}".`);
     } catch (err) {
@@ -225,6 +231,9 @@ export default function WorkQueue() {
     if (!task || !target) return;
     const source = columnFor(task, currentUser.id);
     if (source === target) return;
+
+    const error = dropError(task, target);
+    if (error) { message.error(error); return; }
 
     const { question, confirmLabel } = dropDescription(task, target);
     setPendingDrop({ task, question, confirmLabel, run: () => applyDrop(task, target) });
