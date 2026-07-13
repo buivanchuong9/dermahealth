@@ -229,9 +229,7 @@ export default function Reports() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Báo cáo sức khỏe</Text>
           <Title level={3} style={{ margin: '4px 0 0' }}>Báo Cáo & Thống Kê</Title>
-          <Text type="secondary">Tổng hợp kết quả điều trị và phân tích sức khỏe da của bạn.</Text>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Button icon={<Download size={15} />}>Xuất PDF</Button>

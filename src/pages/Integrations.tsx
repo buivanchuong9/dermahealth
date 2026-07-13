@@ -41,9 +41,7 @@ export default function Integrations() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Vận hành hệ thống</Text>
         <Title level={3} style={{ margin: '4px 0 0' }}>Tình Trạng Tích Hợp</Title>
-        <Text type="secondary">Giám sát các kết nối mô phỏng tới hệ thống bên ngoài (không có backend thật trong prototype này).</Text>
       </div>
 
       <Row gutter={[12, 12]}>

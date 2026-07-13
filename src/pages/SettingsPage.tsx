@@ -84,9 +84,7 @@ export default function SettingsPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Hệ thống</Text>
         <Title level={3} style={{ margin: '4px 0 0' }}>Cài Đặt</Title>
-        <Text type="secondary">Tùy chỉnh ứng dụng theo nhu cầu của bạn.</Text>
       </div>
 
       <Row gutter={16}>

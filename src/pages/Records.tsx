@@ -382,11 +382,8 @@ export default function Records() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Hành trình điều trị & Hồ sơ bệnh án</Text>
         <Title level={3} style={{ margin: '4px 0 0' }}>Hành Trình Điều Trị</Title>
-        <Text type="secondary">Quản lý kế hoạch chăm sóc hằng ngày và xem hồ sơ bệnh án (EMR) theo từng lượt khám.</Text>
       </div>
-
       <Tabs
         defaultActiveKey="plan"
         animated={false}
