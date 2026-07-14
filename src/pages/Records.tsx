@@ -67,7 +67,16 @@ function PlanCard({ task, onDelete, ghost, registerNode }: { task: PlanTask; onD
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 6 }}>
-        <Tag icon={<Icon size={12} style={{ verticalAlign: -1 }} />}>{task.type}</Tag>
+        <Tag
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <Icon size={12} />
+          {task.type}
+        </Tag>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <DragHandle attributes={attributes} listeners={listeners} label={`Kéo để di chuyển bước "${task.title}" sang cột khác`} />
           <IconActionButton icon={<Trash2 size={14} />} label="Xóa" danger onClick={onDelete} />
@@ -83,15 +92,39 @@ function PlanCard({ task, onDelete, ghost, registerNode }: { task: PlanTask; onD
   );
 }
 
+const COL_STYLES: Record<string, { bg: string; border: string; bgOver: string }> = {
+  todo: {
+    bg: '#ffffff',
+    border: 'var(--border-default)',
+    bgOver: 'var(--surface-hover)',
+  },
+  in_progress: {
+    bg: 'var(--warning-bg)',
+    border: '#ffe58f',
+    bgOver: '#fff2e8',
+  },
+  done: {
+    bg: 'var(--success-bg)',
+    border: '#b7eb8f',
+    bgOver: '#d9f7be',
+  },
+};
+
 function PlanColumn({ colId, label, tasks, onDelete, registerCardNode }: { colId: string; label: string; tasks: PlanTask[]; onDelete: (id: number) => void; registerCardNode: (id: number, node: HTMLDivElement | null) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: colId });
+  const styles = COL_STYLES[colId] || { bg: 'var(--surface-subtle)', border: 'var(--border-default)', bgOver: 'var(--surface-selected)' };
   return (
     <div
       ref={setNodeRef}
       style={{
-        background: isOver ? 'var(--surface-selected)' : 'var(--surface-subtle)', borderRadius: 10, padding: 12,
-        minHeight: 400, border: `1px dashed ${isOver ? 'var(--medical-blue-500)' : 'var(--border-default)'}`,
-        flex: '1 0 260px', minWidth: 260,
+        background: isOver ? styles.bgOver : styles.bg,
+        borderRadius: 10,
+        padding: 12,
+        minHeight: 400,
+        border: `1px dashed ${isOver ? 'var(--medical-blue-500)' : styles.border}`,
+        flex: '1 0 260px',
+        minWidth: 260,
+        transition: 'background-color 0.2s, border-color 0.2s',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -189,7 +222,20 @@ function EMRWorkspace() {
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <Select style={{ minWidth: 260 }} value={encounter.id} onChange={(v) => setSelectedId(v as EncounterId)} options={encounters.map((e) => ({ value: e.id, label: `${e.id} — ${ENCOUNTER_STATUS_LABEL[e.status]}` }))} />
           <Tag color={record?.status === 'signed' ? 'success' : 'warning'}>{record ? RECORD_STATUS_LABEL[record.status] : 'Chưa tạo hồ sơ'}</Tag>
-          {record?.status === 'signed' && <Text type="secondary" style={{ fontSize: 12 }}><Lock size={12} style={{ verticalAlign: -1 }} /> Hồ sơ đã ký — chỉ đọc</Text>}
+          {record?.status === 'signed' && (
+            <Text
+              type="secondary"
+              style={{
+                fontSize: 12,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Lock size={12} />
+              Hồ sơ đã ký — chỉ đọc
+            </Text>
+          )}
         </div>
       </Card>
 
@@ -262,7 +308,15 @@ function EMRWorkspace() {
               />
             </Card>
 
-            <Card title={<span><History size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Lịch sử thực hiện quy trình & kiểm toán</span>} size="small">
+            <Card
+              title={
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <History size={14} />
+                  Lịch sử thực hiện quy trình & kiểm toán
+                </span>
+              }
+              size="small"
+            >
               {encounterTasks.map((t) => <Text key={t.id} type="secondary" style={{ fontSize: 12, display: 'block' }}>{t.name}: {t.status}</Text>)}
               <div style={{ marginTop: 10, maxHeight: 160, overflowY: 'auto' }}>
                 {encounterAudit.map((a) => <Text key={a.id} type="secondary" style={{ fontSize: 11.5, display: 'block' }}>{new Date(a.at).toLocaleString('vi-VN')} — {a.action}</Text>)}
@@ -336,23 +390,7 @@ function TreatmentPlanKanban() {
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Button type="primary" icon={<Plus size={15} />} onClick={() => setModal(true)}>Thêm bước mới</Button>
       </div>
-
-      <Row gutter={12}>
-        {[
-          { label: 'Cần thực hiện', val: tasks.filter((t) => t.col === 'todo').length },
-          { label: 'Đang thực hiện', val: tasks.filter((t) => t.col === 'in_progress').length },
-          { label: 'Đã hoàn thành', val: done },
-          { label: 'Tỉ lệ hoàn thành', val: `${pct}%` },
-        ].map((s) => (
-          <Col xs={24} sm={12} md={6} key={s.label}>
-            <Card size="small" style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--medical-blue-700)' }}>{s.val}</div>
-              <Text type="secondary" style={{ fontSize: 12 }}>{s.label}</Text>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
+      
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
           {COLS.map((col) => (
@@ -379,20 +417,48 @@ function TreatmentPlanKanban() {
 }
 
 export default function Records() {
+  const [activeTab, setActiveTab] = useState('plan');
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Hành trình điều trị & Hồ sơ bệnh án</Text>
         <Title level={3} style={{ margin: '4px 0 0' }}>Hành Trình Điều Trị</Title>
-        <Text type="secondary">Quản lý kế hoạch chăm sóc hằng ngày và xem hồ sơ bệnh án (EMR) theo từng lượt khám.</Text>
       </div>
-
       <Tabs
-        defaultActiveKey="plan"
+        activeKey={activeTab}
+        onChange={setActiveTab}
         animated={false}
         items={[
-          { key: 'plan', label: 'Kế hoạch điều trị', children: <TreatmentPlanKanban /> },
-          { key: 'emr', label: 'Hồ sơ bệnh án (EMR)', children: <EMRWorkspace /> },
+          {
+            key: 'plan',
+            label: (
+              <span
+                style={{
+                  opacity: activeTab === 'plan' ? 1 : 0.45,
+                  fontWeight: activeTab === 'plan' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                Kế hoạch điều trị
+              </span>
+            ),
+            children: <TreatmentPlanKanban />,
+          },
+          {
+            key: 'emr',
+            label: (
+              <span
+                style={{
+                  opacity: activeTab === 'emr' ? 1 : 0.45,
+                  fontWeight: activeTab === 'emr' ? 600 : 400,
+                  transition: 'opacity 0.2s, font-weight 0.2s',
+                }}
+              >
+                Hồ sơ bệnh án (EMR)
+              </span>
+            ),
+            children: <EMRWorkspace />,
+          },
         ]}
       />
     </div>

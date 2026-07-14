@@ -25,9 +25,7 @@ export default function Prescriptions() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Quản lý thuốc</Text>
           <Title level={3} style={{ margin: '4px 0 0' }}>Đơn Thuốc</Title>
-          <Text type="secondary">Theo dõi thuốc hàng ngày và lịch sử đơn thuốc của bạn.</Text>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Button icon={<FileText size={15} />}>Lịch sử đơn thuốc</Button>

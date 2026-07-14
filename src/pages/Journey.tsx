@@ -100,9 +100,7 @@ export default function Journey() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Theo dõi tại phòng khám</Text>
-          <Title level={3} style={{ margin: '4px 0 0' }}>Hành trình khám bệnh</Title>
-          <Text type="secondary">{currentPatient.name} · {ENCOUNTER_TYPE_LABEL[encounter.type]} · {encounter.department}</Text>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Theo Dõi Hành Trình Khám Bệnh</Title>
         </div>
         <div style={{ width: 220, paddingTop: 4 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><Text type="secondary">Tiến độ lượt khám</Text><Text strong>{pct}%</Text></div>

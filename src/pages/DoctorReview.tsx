@@ -93,9 +93,7 @@ export default function DoctorReview() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Bác sĩ · {currentUser.name}</Text>
           <Title level={3} style={{ margin: '4px 0 0' }}>Xem Xét AI & Ra Quyết Định Lâm Sàng</Title>
-          <Text type="secondary">{currentPatient.name} · {currentPatient.code}</Text>
         </div>
         <Select style={{ minWidth: 220 }} value={encounter.id} onChange={(v) => setSelectedId(v as EncounterId)} options={encounters.map((e) => ({ value: e.id, label: `${e.id} — ${e.status}` }))} />
       </div>

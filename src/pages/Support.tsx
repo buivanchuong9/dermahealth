@@ -24,9 +24,7 @@ export default function Support() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, color: 'var(--medical-blue-600)' }}>Trợ giúp</Text>
         <Title level={3} style={{ margin: '4px 0 0' }}>Hỗ Trợ & Liên Hệ</Title>
-        <Text type="secondary">Chúng tôi luôn sẵn sàng hỗ trợ bạn 24/7.</Text>
       </div>
 
       <Row gutter={12}>
