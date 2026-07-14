@@ -7,8 +7,9 @@ import { DragHandle } from '../components/common/DragHandle';
 import { IconActionButton } from '../components/common/IconActionButton';
 import { DragConfirmDialog, type PendingDrop } from '../components/common/DragConfirmDialog';
 import {
-  Tabs, Card, Row, Col, Tag, Button, Modal, Input, Select, Alert, Typography, List, App as AntApp,
+  Card, Row, Col, Tag, Button, Modal, Input, Select, Alert, Typography, List, App as AntApp,
 } from 'antd';
+import { TabPanel } from '../components/common/TabPanel';
 import {
   DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCorners,
   useDroppable, useDraggable, type DragEndEvent, type DragStartEvent,
@@ -419,43 +420,14 @@ export default function Records() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Title level={3} style={{ margin: '4px 0 0' }}>Hành Trình Điều Trị</Title>
+        <Title level={3} style={{ margin: '4px 0 0' }}>Tiến Trình Điều Trị</Title>
       </div>
-      <Tabs
+      <TabPanel
         activeKey={activeTab}
         onChange={setActiveTab}
-        animated={false}
         items={[
-          {
-            key: 'plan',
-            label: (
-              <span
-                style={{
-                  opacity: activeTab === 'plan' ? 1 : 0.45,
-                  fontWeight: activeTab === 'plan' ? 600 : 400,
-                  transition: 'opacity 0.2s, font-weight 0.2s',
-                }}
-              >
-                Kế hoạch điều trị
-              </span>
-            ),
-            children: <TreatmentPlanKanban />,
-          },
-          {
-            key: 'emr',
-            label: (
-              <span
-                style={{
-                  opacity: activeTab === 'emr' ? 1 : 0.45,
-                  fontWeight: activeTab === 'emr' ? 600 : 400,
-                  transition: 'opacity 0.2s, font-weight 0.2s',
-                }}
-              >
-                Hồ sơ bệnh án (EMR)
-              </span>
-            ),
-            children: <EMRWorkspace />,
-          },
+          { key: 'plan', label: 'Kế hoạch điều trị', children: <TreatmentPlanKanban /> },
+          { key: 'emr', label: 'Hồ sơ bệnh án (EMR)', children: <EMRWorkspace /> },
         ]}
       />
     </div>

@@ -40,7 +40,7 @@ function issueToken(appointmentId: string, actorId: UserId): AppointmentCheckInT
 }
 
 function log(actorId: UserId, action: string, entityId: string, patientId?: string, encounterId?: string, severity: 'info' | 'warning' = 'info') {
-  auditRepository.upsert({ id: nextId('AUD'), at: new Date().toISOString(), actorId, actorName: actorId, role: actorId === 'U-0001' ? 'patient' : 'receptionist', action, entityType: 'AppointmentCheckInToken', entityId, patientId, encounterId, sourceModule: 'QRCheckIn', severity });
+  auditRepository.upsert({ id: nextId('AUD'), at: new Date().toISOString(), actorId, actorName: actorId, role: actorId === 'U-0005' ? 'patient' : 'receptionist', action, entityType: 'AppointmentCheckInToken', entityId, patientId, encounterId, sourceModule: 'QRCheckIn', severity });
 }
 
 export interface CheckInInput { token: string; clinicLocationId: string; deviceId: string; actorId: UserId; patientId?: string; allowOutsideWindow?: boolean }

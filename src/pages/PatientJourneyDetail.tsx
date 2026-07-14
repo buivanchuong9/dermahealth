@@ -19,8 +19,8 @@ export default function PatientJourneyDetail() {
   const instances = useStore(workflowRepository.instances());
   const encounter = encounters.find((item) => item.id === encounterId);
 
-  if (!encounter) return <Result status="404" title="Không tìm thấy hành trình" subTitle="Lượt khám không tồn tại hoặc đã được lưu trữ." />;
-  if (role === 'patient' && encounter.patientId !== currentPatient.id) return <AccessDenied featureName="hành trình của bệnh nhân khác" />;
+  if (!encounter) return <Result status="404" title="Không tìm thấy tiến trình" subTitle="Lượt khám không tồn tại hoặc đã được lưu trữ." />;
+  if (role === 'patient' && encounter.patientId !== currentPatient.id) return <AccessDenied featureName="tiến trình của bệnh nhân khác" />;
 
   const journeyPatient = patients.find((item) => item.id === encounter.patientId);
   const ticket = tickets.find((item) => item.encounterId === encounter.id && item.patientId === encounter.patientId);
@@ -34,9 +34,9 @@ export default function PatientJourneyDetail() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <Text type="secondary">HÀNH TRÌNH KHÁM BỆNH</Text>
+        <Text type="secondary">TIẾN TRÌNH KHÁM BỆNH</Text>
         <Title level={3} style={{ margin: '4px 0' }}>{journeyPatient?.name ?? currentPatient.name}</Title>
-        <Text type="secondary">{instance?.instanceCode ? `Mã hành trình ${instance.instanceCode}` : 'Hành trình theo lượt khám hiện tại'}</Text>
+        <Text type="secondary">{instance?.instanceCode ? `Mã tiến trình ${instance.instanceCode}` : 'Tiến trình theo lượt khám hiện tại'}</Text>
       </div>
 
       <Card>
@@ -67,7 +67,7 @@ export default function PatientJourneyDetail() {
             }))}
           />
         ) : (
-          <ProfessionalEmpty title="Chưa có quy trình lâm sàng" description="Bác sĩ sẽ kích hoạt quy trình phù hợp sau khi hoàn thành thăm khám và duyệt kế hoạch điều trị." primaryLabel="Xem hành trình tổng quan" primaryHref="/app/journey" />
+          <ProfessionalEmpty title="Chưa có quy trình lâm sàng" description="Bác sĩ sẽ kích hoạt quy trình phù hợp sau khi hoàn thành thăm khám và duyệt kế hoạch điều trị." primaryLabel="Xem tiến trình tổng quan" primaryHref="/app/journey" />
         )}
       </Card>
 

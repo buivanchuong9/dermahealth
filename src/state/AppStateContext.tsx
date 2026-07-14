@@ -7,7 +7,7 @@ import { AppStateContext, type AppStateValue } from './appStateContextObject';
 import type { UserId } from '../domain/core/ids';
 
 const SESSION_KEY = 'dermahealth:v1:session:currentUserId';
-const DEFAULT_USER_ID = 'U-0001' as UserId;
+const DEFAULT_USER_ID = 'U-0005' as UserId;
 
 function readStoredUserId(): UserId {
   try {

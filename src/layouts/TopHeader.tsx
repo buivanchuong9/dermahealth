@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Input, Badge, Avatar, Popover, Button, Typography, Tag, Empty, Divider, Grid, Select } from 'antd';
-import { Search, Bell, Settings, ListChecks, CheckCheck, Menu as MenuIcon, ChevronDown, UserRound } from 'lucide-react';
+import { Search, Bell, Settings, CheckCheck, Menu as MenuIcon, ChevronDown, UserRound } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { notificationRepository } from '../domain/repositories';
@@ -94,10 +94,22 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
         className="top-header__account-settings"
         onClick={() => {
           setAccountOpen(false);
+          navigate('/app/profile');
+        }}
+      >
+        Hồ sơ bệnh nhân
+      </Button>
+      <Button
+        type="text"
+        block
+        icon={<Settings size={15} />}
+        className="top-header__account-settings"
+        onClick={() => {
+          setAccountOpen(false);
           navigate('/app/settings');
         }}
       >
-        Quản lý tài khoản
+        Cài đặt
       </Button>
     </div>
   );
@@ -122,13 +134,7 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
             <Button shape="circle" icon={<Bell size={16} />} />
           </Badge>
         </Popover>
-        {!isNarrow && (
-          <>
-            <Button shape="circle" icon={<ListChecks size={16} />} onClick={() => navigate('/app/work-queue')} title="Hàng đợi công việc" />
-            <Button shape="circle" icon={<Settings size={16} />} onClick={() => navigate('/app/settings')} title="Cài đặt" />
-            <Divider type="vertical" style={{ height: 24 }} />
-          </>
-        )}
+        {!isNarrow && <Divider type="vertical" style={{ height: 24 }} />}
         <Popover content={accountContent} trigger="click" placement="bottomRight" open={accountOpen} onOpenChange={setAccountOpen}>
           <Button type="text" className="top-header__user" aria-label="Mở menu tài khoản">
             <Avatar size={32} style={{ background: 'var(--medical-blue-700)', flexShrink: 0 }}>{currentUser.name.trim().slice(-1)}</Avatar>

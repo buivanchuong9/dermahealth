@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import Highcharts, { HighchartsReact, chart3dDefaults } from '../charts/highchartsSetup';
-import { Row, Col, Card, Tabs, Progress as ProgressBar, Tag, Button, Modal, Input, Typography, Rate } from 'antd';
+import { Row, Col, Card, Progress as ProgressBar, Tag, Button, Modal, Input, Typography, Rate } from 'antd';
 import { Camera, ImageIcon, ChevronRight, ArrowRight, Upload, Brain } from 'lucide-react';
 import { mockProgressData, mockProgressPhotos } from '../data/mockData';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
+import { TabPanel } from '../components/common/TabPanel';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -225,55 +226,13 @@ export default function Progress() {
         ))}
       </Row>
 
-      <Tabs
+      <TabPanel
         activeKey={activeTab}
         onChange={setActiveTab}
         items={[
-          {
-            key: 'overview',
-            label: (
-              <span
-                style={{
-                  opacity: activeTab === 'overview' ? 1 : 0.45,
-                  fontWeight: activeTab === 'overview' ? 600 : 400,
-                  transition: 'opacity 0.2s, font-weight 0.2s',
-                }}
-              >
-                Biểu đồ
-              </span>
-            ),
-            children: overviewTab,
-          },
-          {
-            key: 'photos',
-            label: (
-              <span
-                style={{
-                  opacity: activeTab === 'photos' ? 1 : 0.45,
-                  fontWeight: activeTab === 'photos' ? 600 : 400,
-                  transition: 'opacity 0.2s, font-weight 0.2s',
-                }}
-              >
-                Ảnh tiến triển
-              </span>
-            ),
-            children: photosTab,
-          },
-          {
-            key: 'comparison',
-            label: (
-              <span
-                style={{
-                  opacity: activeTab === 'comparison' ? 1 : 0.45,
-                  fontWeight: activeTab === 'comparison' ? 600 : 400,
-                  transition: 'opacity 0.2s, font-weight 0.2s',
-                }}
-              >
-                So sánh AI
-              </span>
-            ),
-            children: comparisonTab,
-          },
+          { key: 'overview', label: 'Biểu đồ', children: overviewTab },
+          { key: 'photos', label: 'Ảnh tiến triển', children: photosTab },
+          { key: 'comparison', label: 'So sánh AI', children: comparisonTab },
         ]}
       />
 
