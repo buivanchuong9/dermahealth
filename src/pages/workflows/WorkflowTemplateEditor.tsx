@@ -6,7 +6,7 @@ import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, us
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Grid, Modal, Popconfirm, Drawer, Collapse } from 'antd';
-import { Plus, Trash2, Upload, Archive, ArrowLeft, Lock, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck } from 'lucide-react';
+import { Plus, Trash2, Archive, ArrowLeft, Lock, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck } from 'lucide-react';
 import { DragHandle } from '../../components/common/DragHandle';
 import { IconActionButton } from '../../components/common/IconActionButton';
 import { useAppState } from '../../state/useAppState';

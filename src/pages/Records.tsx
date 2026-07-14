@@ -353,9 +353,6 @@ function TreatmentPlanKanban() {
     else cardNodes.current.delete(id);
   };
 
-  const done = tasks.filter((t) => t.col === 'done').length;
-  const pct = Math.round((done / tasks.length) * 100);
-
   const handleDragStart = (e: DragStartEvent) => {
     const id = Number(e.active.id);
     setActiveId(id);

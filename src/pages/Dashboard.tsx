@@ -7,7 +7,7 @@ import {
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, medicalRecordRepository, workflowRepository, carePlanRepository, notificationRepository, integrationRepository } from '../domain/repositories';
-import { ROLE_LABEL, ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
+import { ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 
 const { Title, Text, Paragraph } = Typography;
@@ -54,7 +54,7 @@ function isTaskOverdue(t: { status: string; createdAt: string; slaMinutes: numbe
 }
 
 function OperationalDashboard() {
-  const { currentUser, role } = useAppState();
+  const { currentUser} = useAppState();
   const encounters = useStore(encounterRepository);
   const records = useStore(medicalRecordRepository.records());
   const tasks = useStore(workflowRepository.tasks());
