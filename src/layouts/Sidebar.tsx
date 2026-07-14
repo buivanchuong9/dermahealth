@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Typography, Button, Divider } from 'antd';
+import { Layout, Menu, Typography, Button, Divider, type MenuProps } from 'antd';
 import {
   Home, User, Cpu, Activity, TrendingUp, Heart, Calendar,
   BarChart2, Settings, MessageCircle, TriangleAlert, MapPinned,
@@ -13,20 +13,40 @@ import { hasRoleAccess, type UserRole } from '../domain/core/enums';
 const { Sider } = Layout;
 const { Text } = Typography;
 
-interface NavItem { key: string; label: string; icon: typeof Home; roles: UserRole[] | 'all' }
+interface NavItem { key: string; label: string; icon: typeof Home; roles: UserRole[] | 'all'; children?: NavItem[] }
+
+// Every non-patient role — used for items that used to be visible to 'all'
+// but are now nested under a patient-only submenu, so staff roles still get
+// their own flat entry instead of losing the link entirely.
+const NON_PATIENT_ROLES: UserRole[] = [
+  'doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician',
+  'pharmacist', 'care_coordinator', 'customer_care_employee',
+  'medical_administrator', 'system_administrator', 'clinical_process_designer',
+];
 
 const NAV_MAIN: NavItem[] = [
   { key: '/app/dashboard', label: 'Tổng quan', icon: Home, roles: 'all' },
-  { key: '/app/profile', label: 'Hồ sơ bệnh nhân', icon: User, roles: ['patient'] },
-  { key: '/app/journey', label: 'Hành trình khám bệnh', icon: MapPinned, roles: 'all' },
-  { key: '/app/ai-analysis', label: 'AI Studio', icon: Cpu, roles: ['patient'] },
+  { key: '/app/appointments', label: 'Lịch hẹn', icon: Calendar, roles: ['patient', 'receptionist'] },
+  {
+    key: 'group:exam', label: 'Khám bệnh', icon: Stethoscope, roles: ['patient'],
+    children: [
+      { key: '/app/journey', label: 'Tiến trình khám bệnh', icon: MapPinned, roles: ['patient'] },
+      { key: '/app/ai-analysis', label: 'Phân tích da bằng AI', icon: Cpu, roles: ['patient'] },
+    ],
+  },
+  { key: '/app/journey', label: 'Tiến trình khám bệnh', icon: MapPinned, roles: NON_PATIENT_ROLES },
   { key: '/app/doctor-review', label: 'Xem xét & Chẩn đoán', icon: Stethoscope, roles: ['doctor'] },
   { key: '/app/work-queue', label: 'Hàng đợi công việc', icon: ListChecks, roles: ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator'] },
   { key: '/app/workflows/templates', label: 'Quy trình BPM', icon: Workflow, roles: ['clinical_process_designer', 'medical_administrator'] },
-  { key: '/app/records', label: 'Hành trình điều trị', icon: Activity, roles: ['patient'] },
-  { key: '/app/progress', label: 'Theo dõi tiến triển', icon: TrendingUp, roles: ['patient'] },
-  { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['patient', 'care_coordinator', 'customer_care_employee', 'medical_administrator'] },
-  { key: '/app/appointments', label: 'Lịch hẹn', icon: Calendar, roles: ['patient', 'receptionist'] },
+  {
+    key: 'group:treatment', label: 'Điều trị', icon: Activity, roles: ['patient'],
+    children: [
+      { key: '/app/records', label: 'Tiến trình điều trị', icon: Activity, roles: ['patient'] },
+      { key: '/app/progress', label: 'Theo dõi tiến triển', icon: TrendingUp, roles: ['patient'] },
+      { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['patient'] },
+    ],
+  },
+  { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['care_coordinator', 'customer_care_employee', 'medical_administrator'] },
   { key: '/app/reception/qr-check-in', label: 'Check-in QR', icon: QrCode, roles: ['receptionist', 'medical_administrator'] },
   { key: '/app/reception', label: 'Trung tâm lễ tân', icon: User, roles: ['receptionist', 'medical_administrator'] },
   { key: '/app/clinic-queue', label: 'Điều phối hàng đợi', icon: MonitorPlay, roles: ['receptionist', 'nurse', 'doctor', 'medical_administrator'] },
@@ -57,18 +77,38 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const nav = useNavigate();
   const location = useLocation();
   const { role } = useAppState();
-  const items = NAV_MAIN.filter((i) => i.roles === 'all' || hasRoleAccess(role, i.roles));
+  const visible = (i: NavItem) => i.roles === 'all' || hasRoleAccess(role, i.roles);
+  const items = NAV_MAIN
+    .filter(visible)
+    .map((i) => (i.children ? { ...i, children: i.children.filter(visible) } : i))
+    .filter((i) => !i.children || i.children.length > 0);
 
   const goTo = (key: string) => {
+    if (key.startsWith('group:')) return;
     nav(key);
     onNavigate?.();
   };
 
-  const toMenuItems = (list: NavItem[]) => list.map((i) => ({ key: i.key, icon: iconEl(i.icon), label: i.label }));
+  const toMenuItems = (list: NavItem[]): NonNullable<MenuProps['items']> =>
+    list.map((i) => ({
+      key: i.key,
+      icon: iconEl(i.icon),
+      label: i.label,
+      ...(i.children ? { children: toMenuItems(i.children) } : {}),
+    }));
+
+  const openKeys = items.filter((i) => i.children?.some((c) => c.key === location.pathname)).map((i) => i.key);
 
   return (
     <div className="app-sidebar">
-      <div className="app-sidebar__brand">
+      <div
+        className="app-sidebar__brand"
+        role="button"
+        tabIndex={0}
+        onClick={() => goTo('/app/dashboard')}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') goTo('/app/dashboard'); }}
+        style={{ cursor: 'pointer' }}
+      >
         <AppLogo size={42} />
         <div style={{ minWidth: 0 }}>
           <Text className="app-sidebar__brand-name">DermaHealth</Text>
@@ -89,6 +129,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           theme="dark"
           mode="inline"
           selectedKeys={[location.pathname]}
+          defaultOpenKeys={openKeys}
           items={toMenuItems(items)}
           onClick={({ key }) => goTo(key)}
           style={{ background: 'transparent' }}

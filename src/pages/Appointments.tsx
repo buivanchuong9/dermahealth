@@ -221,7 +221,7 @@ export default function Appointments() {
 
   const submit = () => {
     if (!selDate) return;
-    const doctorId = docId === 1 ? 'U-0002' : 'U-0013';
+    const doctorId = docId === 1 ? 'U-0006' : 'U-0014';
     setCreated(appointmentService.bookAppointment({ patientId: currentPatient.id, doctorId, date: selDate.format('DD/MM/YYYY'), time: selTime, mode: 'in_person', clinicLocationId: 'CS-HCM-01', clinicName: 'DermaHealth TP.HCM', department: 'Khoa Da liễu' }, currentUser.id));
   };
 

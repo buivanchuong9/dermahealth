@@ -28,7 +28,7 @@
 		<td width="58%" valign="top">
 			<h2 id="tong-quan">Tổng quan</h2>
 			<p>
-				DermaHealth là giao diện web mô phỏng một hệ sinh thái vận hành y tế số, tập trung vào đặt lịch, check-in QR, quản lý hàng đợi, theo dõi hành trình khám, xử lý hồ sơ và điều phối quy trình nội bộ.
+				DermaHealth là giao diện web mô phỏng một hệ sinh thái vận hành y tế số, tập trung vào đặt lịch, check-in QR, quản lý hàng đợi, theo dõi Tiến trình khám, xử lý hồ sơ và điều phối quy trình nội bộ.
 			</p>
 			<p>
 				Trải nghiệm được chia theo từng nhóm người dùng để hệ thống vừa dễ trình bày trên GitHub, vừa đủ gần với cách một phòng khám thực sự vận hành.

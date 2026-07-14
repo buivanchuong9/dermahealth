@@ -85,7 +85,7 @@ export default function Journey() {
   const openAlerts = alerts.filter((a) => a.patientId === currentPatient.id && a.status !== 'resolved');
 
   if (!encounter) {
-    return <Card><ProfessionalEmpty title="Chưa có lượt khám" description="Hành trình sẽ xuất hiện sau khi bệnh nhân có lịch hẹn hoặc được tiếp nhận tại phòng khám." primaryLabel="Xem lịch hẹn" primaryHref="/app/appointments" /></Card>;
+    return <Card><ProfessionalEmpty title="Chưa có lượt khám" description="Tiến trình sẽ xuất hiện sau khi bệnh nhân có lịch hẹn hoặc được tiếp nhận tại phòng khám." primaryLabel="Xem lịch hẹn" primaryHref="/app/appointments" /></Card>;
   }
 
   const pct = overallProgressPct(encounter.status);
@@ -100,7 +100,7 @@ export default function Journey() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Title level={3} style={{ margin: '4px 0 0' }}>Theo Dõi Hành Trình Khám Bệnh</Title>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Theo Dõi Tiến Trình Khám Bệnh</Title>
         </div>
         <div style={{ width: 220, paddingTop: 4 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><Text type="secondary">Tiến độ lượt khám</Text><Text strong>{pct}%</Text></div>
@@ -150,7 +150,7 @@ export default function Journey() {
               <Col xs={24} sm={12}>
                 <div style={{ padding: 14, borderRadius: 10, background: '#f6f8fa', height: '100%' }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>BƯỚC TIẾP THEO</Text>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5 }}><ArrowRight size={15} /><Text strong>{nextMilestone?.label ?? 'Hoàn tất hành trình khám'}</Text></div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5 }}><ArrowRight size={15} /><Text strong>{nextMilestone?.label ?? 'Hoàn tất tiến trình khám'}</Text></div>
                 </div>
               </Col>
             </Row>

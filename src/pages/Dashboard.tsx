@@ -39,7 +39,7 @@ const RECORDS = [
 const QUICK = [
   { label: 'Đặt lịch hẹn', Icon: Calendar, href: '/app/appointments' },
   { label: 'Phân tích da AI', Icon: Camera, href: '/app/ai-analysis' },
-  { label: 'Hành trình điều trị', Icon: TrendingUp, href: '/app/records' },
+  { label: 'Tiến trình điều trị', Icon: TrendingUp, href: '/app/records' },
   { label: 'Nhắc nhở uống thuốc', Icon: Bell, href: '/app/profile' },
 ];
 
