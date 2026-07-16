@@ -1,12 +1,35 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Checkbox, Divider, Typography } from 'antd';
+import { Form, Input, Button, Checkbox, Divider, Typography, Alert } from 'antd';
 import { HeartPulse, ArrowRight } from 'lucide-react';
+import { login } from '../api/auth';
+import { ApiError } from '../api/http';
 
 const { Title, Text, Paragraph } = Typography;
 
+interface LoginFormValues {
+  email: string;
+  password: string;
+  remember?: boolean;
+}
+
 export default function Login() {
   const nav = useNavigate();
-  const handle = () => nav('/app/dashboard');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handle = async (values: LoginFormValues) => {
+    setError(null);
+    setLoading(true);
+    try {
+      await login({ email: values.email, password: values.password, rememberMe: values.remember });
+      nav('/app/dashboard');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Đăng nhập thất bại. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', fontFamily: 'var(--font-system)' }}>
@@ -61,14 +84,16 @@ export default function Login() {
           <Title level={3} style={{ textAlign: 'center', marginBottom: 4 }}>Đăng nhập</Title>
           <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginBottom: 24 }}>Chào mừng trở lại! Vui lòng nhập thông tin của bạn.</Text>
 
-          <Form layout="vertical" onFinish={handle} initialValues={{ email: 'nguyenvana@gmail.com', password: 'password123', remember: true }}>
-            <Form.Item label="Email" name="email"><Input /></Form.Item>
-            <Form.Item label="Mật khẩu" name="password"><Input.Password /></Form.Item>
+          {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
+
+          <Form<LoginFormValues> layout="vertical" onFinish={handle} initialValues={{ email: 'nguyenvana@example.test', password: 'a-strong-password', remember: true }}>
+            <Form.Item label="Email" name="email" rules={[{ required: true, message: 'Vui lòng nhập email' }]}><Input /></Form.Item>
+            <Form.Item label="Mật khẩu" name="password" rules={[{ required: true, message: 'Vui lòng nhập mật khẩu' }]}><Input.Password /></Form.Item>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <Form.Item name="remember" valuePropName="checked" noStyle><Checkbox>Ghi nhớ đăng nhập</Checkbox></Form.Item>
               <a href="#">Quên mật khẩu?</a>
             </div>
-            <Button type="primary" htmlType="submit" block size="large" icon={<ArrowRight size={16} />} iconPosition="end">Đăng nhập</Button>
+            <Button type="primary" htmlType="submit" block size="large" loading={loading} icon={<ArrowRight size={16} />} iconPosition="end">Đăng nhập</Button>
           </Form>
 
           <Divider plain style={{ fontSize: 12, color: 'var(--text-muted)' }}>Hoặc tiếp tục với</Divider>

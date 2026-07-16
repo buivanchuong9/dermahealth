@@ -3,6 +3,7 @@ import { Row, Col, Card, Avatar, Button, Tag, Descriptions, Timeline, List, Typo
 import { Camera, Edit2, Bell, Shield, LogOut } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { patientService } from '../domain/services/patientService';
+import { logoutCurrentSession } from '../api/auth';
 
 const { Title, Text } = Typography;
 
@@ -76,7 +77,7 @@ export default function Profile() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <Button block icon={<Bell size={16} />} style={{ justifyContent: 'flex-start' }}>Cài đặt thông báo</Button>
               <Button block icon={<Shield size={16} />} style={{ justifyContent: 'flex-start' }}>Quyền riêng tư & Bảo mật</Button>
-              <Button block danger icon={<LogOut size={16} />} style={{ justifyContent: 'flex-start' }} onClick={() => nav('/login')}>Đăng xuất</Button>
+              <Button block danger icon={<LogOut size={16} />} style={{ justifyContent: 'flex-start' }} onClick={() => logoutCurrentSession().finally(() => nav('/login'))}>Đăng xuất</Button>
             </div>
           </div>
         </Col>
