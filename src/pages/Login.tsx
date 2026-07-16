@@ -37,6 +37,58 @@ const formVariants = {
   },
 };
 
+// --- ANIMATION CHO FORM ITEMS (STAGGER) ---
+const formItemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
+  },
+};
+
+const formItemsContainer = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.12,
+      delayChildren: 0.2,
+    },
+  },
+};
+
+// --- ANIMATION CHO DIVIDER VÀ SOCIAL BUTTONS ---
+const dividerVariants = {
+  hidden: { opacity: 0, scaleX: 0 },
+  visible: {
+    opacity: 1,
+    scaleX: 1,
+    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const, delay: 0.35 },
+  },
+};
+
+const socialButtonsVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      staggerChildren: 0.1,
+      delayChildren: 0.5,
+    },
+  },
+};
+
+const socialButtonItemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
+  },
+};
+
 export default function Login() {
   const nav = useNavigate();
   const handleLogin = () => nav('/app/dashboard');
@@ -168,93 +220,129 @@ export default function Login() {
             onFinish={handleLogin}
             initialValues={{ email: 'nguyenvana@gmail.com', password: 'password123', remember: true }}
           >
-            <Form.Item
-              label="Email"
-              name="email"
-              rules={[{ required: true, message: 'Vui lòng nhập Email!' }, { type: 'email', message: 'Định dạng email không hợp lệ!' }]}
+            <motion.div
+              variants={formItemsContainer}
+              initial="hidden"
+              animate="visible"
             >
-              <Input size="large" style={{ borderRadius: 14, padding: '12px 14px' }} />
-            </Form.Item>
+              <motion.div variants={formItemVariants}>
+                <Form.Item
+                  label="Email"
+                  name="email"
+                  rules={[{ required: true, message: 'Vui lòng nhập Email!' }, { type: 'email', message: 'Định dạng email không hợp lệ!' }]}
+                >
+                  <Input size="large" style={{ borderRadius: 14, padding: '12px 14px', transition: 'all 0.3s ease' }} />
+                </Form.Item>
+              </motion.div>
 
-            <Form.Item
-              label="Mật khẩu"
-              name="password"
-              rules={[{ required: true, message: 'Vui lòng nhập mật khẩu!' }]}
-            >
-              <Input.Password size="large" style={{ borderRadius: 14, padding: '12px 14px' }} />
-            </Form.Item>
+              <motion.div variants={formItemVariants}>
+                <Form.Item
+                  label="Mật khẩu"
+                  name="password"
+                  rules={[{ required: true, message: 'Vui lòng nhập mật khẩu!' }]}
+                >
+                  <Input.Password size="large" style={{ borderRadius: 14, padding: '12px 14px', transition: 'all 0.3s ease' }} />
+                </Form.Item>
+              </motion.div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <Form.Item name="remember" valuePropName="checked" noStyle>
-                <Checkbox>Ghi nhớ đăng nhập</Checkbox>
-              </Form.Item>
-              <a href="#" style={{ color: 'var(--medical-blue-700)', fontWeight: 500 }} onClick={(e) => e.preventDefault()}>
-                Quên mật khẩu?
-              </a>
-            </div>
+              <motion.div variants={formItemVariants} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <Form.Item name="remember" valuePropName="checked" noStyle>
+                  <Checkbox>Ghi nhớ đăng nhập</Checkbox>
+                </Form.Item>
+                <motion.a
+                  href="#"
+                  style={{ color: 'var(--medical-blue-700)', fontWeight: 500 }}
+                  whileHover={{ textDecoration: 'underline', scale: 1.05 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={(e) => e.preventDefault()}
+                >
+                  Quên mật khẩu?
+                </motion.a>
+              </motion.div>
 
-            {/* Nút đăng nhập có Micro-interaction */}
-            <motion.div whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}>
-              <Button
-                type="primary"
-                htmlType="submit"
-                block
-                size="large"
-                icon={<ArrowRight size={16} />}
-                iconPosition="end"
-                style={{
-                  height: 52,
-                  borderRadius: 16,
-                  fontWeight: 700,
-                  letterSpacing: '0.02em',
-                  transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                }}
-              >
-                Đăng nhập
-              </Button>
+              {/* Nút đăng nhập có Micro-interaction */}
+              <motion.div variants={formItemVariants} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  block
+                  size="large"
+                  icon={<ArrowRight size={16} />}
+                  iconPosition="end"
+                  style={{
+                    height: 52,
+                    borderRadius: 16,
+                    fontWeight: 700,
+                    letterSpacing: '0.02em',
+                    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                  }}
+                >
+                  Đăng nhập
+                </Button>
+              </motion.div>
             </motion.div>
           </Form>
 
-          <Divider plain style={{ fontSize: 12, color: 'var(--text-muted)', margin: '24px 0' }}>
-            Hoặc tiếp tục với
-          </Divider>
+          <motion.div
+            initial={{ opacity: 0, scaleX: 0 }}
+            animate={{ opacity: 1, scaleX: 1 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] as const, delay: 0.5 }}
+            style={{ transformOrigin: 'center' }}
+          >
+            <Divider plain style={{ fontSize: 12, color: 'var(--text-muted)', margin: '24px 0' }}>
+              Hoặc tiếp tục với
+            </Divider>
+          </motion.div>
 
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between' }}>
-            <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} style={{ flex: 1 }}>
+          <motion.div
+            variants={socialButtonsVariants}
+            initial="hidden"
+            animate="visible"
+            style={{ display: 'flex', gap: 12, justifyContent: 'space-between' }}
+          >
+            <motion.div variants={socialButtonItemVariants} whileHover={{ y: -2, boxShadow: '0 8px 24px rgba(16,34,90,0.15)' }} whileTap={{ scale: 0.98 }} style={{ flex: 1 }}>
               <Button
                 block
                 size="large"
-                style={{ borderRadius: 16, padding: '0 16px', background: '#ffffff', color: '#111827', border: '1px solid rgba(16,34,90,0.1)', height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, transition: 'transform 0.2s ease, box-shadow 0.2s ease' }}
+                style={{ borderRadius: 16, padding: '0 16px', background: '#ffffff', color: '#111827', border: '1px solid rgba(16,34,90,0.1)', height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, transition: 'all 0.3s ease' }}
                 icon={<Globe size={18} />}
               >
                 Google
               </Button>
             </motion.div>
-            <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} style={{ flex: 1 }}>
+            <motion.div variants={socialButtonItemVariants} whileHover={{ y: -2, boxShadow: '0 8px 24px rgba(16,34,90,0.15)' }} whileTap={{ scale: 0.98 }} style={{ flex: 1 }}>
               <Button
                 block
                 size="large"
-                style={{ borderRadius: 16, padding: '0 16px', background: '#ffffff', color: '#111827', border: '1px solid rgba(16,34,90,0.1)', height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, transition: 'transform 0.2s ease, box-shadow 0.2s ease' }}
+                style={{ borderRadius: 16, padding: '0 16px', background: '#ffffff', color: '#111827', border: '1px solid rgba(16,34,90,0.1)', height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, transition: 'all 0.3s ease' }}
                 icon={<img src={appleLogo} alt="Apple" style={{ width: 18, height: 18, objectFit: 'contain' }} />}
               >
                 Apple
               </Button>
             </motion.div>
-          </div>
+          </motion.div>
 
-          <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 28, fontSize: 13.5 }}>
-            Chưa có tài khoản?{' '}
-            <a
-              href="/register"
-              style={{ color: 'var(--medical-blue-700)', fontWeight: 600 }}
-              onClick={(e) => {
-                e.preventDefault();
-                nav('/register');
-              }}
-            >
-              Đăng ký ngay
-            </a>
-          </Text>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] as const, delay: 0.7 }}
+          >
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 28, fontSize: 13.5 }}>
+              Chưa có tài khoản?{' '}
+              <motion.a
+                href="/register"
+                style={{ color: 'var(--medical-blue-700)', fontWeight: 600, cursor: 'pointer' }}
+                whileHover={{ scale: 1.05, textDecoration: 'underline' }}
+                transition={{ duration: 0.2 }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  nav('/register');
+                }}
+              >
+                Đăng ký ngay
+              </motion.a>
+            </Text>
+          </motion.div>
         </motion.div>
       </motion.div>
     </div>
