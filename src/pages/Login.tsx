@@ -23,7 +23,7 @@ const leftItemVariants = {
   visible: {
     y: 0,
     opacity: 1,
-    transition: { duration: 0.6, ease: 'easeOut' },
+    transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const },
   },
 };
 
@@ -33,7 +33,7 @@ const formVariants = {
   visible: {
     opacity: 1,
     x: 0,
-    transition: { duration: 0.6, ease: 'easeOut', delay: 0.1 },
+    transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const, delay: 0.1 },
   },
 };
 
@@ -47,17 +47,17 @@ export default function Login() {
         style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 1.2, ease: 'easeOut' }}
+        transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] as const }}
       >
         <motion.div
           style={{ position: 'absolute', width: 260, height: 260, borderRadius: '50%', background: 'rgba(93,169,234,0.18)', filter: 'blur(90px)', left: '6%', top: '10%' }}
           animate={{ x: [0, 18, 0], y: [0, 10, 0] }}
-          transition={{ repeat: Infinity, duration: 16, ease: 'easeInOut' }}
+          transition={{ repeat: Infinity, duration: 16, ease: [0.42, 0, 0.58, 1] as const }}
         />
         <motion.div
           style={{ position: 'absolute', width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.16)', filter: 'blur(70px)', right: '8%', top: '24%' }}
           animate={{ x: [0, -14, 0], y: [0, -12, 0] }}
-          transition={{ repeat: Infinity, duration: 18, ease: 'easeInOut' }}
+          transition={{ repeat: Infinity, duration: 18, ease: [0.42, 0, 0.58, 1] as const }}
         />
       </motion.div>
       
@@ -92,7 +92,7 @@ export default function Login() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', maxWidth: 460 }}>
           
             <motion.div variants={leftItemVariants}>
-              <motion.div animate={{ y: [0, -6] }} transition={{ repeat: Infinity, repeatType: 'reverse', duration: 6, ease: 'easeInOut', repeatDelay: 0 }}>
+              <motion.div animate={{ y: [0, -6] }} transition={{ repeat: Infinity, repeatType: 'reverse', duration: 6, ease: [0.42, 0, 0.58, 1] as const, repeatDelay: 0 }}>
                 <Title style={{ color: 'white', fontSize: 'clamp(28px, 3.4vw, 40px)', lineHeight: 1.2, marginBottom: 16 }}>
                   Chăm Sóc Da<br />Thông Minh Hơn
                 </Title>
@@ -100,7 +100,7 @@ export default function Login() {
             </motion.div>
 
             <motion.div variants={leftItemVariants}>
-              <motion.div animate={{ y: [0, -4] }} transition={{ repeat: Infinity, repeatType: 'reverse', duration: 7, ease: 'easeInOut', repeatDelay: 0 }}>
+              <motion.div animate={{ y: [0, -4] }} transition={{ repeat: Infinity, repeatType: 'reverse', duration: 7, ease: [0.42, 0, 0.58, 1] as const, repeatDelay: 0 }}>
                 <Paragraph style={{ color: 'rgba(255,255,255,0.72)', fontSize: 15.5, lineHeight: 1.7 }}>
                   Kết hợp AI tiên tiến và chuyên môn y tế để mang lại kết quả điều trị da liễu tốt nhất cho bạn.
                 </Paragraph>
