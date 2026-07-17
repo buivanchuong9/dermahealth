@@ -198,20 +198,12 @@ export default function SettingsPage() {
 
           {active === 'app' && (
             <Card title="Quản lý ứng dụng" size="small">
-              <div style={{ paddingBottom: 18, marginBottom: 18, borderBottom: '1px solid var(--border-default)' }}>
+              <div style={{ marginBottom: 18 }}>
                 <Text strong style={{ display: 'block', marginBottom: 4 }}>Dữ liệu dùng thử</Text>
                 <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 12 }}>
                   Khôi phục toàn bộ lượt khám, hồ sơ và quy trình về dữ liệu mẫu ban đầu.
                 </Paragraph>
                 <Button danger icon={<RotateCcw size={15} />} onClick={confirmReset}>Đặt lại dữ liệu demo</Button>
-              </div>
-
-              <div>
-                <Text strong style={{ display: 'block', marginBottom: 4 }}>Phiên đăng nhập</Text>
-                <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 12 }}>
-                  Kết thúc phiên hiện tại và quay lại màn hình đăng nhập.
-                </Paragraph>
-                <Button icon={<LogOut size={15} />} onClick={() => logoutCurrentSession().finally(() => { resetSession(); nav('/login'); })}>Đăng xuất</Button>
               </div>
             </Card>
           )}
