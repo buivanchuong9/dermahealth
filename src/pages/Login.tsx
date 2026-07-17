@@ -1,11 +1,19 @@
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Checkbox, Divider, Typography } from 'antd';
+import { Form, Input, Button, Checkbox, Divider, Typography, Alert } from 'antd';
 import { ArrowRight, Shield, Zap, Heart } from 'lucide-react';
 import { motion, useMotionValue, useSpring, animate, AnimatePresence } from 'framer-motion';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import appleLogo from '../../logo_apple.png';
+import { login } from '../api/auth';
+import { ApiError } from '../api/http';
 
 const { Title, Text } = Typography;
+
+interface LoginFormValues {
+  email: string;
+  password: string;
+  remember?: boolean;
+}
 
 /* ─── Easing ─────────────────────────────────────────── */
 const E_OUT   = [0.22, 1, 0.36, 1] as const;
@@ -216,7 +224,21 @@ function FeatureCard({ icon, title, desc, delay }: { icon: React.ReactNode; titl
 /* ─── Main ───────────────────────────────────────────── */
 export default function Login() {
   const nav = useNavigate();
-  const handleLogin = () => nav('/app/dashboard');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLogin = async (values: LoginFormValues) => {
+    setError(null);
+    setLoading(true);
+    try {
+      await login({ email: values.email, password: values.password, rememberMe: values.remember });
+      nav('/app/dashboard');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Đăng nhập thất bại. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div style={{ position: 'relative', display: 'flex', height: '100vh', width: '100vw', fontFamily: 'var(--font-system)', overflow: 'hidden', background: 'linear-gradient(135deg, #eef2ff 0%, #e8f0fe 100%)' }}>
@@ -370,10 +392,16 @@ export default function Login() {
             </motion.div>
 
             {/* Form */}
-            <Form layout="vertical" onFinish={handleLogin}
+            <Form<LoginFormValues> layout="vertical" onFinish={handleLogin}
               initialValues={{ email: 'nguyenvana@gmail.com', password: 'password123', remember: true }}
             >
               <motion.div variants={stagger} initial="hidden" animate="visible">
+                {error && (
+                  <motion.div variants={fadeUp}>
+                    <Alert type="error" message={error} showIcon style={{ marginBottom: 16, borderRadius: 12 }} />
+                  </motion.div>
+                )}
+
                 <motion.div variants={fadeUp}>
                   <Form.Item label="Email" name="email"
                     rules={[{ required: true, message: 'Vui lòng nhập Email!' }, { type: 'email', message: 'Email không hợp lệ!' }]}
@@ -409,7 +437,7 @@ export default function Login() {
                 <motion.div variants={fadeUp}>
                   <RippleButton>
                     <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} transition={{ duration: 0.16 }}>
-                      <Button type="primary" htmlType="submit" block size="large"
+                      <Button type="primary" htmlType="submit" block size="large" loading={loading}
                         icon={<ArrowRight size={16} />} iconPosition="end"
                         style={{ height: 52, borderRadius: 14, fontWeight: 700, letterSpacing: '0.02em', background: 'linear-gradient(135deg, #174d8a 0%, #071e35 100%)', border: 'none', boxShadow: '0 4px 18px rgba(7,30,53,0.32)', fontSize: 15 }}
                       >

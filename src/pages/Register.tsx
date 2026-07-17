@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Divider, Typography } from 'antd';
 import { motion, useMotionValue, useSpring, animate, AnimatePresence } from 'framer-motion';
-import { Globe, Shield, Zap, Heart } from 'lucide-react';
+import { Shield, Zap, Heart } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import appleLogo from '../../logo_apple.png';
 
