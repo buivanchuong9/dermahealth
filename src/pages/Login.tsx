@@ -395,7 +395,7 @@ export default function Login() {
 
             {/* Form */}
             <Form<LoginFormValues> layout="vertical" onFinish={handleLogin}
-              initialValues={{ email: 'nguyenvana@gmail.com', password: 'password123', remember: true }}
+              initialValues={{ remember: true }}
             >
               <motion.div variants={stagger} initial="hidden" animate="visible">
                 {error && (
