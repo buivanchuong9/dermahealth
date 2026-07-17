@@ -3,7 +3,6 @@ import { Form, Input, Button, Divider, Typography } from 'antd';
 import { motion, useMotionValue, useSpring, animate, AnimatePresence } from 'framer-motion';
 import { Shield, Zap, Heart } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import appleLogo from '../../logo_apple.png';
 
 const { Title, Text } = Typography;
 
@@ -285,7 +284,7 @@ export default function Register() {
             transition={{ type: 'spring', stiffness: 300, damping: 18 }}
             style={{ width: 44, height: 44, borderRadius: 12, overflow: 'hidden', border: '1.5px solid rgba(255,255,255,0.15)', flexShrink: 0 }}
           >
-            <img src="/logo.jpeg" alt="DermaHealth" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <img src="/logo-mark.png" alt="DermaHealth" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </motion.div>
           <div>
             <div style={{ fontWeight: 700, fontSize: 15.5, letterSpacing: '0.01em' }}>DermaHealth</div>
@@ -337,7 +336,7 @@ export default function Register() {
         </div>
 
         <motion.div variants={leftItem} style={{ opacity: 0.3, fontSize: 11.5, zIndex: 1, marginTop: 16 }}>
-          © 2024 DermaHealth · All rights reserved
+          © 2026 DermaHealth · All rights reserved
         </motion.div>
       </motion.div>
 
@@ -429,7 +428,7 @@ export default function Register() {
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
               } />
-              <SocialBtn label="Apple" icon={<img src={appleLogo} alt="Apple" style={{ width: 18, height: 18, objectFit: 'contain' }} />} />
+              <SocialBtn label="Apple" icon={<img src="/logo_apple.png" alt="Apple" style={{ width: 18, height: 18, objectFit: 'contain' }} />} />
             </motion.div>
 
             {/* Login link */}

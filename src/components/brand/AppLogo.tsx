@@ -12,7 +12,7 @@ export default function AppLogo({ className = '', size = 44, variant = 'mark' }:
 
   return (
     <span className={`${styles.logo} ${styles[variant]} ${className}`.trim()} style={style}>
-      <img src={variant === 'mark' ? '/logo-mark.png' : '/logo.jpeg'} alt="DermaHealth" />
+      <img src="/logo-mark.png" alt="DermaHealth" />
     </span>
   );
 }
