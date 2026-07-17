@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Row, Col, Card, Avatar, Button, Tag, Descriptions, Timeline, List, Typography, Statistic } from 'antd';
 import { Camera, Edit2, Bell, Shield, LogOut } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { patientService } from '../domain/services/patientService';
 import { logoutCurrentSession } from '../api/auth';
+import { getMe } from '../api/me';
+import type { AuthUser } from '../api/types';
 
 const { Title, Text } = Typography;
 
@@ -29,8 +32,14 @@ const CURRENT_RX = [
 
 export default function Profile() {
   const nav = useNavigate();
-  const { currentPatient } = useAppState();
+  const { currentPatient, resetSession } = useAppState();
   const primaryDoctor = patientService.getPrimaryDoctor(currentPatient);
+  const [me, setMe] = useState<AuthUser | null>(null);
+  const displayName = me?.name ?? currentPatient.name;
+
+  useEffect(() => {
+    getMe().then(setMe).catch(() => setMe(null));
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -46,10 +55,10 @@ export default function Profile() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <Card size="small" style={{ textAlign: 'center' }}>
               <div style={{ position: 'relative', width: 96, height: 96, margin: '0 auto 16px' }}>
-                <Avatar size={96} style={{ background: 'var(--medical-blue-700)', fontSize: 32, fontWeight: 700 }}>{currentPatient.name.trim().slice(-1)}</Avatar>
+                <Avatar size={96} style={{ background: 'var(--medical-blue-700)', fontSize: 32, fontWeight: 700 }}>{displayName.trim().slice(-1)}</Avatar>
                 <Button shape="circle" size="small" danger type="primary" icon={<Camera size={12} />} style={{ position: 'absolute', bottom: 0, right: 0 }} />
               </div>
-              <Title level={5} style={{ marginBottom: 2 }}>{currentPatient.name}</Title>
+              <Title level={5} style={{ marginBottom: 2 }}>{displayName}</Title>
               <Text type="secondary" style={{ fontSize: 12.5 }}>Mã bệnh nhân: {currentPatient.code}</Text>
               <div><Tag color="success" style={{ marginTop: 10 }}>Đang điều trị</Tag></div>
             </Card>
@@ -58,8 +67,8 @@ export default function Profile() {
               <Descriptions column={1} size="small" items={[
                 { key: 'dob', label: 'Ngày sinh', children: currentPatient.profile.dob },
                 { key: 'gender', label: 'Giới tính', children: currentPatient.profile.gender },
-                { key: 'phone', label: 'Số điện thoại', children: currentPatient.profile.phone },
-                { key: 'email', label: 'Email', children: currentPatient.profile.email },
+                { key: 'phone', label: 'Số điện thoại', children: me?.phone ?? currentPatient.profile.phone },
+                { key: 'email', label: 'Email', children: me?.email ?? currentPatient.profile.email },
                 { key: 'address', label: 'Địa chỉ', children: currentPatient.profile.address },
               ]} />
             </Card>
@@ -77,7 +86,7 @@ export default function Profile() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <Button block icon={<Bell size={16} />} style={{ justifyContent: 'flex-start' }}>Cài đặt thông báo</Button>
               <Button block icon={<Shield size={16} />} style={{ justifyContent: 'flex-start' }}>Quyền riêng tư & Bảo mật</Button>
-              <Button block danger icon={<LogOut size={16} />} style={{ justifyContent: 'flex-start' }} onClick={() => logoutCurrentSession().finally(() => nav('/login'))}>Đăng xuất</Button>
+              <Button block danger icon={<LogOut size={16} />} style={{ justifyContent: 'flex-start' }} onClick={() => logoutCurrentSession().finally(() => { resetSession(); nav('/login'); })}>Đăng xuất</Button>
             </div>
           </div>
         </Col>

@@ -44,7 +44,7 @@ export default function SettingsPage() {
   const [active, setActive] = useState('notif');
   const nav = useNavigate();
   const { modal } = AntApp.useApp();
-  const { currentPatient, resetToSeed } = useAppState();
+  const { currentPatient, resetToSeed, resetSession } = useAppState();
   const consents = useStore(consentRepository).filter((c) => c.patientId === currentPatient.id);
 
   const [notifs, setNotifs] = useState([
@@ -211,7 +211,7 @@ export default function SettingsPage() {
                 <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 12 }}>
                   Kết thúc phiên hiện tại và quay lại màn hình đăng nhập.
                 </Paragraph>
-                <Button icon={<LogOut size={15} />} onClick={() => logoutCurrentSession().finally(() => nav('/login'))}>Đăng xuất</Button>
+                <Button icon={<LogOut size={15} />} onClick={() => logoutCurrentSession().finally(() => { resetSession(); nav('/login'); })}>Đăng xuất</Button>
               </div>
             </Card>
           )}
