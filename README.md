@@ -1,24 +1,27 @@
 <div align="center">
 
-<img src="./public/logo-mark.png" alt="CareFollow logo" width="140" />
+<img src="./public/readme-hero.svg" alt="DermaHealth — nền tảng điều phối và chăm sóc bệnh nhân" width="100%" />
 
 # DermaHealth
+
+<p><em>Smarter care. Smoother operations.</em></p>
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)
 ![Ant%20Design](https://img.shields.io/badge/Ant%20Design-UI-1677FF?logo=antdesign&logoColor=white)
+![Status](https://img.shields.io/badge/Status-Active-14B8A6?style=flat&logo=statuspage&logoColor=white)
 
 <p>
 	Nền tảng điều phối và chăm sóc bệnh nhân cho phòng khám và cơ sở y tế, được thiết kế theo luồng nghiệp vụ thực tế và phân quyền rõ ràng theo vai trò.
 </p>
 
 <p>
-	<a href="#tong-quan">Tổng quan</a> ·
-	<a href="#iem-noi-bat">Điểm nổi bật</a> ·
-	<a href="#luong-van-hanh">Luồng vận hành</a> ·
-	<a href="#cong-nghe-su-dung">Công nghệ</a> ·
-	<a href="#chay-du-an">Chạy dự án</a>
+	<a href="#tổng-quan">Tổng quan</a> ·
+	<a href="#điểm-nổi-bật">Điểm nổi bật</a> ·
+	<a href="#luồng-vận-hành">Luồng vận hành</a> ·
+	<a href="#công-nghệ-sử-dụng">Công nghệ</a> ·
+	<a href="#chạy-dự-án">Chạy dự án</a>
 </p>
 
 </div>
@@ -34,8 +37,8 @@
 				Trải nghiệm được chia theo từng nhóm người dùng để hệ thống vừa dễ trình bày trên GitHub, vừa đủ gần với cách một phòng khám thực sự vận hành.
 			</p>
 		</td>
-		<td width="42%" valign="top">
-			<img src="./src/assets/hero.png" alt="CareFollow preview" width="100%" />
+		<td width="42%" valign="middle" align="center">
+			<img src="./public/neymar-dance.gif" alt="Neymar ăn mừng bằng điệu nhảy" width="82%" />
 		</td>
 	</tr>
 </table>
@@ -72,16 +75,11 @@
 
 ## Luồng vận hành
 
-```mermaid
-flowchart LR
-	A[Đặt lịch] --> B[Check-in QR]
-	B --> C[Điều phối hàng đợi]
-	C --> D[Lượt khám]
-	D --> E[Hồ sơ & đơn thuốc]
-	E --> F[Theo dõi tiến triển]
-	C --> G[Workflow nội bộ]
-	G --> H[Audit & tích hợp]
-```
+<div align="center">
+	<img src="./public/readme-workflow.svg" alt="Luồng vận hành: đặt lịch, check-in QR, điều phối, lượt khám, hồ sơ và theo dõi" width="100%" />
+</div>
+
+> Song song với hành trình khám, hệ thống duy trì workflow nội bộ, audit log và trạng thái tích hợp để hỗ trợ đội ngũ vận hành.
 
 ## Công nghệ sử dụng
 
