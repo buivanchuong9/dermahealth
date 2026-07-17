@@ -17,11 +17,9 @@ const QUEUE_CONTROL_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'med
 const RECEPTION_ROLES: UserRole[] = ['receptionist', 'medical_administrator'];
 const WORKFLOW_DESIGN_ROLES: UserRole[] = ['clinical_process_designer', 'medical_administrator'];
 
-// Every routed page is code-split at the route level so the initial bundle
-// only carries the shell (AppShell/Sidebar/TopHeader/AppState) — heavy
-// libraries (Highcharts, @xyflow/react, dnd-kit) only download once a page
-// that actually needs them is visited, since only those pages import them.
+// Phân tách router cấp trang
 const Login = lazy(() => import('./pages/Login'));
+const Register = lazy(() => import('./pages/Register')); // Đăng ký đã được tách riêng
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Appointments = lazy(() => import('./pages/Appointments'));
 const AIAnalysis = lazy(() => import('./pages/AIAnalysis'));
@@ -62,6 +60,7 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Navigate to="/login" replace />} />
                   <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
                   <Route path="/kiosk/check-in" element={<KioskCheckIn />} />
                   <Route path="/kiosk/check-in/result" element={<KioskResult />} />
                   <Route path="/display/queue" element={<ClinicQueue board />} />
