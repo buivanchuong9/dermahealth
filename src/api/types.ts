@@ -51,6 +51,18 @@ export interface LoginRequest {
   mfaCode?: string;
 }
 
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  name: string;
+  dob?: string;
+  gender?: 'male' | 'female' | string;
+  phone?: string;
+  address?: string;
+  organizationId?: string;
+  organizationCode?: string;
+}
+
 export interface LogoutAllRequest {
   password: string;
 }

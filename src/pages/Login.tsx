@@ -5,6 +5,7 @@ import { motion, useMotionValue, useSpring, animate, AnimatePresence } from 'fra
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { login } from '../api/auth';
 import { ApiError } from '../api/http';
+import { useAppState } from '../state/useAppState';
 
 const { Title, Text } = Typography;
 
@@ -223,6 +224,7 @@ function FeatureCard({ icon, title, desc, delay }: { icon: React.ReactNode; titl
 /* ─── Main ───────────────────────────────────────────── */
 export default function Login() {
   const nav = useNavigate();
+  const { refreshMe } = useAppState();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -231,6 +233,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login({ email: values.email, password: values.password, rememberMe: values.remember });
+      refreshMe();
       nav('/app/dashboard');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Đăng nhập thất bại. Vui lòng thử lại.');

@@ -11,6 +11,8 @@ export interface AppStateValue {
   setCurrentUserId: (id: UserId) => void;
   currentPatient: Patient;
   resetToSeed: () => void;
+  refreshMe: () => void;
+  resetSession: () => void;
 }
 
 export const AppStateContext = createContext<AppStateValue | null>(null);

@@ -1,8 +1,11 @@
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Divider, Typography } from 'antd';
+import { Form, Input, Button, Divider, Typography, Alert } from 'antd';
 import { motion, useMotionValue, useSpring, animate, AnimatePresence } from 'framer-motion';
 import { Shield, Zap, Heart } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { register } from '../api/auth';
+import { useAppState } from '../state/useAppState';
+import { ApiError } from '../api/http';
 
 const { Title, Text } = Typography;
 
@@ -223,13 +226,38 @@ function PasswordStrength({ value }: { value: string }) {
 }
 
 /* ─── Main ───────────────────────────────────────────── */
+interface RegisterFormValues {
+  fullname: string;
+  email: string;
+  password: string;
+}
+
 export default function Register() {
   const nav = useNavigate();
+  const { refreshMe } = useAppState();
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleRegister = (values: unknown) => {
-    console.log('Register values:', values);
-    nav('/login');
+  const handleRegister = async (values: RegisterFormValues) => {
+    setError(null);
+    setLoading(true);
+    try {
+      await register({
+        email: values.email,
+        password: values.password,
+        name: values.fullname,
+        dob: '1995-03-15',
+        gender: 'male',
+        phone: '0900000000',
+      });
+      refreshMe();
+      nav('/app/dashboard');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Đăng ký thất bại. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -365,8 +393,14 @@ export default function Register() {
             </motion.div>
 
             {/* Form */}
-            <Form layout="vertical" onFinish={handleRegister}>
+            <Form<RegisterFormValues> layout="vertical" onFinish={handleRegister}>
               <motion.div variants={stagger} initial="hidden" animate="visible">
+                {error && (
+                  <motion.div variants={fadeUp}>
+                    <Alert type="error" message={error} showIcon style={{ marginBottom: 16, borderRadius: 12 }} />
+                  </motion.div>
+                )}
+
                 <motion.div variants={fadeUp}>
                   <Form.Item label="Họ và tên" name="fullname" rules={[{ required: true, message: 'Vui lòng nhập họ tên!' }]}>
                     <Input size="large" placeholder="Nguyễn Văn A"
@@ -384,8 +418,8 @@ export default function Register() {
                 </motion.div>
 
                 <motion.div variants={fadeUp}>
-                  <Form.Item label="Mật khẩu" name="password" rules={[{ required: true, message: 'Vui lòng tạo mật khẩu!' }]}>
-                    <Input.Password size="large" placeholder="Tối thiểu 6 ký tự"
+                  <Form.Item label="Mật khẩu" name="password" rules={[{ required: true, message: 'Vui lòng tạo mật khẩu!' }, { min: 12, message: 'Mật khẩu phải có ít nhất 12 ký tự!' }]}>
+                    <Input.Password size="large" placeholder="Tối thiểu 12 ký tự"
                       onChange={e => setPassword(e.target.value)}
                       style={{ borderRadius: 13, padding: '11px 14px', fontSize: 14, background: 'rgba(248,250,255,0.9)', border: '1.5px solid rgba(16,34,90,0.11)', transition: 'all 0.25s ease' }}
                     />
@@ -397,7 +431,7 @@ export default function Register() {
                 <motion.div variants={fadeUp}>
                   <RippleButton>
                     <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} transition={{ duration: 0.16 }}>
-                      <Button type="primary" htmlType="submit" block size="large"
+                      <Button type="primary" htmlType="submit" block size="large" loading={loading}
                         style={{ height: 52, borderRadius: 14, fontWeight: 700, letterSpacing: '0.02em', background: 'linear-gradient(135deg, #174d8a 0%, #071e35 100%)', border: 'none', boxShadow: '0 4px 18px rgba(7,30,53,0.32)', fontSize: 15, marginTop: 4 }}
                       >
                         Đăng ký tài khoản

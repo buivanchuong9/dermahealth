@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Input, Badge, Avatar, Popover, Button, Typography, Tag, Empty, Divider, Grid, Select } from 'antd';
-import { Search, Bell, Settings, CheckCheck, Menu as MenuIcon, ChevronDown, UserRound } from 'lucide-react';
+import { Search, Bell, Settings, CheckCheck, Menu as MenuIcon, ChevronDown, UserRound, LogOut } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { notificationRepository } from '../domain/repositories';
 import { notificationService } from '../domain/services/notificationService';
 import { ROLE_LABEL } from '../domain/core/enums';
+import { logoutCurrentSession } from '../api/auth';
 
 const { Header } = Layout;
 const { Text } = Typography;
@@ -16,8 +17,21 @@ const STATUS_COLOR: Record<string, string> = { queued: 'default', sent: 'process
 
 export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () => void }) {
   const navigate = useNavigate();
-  const { currentUser, allUsers, setCurrentUserId } = useAppState();
+  const { currentUser, allUsers, setCurrentUserId, resetSession } = useAppState();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logoutCurrentSession();
+    } finally {
+      resetSession();
+      setAccountOpen(false);
+      setLoggingOut(false);
+      navigate('/login');
+    }
+  };
   const screens = Grid.useBreakpoint();
   const isNarrow = screens.md === false;
   useStore(notificationRepository);
@@ -110,6 +124,17 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
         }}
       >
         Cài đặt
+      </Button>
+      <Button
+        type="text"
+        danger
+        block
+        loading={loggingOut}
+        icon={<LogOut size={15} />}
+        className="top-header__account-settings"
+        onClick={handleLogout}
+      >
+        Đăng xuất
       </Button>
     </div>
   );
