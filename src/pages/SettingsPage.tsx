@@ -205,6 +205,20 @@ export default function SettingsPage() {
                 </Paragraph>
                 <Button danger icon={<RotateCcw size={15} />} onClick={confirmReset}>Đặt lại dữ liệu demo</Button>
               </div>
+
+              <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-default)' }}>
+                <Text strong style={{ display: 'block', marginBottom: 4 }}>Phiên đăng nhập</Text>
+                <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 12 }}>
+                  Đăng xuất khỏi tài khoản trên thiết bị này.
+                </Paragraph>
+                <Button
+                  danger
+                  icon={<LogOut size={15} />}
+                  onClick={() => logoutCurrentSession().finally(() => { resetSession(); nav('/login'); })}
+                >
+                  Đăng xuất
+                </Button>
+              </div>
             </Card>
           )}
         </Col>
