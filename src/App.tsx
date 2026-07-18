@@ -10,7 +10,7 @@ import AppShell from './layouts/AppShell';
 import { GlobalErrorListener } from './components/feedback/GlobalErrorListener';
 import { GlobalEmpty } from './components/feedback/ProfessionalEmpty';
 import { RoleProtectedRoute } from './components/feedback/AccessDenied';
-import type { UserRole } from './domain/core/enums';
+import type { UserRole } from './domain/core/role';
 
 const STAFF_QUEUE_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator'];
 const QUEUE_CONTROL_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'medical_administrator'];

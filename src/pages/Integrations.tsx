@@ -5,7 +5,8 @@ import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { integrationRepository } from '../domain/repositories';
 import type { IntegrationConnection } from '../domain/core/entities';
-import { hasRoleAccess, type IntegrationStatus } from '../domain/core/enums';
+import { type IntegrationStatus } from '../domain/core/enums';
+import { hasRoleAccess } from '../domain/core/role';
 import { AccessDenied } from '../components/feedback/AccessDenied';
 
 const { Title, Text } = Typography;

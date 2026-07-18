@@ -3,7 +3,7 @@ import { Form, Input, Button, Divider, Typography, Alert } from 'antd';
 import { motion, useMotionValue, useSpring, animate, AnimatePresence } from 'framer-motion';
 import { Shield, Zap, Heart } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { register } from '../api/auth';
+import { registerAccount, REGISTRATION_MESSAGES } from '../api/registration';
 import { useAppState } from '../state/useAppState';
 import { ApiError } from '../api/http';
 
@@ -243,10 +243,10 @@ export default function Register() {
     setError(null);
     setLoading(true);
     try {
-      await register({
+      await registerAccount({
         email: values.email,
         password: values.password,
-        name: values.fullname,
+        displayName: values.fullname,
         dob: '1995-03-15',
         gender: 'male',
         phone: '0900000000',
@@ -254,7 +254,7 @@ export default function Register() {
       refreshMe();
       nav('/app/dashboard');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Đăng ký thất bại. Vui lòng thử lại.');
+      setError(err instanceof ApiError ? err.message : REGISTRATION_MESSAGES.genericError);
     } finally {
       setLoading(false);
     }

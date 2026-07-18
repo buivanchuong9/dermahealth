@@ -8,7 +8,7 @@ import { appointmentCheckInTokenRepository, appointmentRepository, userRepositor
 import { appointmentService } from '../domain/services/appointmentService';
 import { AppointmentQRCode } from '../components/appointments/AppointmentQRCode';
 import type { Appointment } from '../domain/core/entities';
-import { hasRoleAccess } from '../domain/core/enums';
+import { hasRoleAccess } from '../domain/core/role';
 
 const { Title, Text } = Typography;
 

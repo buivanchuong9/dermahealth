@@ -6,7 +6,7 @@ import { useAppState } from '../state/useAppState';
 import { appointmentCheckInTokenRepository, appointmentRepository, queueRepository, userRepository } from '../domain/repositories';
 import { AppointmentQRCode } from '../components/appointments/AppointmentQRCode';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
-import { hasRoleAccess } from '../domain/core/enums';
+import { hasRoleAccess } from '../domain/core/role';
 const { Title, Text } = Typography;
 
 export default function AppointmentDetail({ consultation = false }: { consultation?: boolean }) {

@@ -7,12 +7,13 @@ import type {
   ConsentId, AuditEventId, IntegrationConnectionId, IntegrationMessageId,
 } from './ids';
 import type {
-  UserRole, EncounterStatus, AIHumanReviewStatus, DiagnosisStatus, ClinicalOrderStatus,
+  EncounterStatus, AIHumanReviewStatus, DiagnosisStatus, ClinicalOrderStatus,
   WorkflowTemplateStatus, WorkflowInstanceStatus, WorkflowTaskStatus, MedicalRecordStatus,
   CarePlanStatus, FollowUpActivityStatus, AlertSeverity, AlertStatus,
   EncounterCreationRequestStatus, NotificationChannel, NotificationStatus, IntegrationStatus,
   Priority, Urgency,
 } from './enums';
+import type { UserRole } from './role';
 
 export interface User {
   id: UserId;

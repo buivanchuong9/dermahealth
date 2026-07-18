@@ -6,7 +6,7 @@ import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { notificationRepository } from '../domain/repositories';
 import { notificationService } from '../domain/services/notificationService';
-import { ROLE_LABEL } from '../domain/core/enums';
+import { ROLE_LABEL } from '../domain/core/role';
 import { logoutCurrentSession } from '../api/auth';
 
 const { Header } = Layout;

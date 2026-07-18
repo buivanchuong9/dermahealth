@@ -1,4 +1,5 @@
 export interface ApiEnvelope<T> {
+  success?: boolean;
   data: T;
   meta?: unknown;
   requestId?: string;
@@ -28,7 +29,7 @@ export interface Membership {
 
 export interface AuthUser {
   id: string;
-  name: string;
+  displayName: string;
   email: string;
   phone?: string | null;
   avatarUrl?: string | null;
@@ -39,6 +40,7 @@ export interface AuthUser {
 }
 
 export interface AuthSession {
+  mode?: 'registered' | 'invited' | 'existing' | string;
   accessToken: string;
   accessTokenExpiresAt: string;
   user: AuthUser;
@@ -54,7 +56,7 @@ export interface LoginRequest {
 export interface RegisterRequest {
   email: string;
   password: string;
-  name: string;
+  displayName: string;
   dob?: string;
   gender?: 'male' | 'female' | string;
   phone?: string;
