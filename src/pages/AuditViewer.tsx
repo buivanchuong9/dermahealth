@@ -4,7 +4,7 @@ import { ShieldCheck, ArrowRight } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { auditRepository } from '../domain/repositories';
-import { hasRoleAccess, ROLE_LABEL } from '../domain/core/enums';
+import { hasRoleAccess, ROLE_LABEL } from '../domain/core/role';
 import type { AuditEvent } from '../domain/core/entities';
 import { AccessDenied } from '../components/feedback/AccessDenied';
 

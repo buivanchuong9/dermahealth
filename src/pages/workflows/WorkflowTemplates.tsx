@@ -7,7 +7,7 @@ import { useStore } from '../../state/useStore';
 import { workflowRepository } from '../../domain/repositories';
 import { workflowService } from '../../domain/services/workflowService';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
-import { hasRoleAccess } from '../../domain/core/enums';
+import { hasRoleAccess } from '../../domain/core/role';
 
 const { Text, Title, Paragraph } = Typography;
 

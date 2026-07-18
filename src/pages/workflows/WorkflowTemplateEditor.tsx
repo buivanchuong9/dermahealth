@@ -14,7 +14,7 @@ import { useStore } from '../../state/useStore';
 import { encounterRepository, patientRepository, workflowRepository } from '../../domain/repositories';
 import { workflowService } from '../../domain/services/workflowService';
 import { layoutByPrerequisites } from '../../domain/flowLayout';
-import { hasRoleAccess, type UserRole } from '../../domain/core/enums';
+import { hasRoleAccess, type UserRole } from '../../domain/core/role';
 import type { EncounterId, WorkflowTemplateId } from '../../domain/core/ids';
 import type { WorkflowExecutorType, WorkflowStepDefinition } from '../../domain/core/entities';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';

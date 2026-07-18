@@ -10,7 +10,8 @@ import { useStore } from '../state/useStore';
 import { encounterRepository, clinicalOrderRepository, workflowRepository, medicalRecordRepository, carePlanRepository } from '../domain/repositories';
 import { encounterService } from '../domain/services/encounterService';
 import { MILESTONES, milestoneIndexForStatus, overallProgressPct } from '../domain/journeyView';
-import { ENCOUNTER_STATUS_LABEL, TASK_STATUS_LABEL, RECORD_STATUS_LABEL, ROLE_LABEL } from '../domain/core/enums';
+import { ENCOUNTER_STATUS_LABEL, TASK_STATUS_LABEL, RECORD_STATUS_LABEL } from '../domain/core/enums';
+import { ROLE_LABEL } from '../domain/core/role';
 import type { EncounterId } from '../domain/core/ids';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 

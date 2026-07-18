@@ -9,7 +9,7 @@ import { ITEM_TYPE_LABEL, type CarePlanItemType } from '../domain/carePlan';
 import type { FollowUpActivity } from '../domain/core/entities';
 import { useFriendlyError } from '../components/feedback/useFriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
-import { hasRoleAccess } from '../domain/core/enums';
+import { hasRoleAccess } from '../domain/core/role';
 
 const { Title, Text, Paragraph } = Typography;
 const AUTO_TYPES = new Set(['medication_reminder', 'lifestyle_guidance', 'patient_education', 'symptom_questionnaire', 'satisfaction_survey', 'adherence_check']);

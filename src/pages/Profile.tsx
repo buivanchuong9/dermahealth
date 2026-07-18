@@ -35,7 +35,7 @@ export default function Profile() {
   const { currentPatient, resetSession } = useAppState();
   const primaryDoctor = patientService.getPrimaryDoctor(currentPatient);
   const [me, setMe] = useState<AuthUser | null>(null);
-  const displayName = me?.name ?? currentPatient.name;
+  const displayName = me?.displayName ?? currentPatient.name;
 
   useEffect(() => {
     getMe().then(setMe).catch(() => setMe(null));

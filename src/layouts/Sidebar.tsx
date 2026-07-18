@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { AppLogo } from '../components/brand';
 import { useAppState } from '../state/useAppState';
-import { hasRoleAccess, type UserRole } from '../domain/core/enums';
+import { hasRoleAccess, type UserRole } from '../domain/core/role';
 
 const { Sider } = Layout;
 const { Text } = Typography;

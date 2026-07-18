@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 import type { User, Patient } from '../domain/core/entities';
 import type { UserId } from '../domain/core/ids';
-import type { UserRole } from '../domain/core/enums';
+import type { UserRole } from '../domain/core/role';
 
 export interface AppStateValue {
   currentUserId: UserId;

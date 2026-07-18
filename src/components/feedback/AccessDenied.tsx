@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Button, Card, Space, Typography } from 'antd';
 import { ArrowLeft, Home } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
-import { hasRoleAccess, ROLE_LABEL, type UserRole } from '../../domain/core/enums';
+import { hasRoleAccess, ROLE_LABEL, type UserRole } from '../../domain/core/role';
 
 const { Title, Text } = Typography;
 const noAccessImage = `${import.meta.env.BASE_URL}no%20access.png`;

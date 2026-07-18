@@ -6,7 +6,7 @@ import { useStore } from './useStore';
 import { AppStateContext, type AppStateValue } from './appStateContextObject';
 import type { User } from '../domain/core/entities';
 import type { UserId } from '../domain/core/ids';
-import type { UserRole } from '../domain/core/enums';
+import type { UserRole } from '../domain/core/role';
 import { getMe } from '../api/me';
 
 const SESSION_KEY = 'dermahealth:v1:session:currentUserId';
@@ -32,7 +32,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const refreshMe = useCallback(() => {
     getMe().then((me) => {
       const role = (me.memberships[0]?.role as UserRole | undefined) ?? 'patient';
-      setMeUser({ id: ME_USER_ID, name: me.name, role });
+      setMeUser({ id: ME_USER_ID, name: me.displayName, role });
       if (!hadStoredChoice.current) {
         setCurrentUserIdState(ME_USER_ID);
       }

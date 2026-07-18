@@ -1,15 +1,9 @@
 import { http } from './http';
 import { clearAccessToken, setAccessToken } from './authToken';
-import type { AuthSession, LoginRequest, LogoutAllRequest, RegisterRequest } from './types';
+import type { AuthSession, LoginRequest, LogoutAllRequest } from './types';
 
 export async function login(payload: LoginRequest): Promise<AuthSession> {
   const session = await http.post<AuthSession>('/api/v1/auth/sessions', payload, { auth: false });
-  setAccessToken(session.accessToken, session.accessTokenExpiresAt);
-  return session;
-}
-
-export async function register(payload: RegisterRequest): Promise<AuthSession> {
-  const session = await http.post<AuthSession>('/api/v1/auth/register', payload, { auth: false });
   setAccessToken(session.accessToken, session.accessTokenExpiresAt);
   return session;
 }

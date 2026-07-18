@@ -1,4 +1,4 @@
-import { hasRoleAccess, type UserRole } from './core/enums';
+import { hasRoleAccess, type UserRole } from './core/role';
 import { userRepository } from './repositories';
 import type { UserId } from './core/ids';
 
