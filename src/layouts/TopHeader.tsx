@@ -7,7 +7,7 @@ import { useStore } from '../state/useStore';
 import { notificationRepository } from '../domain/repositories';
 import { notificationService } from '../domain/services/notificationService';
 import { ROLE_LABEL } from '../domain/core/role';
-import { logoutCurrentSession } from '../api/auth';
+import { endCurrentSession } from '../api/auth';
 
 const { Header } = Layout;
 const { Text } = Typography;
@@ -24,7 +24,7 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
-      await logoutCurrentSession();
+      await endCurrentSession();
     } finally {
       resetSession();
       setAccountOpen(false);

@@ -6,7 +6,7 @@ import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { consentRepository } from '../domain/repositories';
 import { patientService } from '../domain/services/patientService';
-import { logoutCurrentSession } from '../api/auth';
+import { endCurrentSession } from '../api/auth';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -214,7 +214,7 @@ export default function SettingsPage() {
                 <Button
                   danger
                   icon={<LogOut size={15} />}
-                  onClick={() => logoutCurrentSession().finally(() => { resetSession(); nav('/login'); })}
+                  onClick={() => endCurrentSession().finally(() => { resetSession(); nav('/login'); })}
                 >
                   Đăng xuất
                 </Button>

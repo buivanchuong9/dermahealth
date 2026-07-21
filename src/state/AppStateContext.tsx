@@ -7,7 +7,7 @@ import { AppStateContext, type AppStateValue } from './appStateContextObject';
 import type { User } from '../domain/core/entities';
 import type { UserId } from '../domain/core/ids';
 import type { UserRole } from '../domain/core/role';
-import { getMe } from '../api/me';
+import { getProfile } from '../api/me'; // Đã sửa import chuẩn
 
 const SESSION_KEY = 'dermahealth:v1:session:currentUserId';
 const DEFAULT_USER_ID = 'U-0005' as UserId;
@@ -30,8 +30,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const notifiedRecovery = useRef(false);
 
   const refreshMe = useCallback(() => {
-    getMe().then((me) => {
-      const role = (me.memberships[0]?.role as UserRole | undefined) ?? 'patient';
+    // FIX: Thay thế getMe() bằng getProfile() và xử lý bóc tách object bọc ngoài { data } nếu có
+    getProfile().then((response) => {
+      // Vì hàm getProfile của bạn trả về object có dạng { success: true, data: CurrentUserResponseDto }
+      // nên ta lấy thông tin user từ response.data
+      const me = response.data;
+
+      const role = (me.memberships?.[0]?.role as UserRole | undefined) ?? 'patient';
       setMeUser({ id: ME_USER_ID, name: me.displayName, role });
       if (!hadStoredChoice.current) {
         setCurrentUserIdState(ME_USER_ID);

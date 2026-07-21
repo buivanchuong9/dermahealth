@@ -1,5 +1,4 @@
 import { clearAccessToken, getAccessToken } from './authToken';
-import type { ApiEnvelope } from './types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 
@@ -49,7 +48,7 @@ async function request<T>(path: string, { method = 'GET', body, auth = true }: R
     throw new ApiError(message, res.status, json?.requestId);
   }
 
-  return (json as ApiEnvelope<T> | undefined)?.data as T;
+  return json as T;
 }
 
 export const http = {

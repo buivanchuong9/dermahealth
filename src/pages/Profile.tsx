@@ -4,9 +4,9 @@ import { Row, Col, Card, Avatar, Button, Tag, Descriptions, Timeline, List, Typo
 import { Camera, Edit2, Bell, Shield, LogOut } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { patientService } from '../domain/services/patientService';
-import { logoutCurrentSession } from '../api/auth';
-import { getMe } from '../api/me';
-import type { AuthUser } from '../api/types';
+import { endCurrentSession } from '../api/auth';
+import { getProfile } from '../api/me';
+import type { CurrentUserResponseDto } from '../api/types';
 
 const { Title, Text } = Typography;
 
@@ -34,11 +34,11 @@ export default function Profile() {
   const nav = useNavigate();
   const { currentPatient, resetSession } = useAppState();
   const primaryDoctor = patientService.getPrimaryDoctor(currentPatient);
-  const [me, setMe] = useState<AuthUser | null>(null);
+  const [me, setMe] = useState<CurrentUserResponseDto | null>(null);
   const displayName = me?.displayName ?? currentPatient.name;
 
   useEffect(() => {
-    getMe().then(setMe).catch(() => setMe(null));
+    getProfile().then(r => setMe(r.data)).catch(() => setMe(null));
   }, []);
 
   return (
@@ -67,8 +67,8 @@ export default function Profile() {
               <Descriptions column={1} size="small" items={[
                 { key: 'dob', label: 'Ngày sinh', children: currentPatient.profile.dob },
                 { key: 'gender', label: 'Giới tính', children: currentPatient.profile.gender },
-                { key: 'phone', label: 'Số điện thoại', children: me?.phone ?? currentPatient.profile.phone },
-                { key: 'email', label: 'Email', children: me?.email ?? currentPatient.profile.email },
+                { key: 'phone', label: 'Số điện thoại', children: (me?.phone as unknown as string) ?? currentPatient.profile.phone },
+                { key: 'email', label: 'Email', children: (me?.email as unknown as string) ?? currentPatient.profile.email },
                 { key: 'address', label: 'Địa chỉ', children: currentPatient.profile.address },
               ]} />
             </Card>
@@ -86,7 +86,7 @@ export default function Profile() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <Button block icon={<Bell size={16} />} style={{ justifyContent: 'flex-start' }}>Cài đặt thông báo</Button>
               <Button block icon={<Shield size={16} />} style={{ justifyContent: 'flex-start' }}>Quyền riêng tư & Bảo mật</Button>
-              <Button block danger icon={<LogOut size={16} />} style={{ justifyContent: 'flex-start' }} onClick={() => logoutCurrentSession().finally(() => { resetSession(); nav('/login'); })}>Đăng xuất</Button>
+              <Button block danger icon={<LogOut size={16} />} style={{ justifyContent: 'flex-start' }} onClick={() => endCurrentSession().finally(() => { resetSession(); nav('/login'); })}>Đăng xuất</Button>
             </div>
           </div>
         </Col>

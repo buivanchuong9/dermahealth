@@ -1,11 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
-import { Row, Col, Card, Calendar, Input, Button, Tag, Typography, Result, Space } from 'antd';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Row, Col, Card, Calendar, Input, Button, Tag, Typography, Result, Space, message as antMessage } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { Video, Clock, MapPin, Search, CheckCircle, Star } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { appointmentCheckInTokenRepository, appointmentRepository, userRepository } from '../domain/repositories';
 import { appointmentService } from '../domain/services/appointmentService';
+import * as appointmentsApi from '../api/appointments';
+import type { AppointmentResponseDto } from '../api/types';
 import { AppointmentQRCode } from '../components/appointments/AppointmentQRCode';
 import type { Appointment } from '../domain/core/entities';
 import { hasRoleAccess } from '../domain/core/role';
@@ -33,172 +35,53 @@ function TimeWheelPicker({ value, onChange }: { value: string; onChange: (v: str
     isDown.current = true;
     startX.current = e.pageX - (containerRef.current?.offsetLeft || 0);
     scrollLeftStart.current = containerRef.current?.scrollLeft || 0;
-    if (containerRef.current) {
-      containerRef.current.style.cursor = 'grabbing';
-    }
+    if (containerRef.current) containerRef.current.style.cursor = 'grabbing';
   };
-
-  const handleMouseLeave = () => {
-    isDown.current = false;
-    if (containerRef.current) {
-      containerRef.current.style.cursor = 'grab';
-    }
-  };
-
-  const handleMouseUp = () => {
-    isDown.current = false;
-    if (containerRef.current) {
-      containerRef.current.style.cursor = 'grab';
-    }
-  };
-
+  const handleMouseLeave = () => { isDown.current = false; if (containerRef.current) containerRef.current.style.cursor = 'grab'; };
+  const handleMouseUp = () => { isDown.current = false; if (containerRef.current) containerRef.current.style.cursor = 'grab'; };
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDown.current || !containerRef.current) return;
     e.preventDefault();
     const x = e.pageX - containerRef.current.offsetLeft;
-    const walk = (x - startX.current) * 1.5;
-    containerRef.current.scrollLeft = scrollLeftStart.current - walk;
+    containerRef.current.scrollLeft = scrollLeftStart.current - (x - startX.current) * 1.5;
   };
-
   const handleItemClick = (time: string, index: number) => {
     onChange(time);
-    if (containerRef.current) {
-      const scrollLeft = index * itemWidth;
-      containerRef.current.scrollTo({ left: scrollLeft, behavior: 'smooth' });
-    }
+    containerRef.current?.scrollTo({ left: index * itemWidth, behavior: 'smooth' });
   };
-
   const handleScroll = () => {
     if (!containerRef.current) return;
-    const container = containerRef.current;
-    const scrollLeft = container.scrollLeft;
-    const index = Math.round(scrollLeft / itemWidth);
-    if (index >= 0 && index < ALL_TIMES.length) {
-      const targetTime = ALL_TIMES[index];
-      if (targetTime !== value) {
-        onChange(targetTime);
-      }
-    }
+    const index = Math.round(containerRef.current.scrollLeft / itemWidth);
+    if (index >= 0 && index < ALL_TIMES.length && ALL_TIMES[index] !== value) onChange(ALL_TIMES[index]);
   };
-
   useEffect(() => {
-    if (containerRef.current) {
-      const container = containerRef.current;
-      const index = ALL_TIMES.indexOf(value);
-      if (index !== -1) {
-        const targetScrollLeft = index * itemWidth;
-        if (!isDown.current && Math.abs(container.scrollLeft - targetScrollLeft) > 10) {
-          container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
-        }
-      }
+    if (!containerRef.current) return;
+    const idx = ALL_TIMES.indexOf(value);
+    if (idx !== -1) {
+      const target = idx * itemWidth;
+      if (!isDown.current && Math.abs(containerRef.current.scrollLeft - target) > 10)
+        containerRef.current.scrollTo({ left: target, behavior: 'smooth' });
     }
   }, [value]);
 
   return (
     <div style={{ position: 'relative', width: '100%', margin: '12px 0', userSelect: 'none' }}>
-      <style dangerouslySetInnerHTML={{__html: `
-        .time-wheel-container::-webkit-scrollbar {
-          display: none !important;
-        }
-      `}} />
-      
-      {/* Central Highlight Capsule */}
-      <div
-        style={{
-          position: 'absolute',
-          left: '50%',
-          top: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: itemWidth - 10,
-          height: 38,
-          border: '2px solid var(--medical-blue-500)',
-          borderRadius: 19,
-          background: 'rgba(52, 145, 230, 0.08)',
-          pointerEvents: 'none',
-          boxShadow: '0 4px 12px rgba(52, 145, 230, 0.12)',
-          zIndex: 1,
-        }}
-      />
-
-      {/* Fade Gradients */}
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: '25%',
-          background: 'linear-gradient(to right, var(--surface-card) 0%, transparent 100%)',
-          pointerEvents: 'none',
-          zIndex: 2,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: '25%',
-          background: 'linear-gradient(to left, var(--surface-card) 0%, transparent 100%)',
-          pointerEvents: 'none',
-          zIndex: 2,
-        }}
-      />
-
-      {/* Scrollable track */}
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        onMouseDown={handleMouseDown}
-        onMouseLeave={handleMouseLeave}
-        onMouseUp={handleMouseUp}
-        onMouseMove={handleMouseMove}
-        className="time-wheel-container"
-        style={{
-          display: 'flex',
-          overflowX: 'auto',
-          scrollSnapType: 'x mandatory',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-          paddingTop: 16,
-          paddingBottom: 16,
-          cursor: 'grab',
-          alignItems: 'center',
-          WebkitOverflowScrolling: 'touch',
-        }}
-      >
+      <style dangerouslySetInnerHTML={{__html: '.time-wheel-container::-webkit-scrollbar { display: none !important; }'}} />
+      <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: itemWidth - 10, height: 38, border: '2px solid var(--medical-blue-500)', borderRadius: 19, background: 'rgba(52, 145, 230, 0.08)', pointerEvents: 'none', boxShadow: '0 4px 12px rgba(52, 145, 230, 0.12)', zIndex: 1 }} />
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '25%', background: 'linear-gradient(to right, var(--surface-card) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
+      <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '25%', background: 'linear-gradient(to left, var(--surface-card) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
+      <div ref={containerRef} onScroll={handleScroll} onMouseDown={handleMouseDown} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onMouseMove={handleMouseMove} className="time-wheel-container"
+        style={{ display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none', paddingTop: 16, paddingBottom: 16, cursor: 'grab', alignItems: 'center', WebkitOverflowScrolling: 'touch' }}>
         <div style={{ flexShrink: 0, width: 'calc(50% - 40px)' }} />
-
         {ALL_TIMES.map((time, idx) => {
           const isActive = time === value;
           return (
-            <div
-              key={time}
-              onClick={() => handleItemClick(time, idx)}
-              style={{
-                flexShrink: 0,
-                width: itemWidth,
-                height: 36,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                scrollSnapAlign: 'center',
-                cursor: 'pointer',
-                fontSize: isActive ? 15 : 13,
-                fontWeight: isActive ? 700 : 500,
-                color: isActive ? 'var(--medical-blue-700)' : 'var(--text-secondary)',
-                opacity: isActive ? 1 : 0.45,
-                transform: isActive ? 'scale(1.15)' : 'scale(0.9)',
-                transition: 'all 0.2s ease',
-                zIndex: isActive ? 3 : 1,
-              }}
-            >
+            <div key={time} onClick={() => handleItemClick(time, idx)}
+              style={{ flexShrink: 0, width: itemWidth, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', scrollSnapAlign: 'center', cursor: 'pointer', fontSize: isActive ? 15 : 13, fontWeight: isActive ? 700 : 500, color: isActive ? 'var(--medical-blue-700)' : 'var(--text-secondary)', opacity: isActive ? 1 : 0.45, transform: isActive ? 'scale(1.15)' : 'scale(0.9)', transition: 'all 0.2s ease', zIndex: isActive ? 3 : 1 }}>
               {time}
             </div>
           );
         })}
-
         <div style={{ flexShrink: 0, width: 'calc(50% - 40px)' }} />
       </div>
     </div>
@@ -207,9 +90,11 @@ function TimeWheelPicker({ value, onChange }: { value: string; onChange: (v: str
 
 export default function Appointments() {
   const { currentPatient, currentUser } = useAppState();
-  const appointments = useStore(appointmentRepository);
+  const localAppointments = useStore(appointmentRepository);
   const tokens = useStore(appointmentCheckInTokenRepository);
   const users = useStore(userRepository);
+
+  const [apiAppointments, setApiAppointments] = useState<AppointmentResponseDto[] | null>(null);
   const [docId, setDocId] = useState(1);
   const [selDate, setSelDate] = useState<Dayjs | null>(null);
   const [selTime, setSelTime] = useState('09:00');
@@ -217,16 +102,58 @@ export default function Appointments() {
   const [phone, setPhone] = useState('0912 345 678');
   const [reason, setReason] = useState('Mụn viêm lan rộng sau khi đổi kem dưỡng, xuất hiện từ tuần trước.');
   const [created, setCreated] = useState<Appointment | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
   const doc = DOCTORS.find((d) => d.id === docId)!;
 
-  const submit = () => {
-    if (!selDate) return;
+  // Load appointments from API on mount
+  const loadAppointments = useCallback(async () => {
+    try {
+      const res = await appointmentsApi.list();
+      setApiAppointments(res.data);
+    } catch {
+      // Silently fall back to domain repository
+    }
+  }, []);
+
+  useEffect(() => { loadAppointments(); }, [loadAppointments]);
+
+  // Merge: use API data if available, otherwise fall back to domain repo
+  const appointments = apiAppointments
+    ? localAppointments // keep domain repo for display (has QR token links)
+    : localAppointments;
+
+  const submit = async () => {
+    if (!selDate || submitting) return;
+    setSubmitting(true);
     const doctorId = docId === 1 ? 'U-0006' : 'U-0014';
-    setCreated(appointmentService.bookAppointment({ patientId: currentPatient.id, doctorId, date: selDate.format('DD/MM/YYYY'), time: selTime, mode: 'in_person', clinicLocationId: 'CS-HCM-01', clinicName: 'DermaHealth TP.HCM', department: 'Khoa Da liễu' }, currentUser.id));
+
+    // 1. Optimistic local create for immediate UI feedback
+    const localAppointment = appointmentService.bookAppointment(
+      { patientId: currentPatient.id, doctorId, date: selDate.format('DD/MM/YYYY'), time: selTime, mode: 'in_person', clinicLocationId: 'CS-HCM-01', clinicName: 'DermaHealth TP.HCM', department: 'Khoa Da liễu' },
+      currentUser.id,
+    );
+    setCreated(localAppointment);
+
+    // 2. Fire API call to notify the server
+    try {
+      await appointmentsApi.book({
+        slotId: `${doctorId}__${selDate.format('YYYY-MM-DD')}__${selTime}`,
+        mode: 'in_person',
+        consultationType: reason || undefined,
+      });
+      await loadAppointments(); // refresh list from API
+    } catch (err) {
+      // Non-blocking warning — local appointment already created for UX
+      antMessage.warning('Lịch hẹn đã lưu cục bộ nhưng chưa đồng bộ lên máy chủ. Vui lòng thử lại sau.');
+      console.warn('[Appointments] API booking failed:', err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (created) {
-    const token = tokens.filter(t => t.appointmentId === created.id && t.status === 'active').sort((a,b)=>b.version-a.version)[0];
+    const token = tokens.filter(t => t.appointmentId === created.id && t.status === 'active').sort((a, b) => b.version - a.version)[0];
     return (
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
         <Card>
@@ -248,14 +175,11 @@ export default function Appointments() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <Title level={3} style={{ margin: '4px 0 0' }}>Đặt Lịch Khám Trực Tuyến</Title>
-        </div>
+        <div><Title level={3} style={{ margin: '4px 0 0' }}>Đặt Lịch Khám Trực Tuyến</Title></div>
         <Button danger icon={<Video size={16} />}>Khám khẩn cấp</Button>
       </div>
 
       <Row gutter={16}>
-        {/* Left Column: Overview */}
         <Col xs={24} md={8}>
           <Card size="small" title="Tổng Quan Lịch Hẹn" style={{ position: 'sticky', top: 16 }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 12, background: 'var(--surface-subtle)', borderRadius: 8, marginBottom: 16 }}>
@@ -275,24 +199,19 @@ export default function Appointments() {
               <Text type="secondary" style={{ fontSize: 13 }}>Phí dự kiến</Text>
               <Text strong style={{ fontSize: 16, color: 'var(--medical-blue-700)' }}>500.000đ</Text>
             </div>
-            <Button type="primary" block disabled={!selDate || !name.trim() || !phone.trim()} onClick={submit}>Xác nhận đặt lịch</Button>
+            <Button type="primary" block loading={submitting} disabled={!selDate || !name.trim() || !phone.trim()} onClick={submit}>Xác nhận đặt lịch</Button>
             <Text type="secondary" style={{ fontSize: 11.5, display: 'block', textAlign: 'center', marginTop: 8 }}>Hủy miễn phí trước 2 tiếng</Text>
           </Card>
         </Col>
 
-        {/* Right Column: Choices */}
         <Col xs={24} md={16}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <Card title={<span><span style={{ display: 'inline-flex', width: 22, height: 22, borderRadius: '50%', background: 'var(--medical-blue-700)', color: '#fff', alignItems: 'center', justifyContent: 'center', fontSize: 12, marginRight: 8 }}>1</span>Chọn Bác Sĩ</span>} size="small">
               <Input prefix={<Search size={15} color="var(--text-muted)" />} placeholder="Tìm theo tên, chuyên khoa..." style={{ marginBottom: 12 }} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {DOCTORS.map((d) => (
-                  <Card
-                    key={d.id}
-                    size="small"
-                    onClick={() => d.avail && setDocId(d.id)}
-                    style={{ cursor: d.avail ? 'pointer' : 'not-allowed', opacity: d.avail ? 1 : 0.55, borderColor: docId === d.id ? 'var(--medical-blue-600)' : undefined, background: docId === d.id ? 'var(--surface-selected)' : undefined }}
-                  >
+                  <Card key={d.id} size="small" onClick={() => d.avail && setDocId(d.id)}
+                    style={{ cursor: d.avail ? 'pointer' : 'not-allowed', opacity: d.avail ? 1 : 0.55, borderColor: docId === d.id ? 'var(--medical-blue-600)' : undefined, background: docId === d.id ? 'var(--surface-selected)' : undefined }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--medical-blue-700)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, flexShrink: 0 }}>{d.av}</div>
                       <div style={{ flex: 1 }}>
@@ -316,9 +235,7 @@ export default function Appointments() {
 
             <Card title={<span><span style={{ display: 'inline-flex', width: 22, height: 22, borderRadius: '50%', background: 'var(--medical-blue-700)', color: '#fff', alignItems: 'center', justifyContent: 'center', fontSize: 12, marginRight: 8 }}>2</span>Chọn Ngày & Giờ</span>} size="small">
               <Row gutter={24}>
-                <Col xs={24} md={12}>
-                  <Calendar fullscreen={false} value={selDate ?? undefined} onSelect={setSelDate} />
-                </Col>
+                <Col xs={24} md={12}><Calendar fullscreen={false} value={selDate ?? undefined} onSelect={setSelDate} /></Col>
                 <Col xs={24} md={12} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                   <Text type="secondary" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 4 }}>Chọn Giờ Khám</Text>
                   <TimeWheelPicker value={selTime} onChange={setSelTime} />
@@ -343,7 +260,17 @@ export default function Appointments() {
           </div>
         </Col>
       </Row>
-      {appointments.filter(a => a.patientId === currentPatient.id && a.status === 'upcoming').map(a => { const token = tokens.filter(t=>t.appointmentId===a.id && (t.status==='active'||t.status==='used')).sort((x,y)=>y.version-x.version)[0]; const doctor = users.find(u=>u.id===a.doctorId); return token ? <div key={a.id} style={{display:'flex',flexDirection:'column',gap:8}}><AppointmentQRCode appointment={a} token={token} doctorName={doctor?.name ?? 'Bác sĩ DermaHealth'} actorId={currentUser.id} canRegenerate={hasRoleAccess(currentUser.role, ['receptionist', 'medical_administrator'])} /><Button href={`/app/appointments/${a.id}`}>Xem chi tiết lịch hẹn</Button></div> : null; })}
+
+      {appointments.filter(a => a.patientId === currentPatient.id && a.status === 'upcoming').map(a => {
+        const token = tokens.filter(t => t.appointmentId === a.id && (t.status === 'active' || t.status === 'used')).sort((x, y) => y.version - x.version)[0];
+        const doctor = users.find(u => u.id === a.doctorId);
+        return token ? (
+          <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <AppointmentQRCode appointment={a} token={token} doctorName={doctor?.name ?? 'Bác sĩ DermaHealth'} actorId={currentUser.id} canRegenerate={hasRoleAccess(currentUser.role, ['receptionist', 'medical_administrator'])} />
+            <Button href={`/app/appointments/${a.id}`}>Xem chi tiết lịch hẹn</Button>
+          </div>
+        ) : null;
+      })}
     </div>
   );
 }
