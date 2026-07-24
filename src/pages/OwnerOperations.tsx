@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   App,
   Button,
   Card,
@@ -17,6 +18,7 @@ import {
   Typography,
 } from "antd";
 import { KeyRound, ShieldAlert, UserCog } from "lucide-react";
+import { ApiError } from "../api/http";
 import {
   createOwnerBreakGlass,
   createOwnerDangerousAction,
@@ -35,6 +37,7 @@ import {
   type PermissionCatalogItem,
   type RolePermission,
 } from "../api/ownerOperations";
+import { PERMISSION_GROUP, permissionLabel } from "../domain/core/permission";
 import { ROLE_LABEL, type UserRole } from "../domain/core/role";
 
 const { Title, Text, Paragraph } = Typography;
@@ -47,58 +50,157 @@ const ROLES = Object.entries(ROLE_LABEL).map(([value, label]) => ({
 const displayTime = (value?: string | null) =>
   value ? new Date(value).toLocaleString("vi-VN") : "—";
 
+const describeError = (error: unknown, fallback: string) => {
+  if (error instanceof ApiError) {
+    return error.requestId
+      ? `${error.message} (requestId: ${error.requestId})`
+      : error.message;
+  }
+  return error instanceof Error ? error.message : fallback;
+};
+
+const sortPermissionCodes = (a: string, b: string) => {
+  const groupA = PERMISSION_GROUP[a] ?? "";
+  const groupB = PERMISSION_GROUP[b] ?? "";
+  if (groupA !== groupB) return groupA.localeCompare(groupB, "vi");
+  return permissionLabel(a).localeCompare(permissionLabel(b), "vi");
+};
+
 export default function OwnerOperations() {
   const { message } = App.useApp();
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [permissions, setPermissions] = useState<RolePermission[]>([]);
+
+  // Role permissions tab: catalog and matrix are two independent sources
+  // (BA spec §5, §10) — a failure in one must never masquerade as an empty
+  // result in the other, and options must always come from the catalog.
   const [catalog, setCatalog] = useState<PermissionCatalogItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<RolePermission[]>([]);
+  const [matrixLoading, setMatrixLoading] = useState(true);
+  const [matrixError, setMatrixError] = useState<string | null>(null);
+  const [role, setRole] = useState<UserRole>("patient");
+  const [permissionCode, setPermissionCode] = useState<string>();
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const [granting, setGranting] = useState(false);
+  const [revokingKey, setRevokingKey] = useState<string | null>(null);
+
   const [grants, setGrants] = useState<BreakGlassGrant[]>([]);
   const [myGrants, setMyGrants] = useState<BreakGlassGrant[]>([]);
   const [actions, setActions] = useState<DangerousActionRequest[]>([]);
-  const [role, setRole] = useState<UserRole>("patient");
-  const [permissionCode, setPermissionCode] = useState<string>();
+  const [operationalLoading, setOperationalLoading] = useState(true);
   const [breakGlassForm] = Form.useForm();
   const [dangerousForm] = Form.useForm();
 
-  const load = useCallback(async () => {
-    const [permissionRows, catalogRows, grantRows, mineRows, actionRows] =
-      await Promise.all([
-        listOwnerRolePermissions(),
-        listOwnerPermissionCatalog(),
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      setCatalog(await listOwnerPermissionCatalog());
+    } catch (error) {
+      setCatalogError(
+        describeError(error, "Không tải được catalog permission."),
+      );
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
+
+  const loadMatrix = useCallback(async () => {
+    setMatrixLoading(true);
+    setMatrixError(null);
+    try {
+      setPermissions(await listOwnerRolePermissions());
+    } catch (error) {
+      setMatrixError(describeError(error, "Không tải được ma trận quyền."));
+    } finally {
+      setMatrixLoading(false);
+    }
+  }, []);
+
+  const loadOperational = useCallback(async () => {
+    try {
+      const [grantRows, mineRows, actionRows] = await Promise.all([
         listOwnerBreakGlass(),
         listMyOwnerBreakGlass(),
         listOwnerDangerousActions(),
       ]);
-    setPermissions(permissionRows);
-    setCatalog(catalogRows);
-    setGrants(grantRows);
-    setMyGrants(mineRows);
-    setActions(actionRows);
-  }, []);
+      setGrants(grantRows);
+      setMyGrants(mineRows);
+      setActions(actionRows);
+    } catch (error) {
+      void message.error(
+        describeError(error, "Không tải được dữ liệu owner."),
+      );
+    } finally {
+      setOperationalLoading(false);
+    }
+  }, [message]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void load()
-        .catch((error: unknown) => {
-          void message.error(
-            error instanceof Error
-              ? error.message
-              : "Không tải được dữ liệu owner.",
-          );
-        })
-        .finally(() => setLoading(false));
+      void loadCatalog();
+      void loadMatrix();
+      void loadOperational();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [load, message]);
+  }, [loadCatalog, loadMatrix, loadOperational]);
+
+  const grantedCodesByRole = useMemo(() => {
+    const map = new Map<UserRole, Set<string>>();
+    for (const item of permissions) {
+      const set = map.get(item.role) ?? new Set<string>();
+      set.add(item.permissionCode);
+      map.set(item.role, set);
+    }
+    return map;
+  }, [permissions]);
+
+  const selectablePermissions = useMemo(() => {
+    const granted = grantedCodesByRole.get(role) ?? new Set<string>();
+    return catalog.filter((item) => !item.dangerous && !granted.has(item.code));
+  }, [catalog, grantedCodesByRole, role]);
 
   const permissionOptions = useMemo(
     () =>
-      catalog.map((item) => ({
+      selectablePermissions.map((item) => ({
         value: item.code,
-        label: item.name ? `${item.name} (${item.code})` : item.code,
+        label: permissionLabel(item.code, item.description),
       })),
-    [catalog],
+    [selectablePermissions],
+  );
+
+  const permissionEmptyText = () => {
+    if (catalogLoading) return "Đang tải...";
+    if (catalogError) return catalogError;
+    if (catalog.length === 0) return "Chưa có permission trong catalog";
+    if (permissionSearch.trim()) return "Không tìm thấy permission phù hợp";
+    if (selectablePermissions.length === 0)
+      return "Vai trò này đã có tất cả quyền có thể cấp";
+    return "Không tìm thấy permission phù hợp";
+  };
+
+  const permissionFilterOption = (
+    input: string,
+    option?: { label: string; value: string },
+  ) => {
+    const haystack = `${option?.label ?? ""} ${option?.value ?? ""}`.toLowerCase();
+    return haystack.includes(input.toLowerCase());
+  };
+
+  const matrixRows = useMemo(
+    () =>
+      ROLES.map((r) => ({
+        role: r.value,
+        roleLabel: r.label,
+        items: permissions
+          .filter((item) => item.role === r.value)
+          .slice()
+          .sort((a, b) =>
+            sortPermissionCodes(a.permissionCode, b.permissionCode),
+          ),
+      })),
+    [permissions],
   );
 
   const addPermission = async () => {
@@ -106,33 +208,55 @@ export default function OwnerOperations() {
       void message.warning("Chọn permission cần cấp.");
       return;
     }
-    setSaving(true);
+    setGranting(true);
     try {
       await grantOwnerRolePermission({ role, permissionCode });
-      setPermissions(await listOwnerRolePermissions());
+      setPermissionCode(undefined);
+      setPermissionSearch("");
+      await loadMatrix();
       void message.success("Đã cấp permission.");
     } catch (error) {
-      void message.error(
-        error instanceof Error ? error.message : "Không cấp được permission.",
-      );
+      void message.error(describeError(error, "Không cấp được permission."));
     } finally {
-      setSaving(false);
+      setGranting(false);
     }
   };
 
   const removePermission = async (item: RolePermission) => {
-    setSaving(true);
+    const key = `${item.role}:${item.permissionCode}`;
+    setRevokingKey(key);
     try {
       await revokeOwnerRolePermission(item.role, item.permissionCode);
-      setPermissions(await listOwnerRolePermissions());
+      await loadMatrix();
       void message.success("Đã thu hồi permission.");
     } catch (error) {
       void message.error(
-        error instanceof Error ? error.message : "Không thu hồi được permission.",
+        describeError(error, "Không thu hồi được permission."),
       );
     } finally {
-      setSaving(false);
+      setRevokingKey(null);
     }
+  };
+
+  const confirmRevoke = (item: RolePermission) => {
+    const label = permissionLabel(item.permissionCode);
+    const roleLabel = ROLE_LABEL[item.role] ?? item.role;
+    Modal.confirm({
+      title: "Thu hồi permission",
+      content: (
+        <>
+          <p>
+            Thu hồi quyền &quot;{label}&quot; khỏi vai trò &quot;{roleLabel}
+            &quot;?
+          </p>
+          <p>Thay đổi sẽ áp dụng cho toàn bộ tài khoản có vai trò này.</p>
+        </>
+      ),
+      okText: "Thu hồi",
+      okButtonProps: { danger: true },
+      cancelText: "Hủy",
+      onOk: () => removePermission(item),
+    });
   };
 
   const requestBreakGlass = async () => {
@@ -254,13 +378,31 @@ export default function OwnerOperations() {
   const permissionTab = (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Card size="small" title="Cấp permission cho role">
+        {catalogError && (
+          <Alert
+            style={{ marginBottom: 12 }}
+            type="error"
+            showIcon
+            message="Không tải được catalog permission"
+            description={catalogError}
+            action={
+              <Button size="small" onClick={() => void loadCatalog()}>
+                Thử lại
+              </Button>
+            }
+          />
+        )}
         <Row gutter={[12, 12]}>
           <Col xs={24} md={8}>
             <Select
               style={{ width: "100%" }}
               value={role}
               options={ROLES}
-              onChange={setRole}
+              disabled={granting}
+              onChange={(value) => {
+                setRole(value);
+                setPermissionCode(undefined);
+              }}
             />
           </Col>
           <Col xs={24} md={12}>
@@ -270,14 +412,26 @@ export default function OwnerOperations() {
               placeholder="Chọn permission"
               value={permissionCode}
               options={permissionOptions}
+              loading={catalogLoading}
+              disabled={granting || catalogLoading || Boolean(catalogError)}
+              searchValue={permissionSearch}
+              onSearch={setPermissionSearch}
               onChange={setPermissionCode}
+              filterOption={permissionFilterOption}
+              notFoundContent={permissionEmptyText()}
             />
           </Col>
           <Col xs={24} md={4}>
             <Button
               type="primary"
               block
-              loading={saving}
+              loading={granting}
+              disabled={
+                granting ||
+                catalogLoading ||
+                Boolean(catalogError) ||
+                !permissionCode
+              }
               onClick={() => void addPermission()}
             >
               Cấp quyền
@@ -285,34 +439,61 @@ export default function OwnerOperations() {
           </Col>
         </Row>
       </Card>
-      <Table
-        rowKey={(item) => `${item.role}:${item.permissionCode}`}
-        loading={loading}
-        dataSource={permissions}
-        columns={[
-          {
-            title: "Role",
-            dataIndex: "role",
-            render: (value: UserRole) => ROLE_LABEL[value] ?? value,
-          },
-          { title: "Permission", dataIndex: "permissionCode" },
-          {
-            title: "",
-            render: (_, item: RolePermission) => (
-              <Popconfirm
-                title="Thu hồi permission này?"
-                okText="Thu hồi"
-                cancelText="Hủy"
-                onConfirm={() => removePermission(item)}
-              >
-                <Button danger size="small" disabled={saving}>
-                  Thu hồi
-                </Button>
-              </Popconfirm>
-            ),
-          },
-        ]}
-      />
+      {matrixError ? (
+        <Alert
+          type="error"
+          showIcon
+          message="Không tải được ma trận quyền"
+          description={matrixError}
+          action={
+            <Button size="small" onClick={() => void loadMatrix()}>
+              Thử lại
+            </Button>
+          }
+        />
+      ) : (
+        <Table
+          rowKey={(row) => row.role}
+          loading={matrixLoading}
+          dataSource={matrixRows}
+          pagination={false}
+          columns={[
+            {
+              title: "Role",
+              dataIndex: "roleLabel",
+              width: 220,
+            },
+            {
+              title: "Permission",
+              dataIndex: "items",
+              render: (items: RolePermission[]) =>
+                items.length === 0 ? (
+                  <Text type="secondary">— Chưa có permission —</Text>
+                ) : (
+                  <Space size={[8, 8]} wrap>
+                    {items.map((item) => {
+                      const key = `${item.role}:${item.permissionCode}`;
+                      const revoking = revokingKey === key;
+                      return (
+                        <Tag
+                          key={key}
+                          closable={!revoking}
+                          onClose={(event) => {
+                            event.preventDefault();
+                            confirmRevoke(item);
+                          }}
+                        >
+                          {permissionLabel(item.permissionCode)}
+                          {revoking ? " (đang thu hồi...)" : ""}
+                        </Tag>
+                      );
+                    })}
+                  </Space>
+                ),
+            },
+          ]}
+        />
+      )}
     </Space>
   );
 
@@ -474,7 +655,7 @@ export default function OwnerOperations() {
       </Card>
       <Table
         rowKey="id"
-        loading={loading}
+        loading={operationalLoading}
         dataSource={actions}
         columns={[
           { title: "Request", dataIndex: "id" },
