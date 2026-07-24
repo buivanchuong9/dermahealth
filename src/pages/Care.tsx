@@ -8,21 +8,29 @@ import { ESCALATION_RULES, type EscalationTrigger } from '../domain/services/crm
 import { listPatientAlerts, createPatientAlert, closeAlert as closeAlertRequest } from '../api/alert';
 import { createPatientEncounterRequest, listEncounterRequests, decideEncounterRequest } from '../api/encounterRequest';
 import {
-  advanceCarePlanActivity,
   confirmCarePlanActivity,
   createCarePlanActivity,
   getPatientCarePlan,
   listCarePlanActivities,
   runPatientCareAutomation,
+  transitionCarePlanActivity,
 } from '../api/carePlan';
 import { ITEM_TYPE_LABEL, type CarePlanItemType } from '../domain/carePlan';
 import type { FollowUpActivity } from '../domain/core/entities';
+import type { FollowUpActivityStatus } from '../domain/core/enums';
 import { useFriendlyError } from '../components/feedback/useFriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 import { hasRoleAccess } from '../domain/core/role';
 
 const { Title, Text, Paragraph } = Typography;
 const AUTO_TYPES = new Set(['medication_reminder', 'lifestyle_guidance', 'patient_education', 'symptom_questionnaire', 'satisfaction_survey', 'adherence_check']);
+// Mirrors the backend's Kanban state machine (POST .../transitions) for the
+// single-button "next step" action below — only covers the two statuses the
+// automatic-activities list can show (scheduled, due).
+const NEXT_KANBAN_STATUS: Partial<Record<FollowUpActivityStatus, FollowUpActivityStatus>> = {
+  scheduled: 'due',
+  due: 'completed',
+};
 const severityColor: Record<string, string> = { low: 'default', medium: 'gold', high: 'red', critical: 'red' };
 
 export default function Care() {
@@ -91,7 +99,10 @@ export default function Care() {
     carePlanRepository.activities().upsert(updated);
   }, 'Đã ghi nhận hoàn thành.');
   const advance = (activity: FollowUpActivity) => guardAsync(async () => {
-    const updated = await advanceCarePlanActivity(activity.id);
+    const toStatus = NEXT_KANBAN_STATUS[activity.status];
+    if (!toStatus) throw new Error('Hoạt động này không thể chuyển bước.');
+    if (!activity.version) throw new Error('Thiếu phiên bản hoạt động, vui lòng tải lại trang.');
+    const updated = await transitionCarePlanActivity(activity.id, { toStatus, version: activity.version });
     carePlanRepository.activities().upsert(updated);
   }, 'Đã chuyển hoạt động sang bước tiếp theo.');
   const addActivity = () => guardAsync(async () => {

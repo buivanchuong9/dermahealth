@@ -10,7 +10,7 @@ import {
   type HealthPoint,
   type HealthSummary,
 } from "../api/clinical";
-import { uploadFile } from "../api/upload";
+import { uploadFile } from "../api/uploads";
 const { Title, Text } = Typography;
 export default function Progress() {
   const { message } = App.useApp();

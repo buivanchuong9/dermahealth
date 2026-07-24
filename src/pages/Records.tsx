@@ -25,7 +25,10 @@ import {
   signMedicalRecord,
   addMedicalRecordAddendum,
   reopenMedicalRecord,
+  requestEncounterMedicalRecordBreakGlass,
+  endMedicalRecordBreakGlass,
   type MedicalRecordCompletionCheck,
+  type MedicalRecordBreakGlassGrant,
 } from '../api/medicalRecord';
 import { getEncounterAuditTrail } from '../api/audit';
 import { auditService } from '../domain/services/auditService';
@@ -151,7 +154,7 @@ function PlanColumn({ colId, label, tasks, onDelete, registerCardNode }: { colId
 
 function EMRWorkspace() {
   const navigate = useNavigate();
-  const { currentPatient, currentUser, role } = useAppState();
+  const { currentPatient, role } = useAppState();
   const encounters = useStore(encounterRepository).filter((e) => e.patientId === currentPatient.id);
   const records = useStore(medicalRecordRepository.records());
   const documents = useStore(medicalRecordRepository.documents());
@@ -163,8 +166,10 @@ function EMRWorkspace() {
   const [addendumText, setAddendumText] = useState('');
   const [reopenReason, setReopenReason] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [breakGlassGranted, setBreakGlassGranted] = useState(false);
+  const [breakGlassGrant, setBreakGlassGrant] = useState<MedicalRecordBreakGlassGrant | null>(null);
   const [breakGlassReason, setBreakGlassReason] = useState('');
+  const [breakGlassMfaCode, setBreakGlassMfaCode] = useState('');
+  const [breakGlassLoading, setBreakGlassLoading] = useState(false);
   const [completion, setCompletion] = useState<MedicalRecordCompletionCheck>({
     ok: false,
     missing: [{ code: 'RECORD_NOT_LOADED', message: 'Chưa tải hồ sơ' }],
@@ -195,22 +200,43 @@ function EMRWorkspace() {
   if (!encounter) return <Text type="secondary">Chưa có lượt khám nào.</Text>;
 
   const NORMAL_ACCESS_ROLES: UserRole[] = ['patient', 'doctor', 'medical_administrator'];
-  if (!hasRoleAccess(role, NORMAL_ACCESS_ROLES) && !breakGlassGranted) {
+  if (!hasRoleAccess(role, NORMAL_ACCESS_ROLES) && !breakGlassGrant) {
+    const requestBreakGlassAccess = () => {
+      if (!breakGlassReason.trim() || !breakGlassMfaCode.trim()) {
+        setError('Vui lòng nhập lý do và mã MFA.');
+        return;
+      }
+      setError(null);
+      setBreakGlassLoading(true);
+      requestEncounterMedicalRecordBreakGlass(encounter.id, {
+        reason: breakGlassReason.trim(),
+        mfaCode: breakGlassMfaCode.trim(),
+      })
+        .then((grant) => {
+          setBreakGlassGrant(grant);
+          setBreakGlassReason('');
+          setBreakGlassMfaCode('');
+          return getEncounterAuditTrail(encounter.id).then((rows) =>
+            rows.forEach((row) => auditRepository.upsert(row)),
+          );
+        })
+        .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+        .finally(() => setBreakGlassLoading(false));
+    };
     return (
       <Card style={{ maxWidth: 520 }}>
         <ShieldAlert size={28} color="var(--warning)" style={{ marginBottom: 12 }} />
         <Title level={5}>Yêu cầu quyền truy cập khẩn cấp (Break-glass)</Title>
         <Paragraph type="secondary" style={{ fontSize: 13 }}>
-          Vai trò của bạn không có quyền xem hồ sơ bệnh án này trong điều kiện bình thường. Bạn có thể yêu cầu truy cập khẩn cấp — hành động này bắt buộc phải nêu lý do và sẽ được ghi vào nhật ký kiểm toán ở mức nghiêm trọng.
+          Vai trò của bạn không có quyền xem hồ sơ bệnh án này trong điều kiện bình thường. Bạn có thể yêu cầu truy cập khẩn cấp — hành động này bắt buộc phải nêu lý do, xác thực bằng mã MFA, và sẽ được ghi vào nhật ký kiểm toán ở mức nghiêm trọng. Quyền truy cập có hiệu lực trong 15 phút.
         </Paragraph>
+        {error && <FriendlyErrorInline error={error} onClose={() => setError(null)} />}
         <Input.TextArea rows={2} placeholder="Lý do truy cập khẩn cấp (bắt buộc)..." value={breakGlassReason} onChange={(e) => setBreakGlassReason(e.target.value)} style={{ marginBottom: 12 }} />
+        <Input.Password placeholder="Mã MFA (bắt buộc)" value={breakGlassMfaCode} onChange={(e) => setBreakGlassMfaCode(e.target.value)} style={{ marginBottom: 12 }} />
         <Button
           danger type="primary"
-          onClick={() => {
-            if (!breakGlassReason.trim()) return;
-            auditService.log({ actorId: currentUser.id, action: 'BREAK_GLASS_ACCESS_GRANTED', entityType: 'MedicalRecord', entityId: encounter.id, reason: breakGlassReason, patientId: encounter.patientId, encounterId: encounter.id, sourceModule: 'EMR', severity: 'critical' });
-            setBreakGlassGranted(true);
-          }}
+          loading={breakGlassLoading}
+          onClick={requestBreakGlassAccess}
         >Xác nhận truy cập khẩn cấp</Button>
         <Button type="link" icon={<Home size={13} />} style={{ paddingLeft: 4 }} onClick={() => navigate('/app/dashboard')}>Về trang tổng quan</Button>
       </Card>
@@ -264,6 +290,11 @@ function EMRWorkspace() {
     await refreshRecord();
     setReopenReason('');
   });
+  const endBreakGlass = () => guardedAsync(async () => {
+    if (!breakGlassGrant) return;
+    await endMedicalRecordBreakGlass(breakGlassGrant.id);
+    setBreakGlassGrant(null);
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -284,6 +315,14 @@ function EMRWorkspace() {
               <Lock size={12} />
               Hồ sơ đã ký — chỉ đọc
             </Text>
+          )}
+          {breakGlassGrant && (
+            <Tag color="red" icon={<ShieldAlert size={12} />}>
+              Break-glass — hết hạn {new Date(breakGlassGrant.expiresAt).toLocaleTimeString('vi-VN')}
+            </Tag>
+          )}
+          {breakGlassGrant && (
+            <Button size="small" onClick={endBreakGlass}>Kết thúc truy cập khẩn cấp</Button>
           )}
         </div>
       </Card>

@@ -162,6 +162,43 @@ export const updateEncounterMedicalRecordDischargeFollowup = (
   body: UpdateMedicalRecordDischargeFollowupRequest,
 ) => http.patch<unknown>(`${encounterPath(encounterId)}/medical-record/discharge-followup`, body);
 
+export type MedicalRecordBreakGlassStatus = 'active' | 'ended' | 'expired';
+
+export interface MedicalRecordBreakGlassGrant {
+  id: string;
+  encounterId: string;
+  medicalRecordId: string;
+  patientId: string;
+  grantedToUserId: string;
+  reason: string;
+  status: MedicalRecordBreakGlassStatus;
+  grantedAt: string;
+  expiresAt: string;
+  endedAt: string | null;
+}
+
+export interface RequestMedicalRecordBreakGlassRequest {
+  reason: string;
+  mfaCode: string;
+}
+
+// New in v2.6 — emergency, time-limited, MFA-gated read access to a single
+// encounter's medical record for staff who lack standing visibility into it.
+export const requestEncounterMedicalRecordBreakGlass = (
+  encounterId: string,
+  body: RequestMedicalRecordBreakGlassRequest,
+) =>
+  http.post<MedicalRecordBreakGlassGrant>(
+    `${encounterPath(encounterId)}/medical-record/break-glass-grants`,
+    body,
+  );
+
+// New in v2.6 — ends an active break-glass grant.
+export const endMedicalRecordBreakGlass = (grantId: string) =>
+  http.post<MedicalRecordBreakGlassGrant>(
+    `/api/v1/medical-record/break-glass-grants/${encodeURIComponent(grantId)}/end`,
+  );
+
 const recordPath = (recordId: string) => `/api/v1/medical-records/${encodeURIComponent(recordId)}`;
 
 export interface MedicalRecordCompletionCheck {

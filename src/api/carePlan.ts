@@ -146,3 +146,26 @@ export const confirmCarePlanActivity = async (activityId: string) =>
       `/api/v1/follow-up-activities/${encodeURIComponent(activityId)}/confirmations`,
     ),
   );
+
+export interface TransitionCarePlanActivityRequest {
+  toStatus: FollowUpActivityStatus;
+  // Required by the backend when toStatus is 'cancelled' or 'escalated'.
+  reason?: string;
+  version: number;
+}
+
+// New in v2.6 — the Kanban board's explicit column-to-column state machine.
+// Distinct from advanceCarePlanActivity: enforces `version` atomically
+// against the current status (409 CONCURRENCY_CONFLICT on a race), and
+// allows 'due' to move back to 'scheduled' since a card can be dropped on
+// any column directly.
+export const transitionCarePlanActivity = async (
+  activityId: string,
+  body: TransitionCarePlanActivityRequest,
+) =>
+  mapActivity(
+    await http.post<FollowUpActivityDto>(
+      `/api/v1/follow-up-activities/${encodeURIComponent(activityId)}/transitions`,
+      body,
+    ),
+  );
