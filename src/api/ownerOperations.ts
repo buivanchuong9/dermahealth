@@ -17,8 +17,8 @@ export interface RolePermission {
 
 export interface PermissionCatalogItem {
   code: string;
-  name?: string;
   description?: string;
+  dangerous?: boolean;
 }
 
 export interface GrantRolePermissionRequest {
@@ -90,15 +90,12 @@ export async function listOwnerPermissionCatalog(): Promise<
                   (item as Record<string, unknown>)?.permissionCode ??
                   "",
               ),
-              name:
-                typeof (item as Record<string, unknown>)?.name === "string"
-                  ? String((item as Record<string, unknown>).name)
-                  : undefined,
               description:
                 typeof (item as Record<string, unknown>)?.description ===
                 "string"
                   ? String((item as Record<string, unknown>).description)
                   : undefined,
+              dangerous: Boolean((item as Record<string, unknown>)?.dangerous),
             },
       )
       .filter((item) => item.code);
@@ -107,16 +104,17 @@ export async function listOwnerPermissionCatalog(): Promise<
     return Object.entries(raw as Record<string, unknown>).map(
       ([code, value]) => ({
         code,
-        name:
-          value && typeof value === "object"
-            ? String((value as Record<string, unknown>).name ?? code)
-            : code,
         description:
           value &&
           typeof value === "object" &&
           typeof (value as Record<string, unknown>).description === "string"
             ? String((value as Record<string, unknown>).description)
             : undefined,
+        dangerous: Boolean(
+          value &&
+            typeof value === "object" &&
+            (value as Record<string, unknown>).dangerous,
+        ),
       }),
     );
   }
