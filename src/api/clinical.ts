@@ -245,7 +245,7 @@ export interface MedicationReminderSchedule {
   startDate: string;
   endDate?: string;
   times: string[];
-  weekdays: number[];
+  daysOfWeek?: number[];
 }
 
 export const getHealthSummary = (patientId: string) =>

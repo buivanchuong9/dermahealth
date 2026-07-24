@@ -5,41 +5,45 @@ import type { UserRole } from '../domain/core/role';
 
 interface AuditEventDto {
   id: string;
-  at: string;
-  actorId: string;
-  actorName: string;
-  role: UserRole;
+  occurredAt: string;
+  actorId: string | null;
+  actorNameSnap: string | null;
+  actorRoleSnap: UserRole | null;
   action: string;
-  entityType: string;
-  entityId: string;
+  resourceType: string;
+  resourceId: string | null;
   patientId?: unknown;
   encounterId?: unknown;
-  previousState?: unknown;
-  newState?: unknown;
+  beforeRedacted?: unknown;
+  afterRedacted?: unknown;
   reason?: unknown;
-  sourceModule: string;
-  severity: AuditEvent['severity'];
+  sourceModule: string | null;
+  severity: AuditEvent['severity'] | null;
 }
 
-const optionalString = (value: unknown): string | undefined =>
-  typeof value === 'string' && value.length > 0 ? value : undefined;
+const optionalString = (value: unknown): string | undefined => {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'object') return JSON.stringify(value);
+  const s = String(value);
+  return s.length > 0 ? s : undefined;
+};
 
 const mapEvent = (dto: AuditEventDto): AuditEvent => ({
   id: dto.id as AuditEventId,
-  at: dto.at,
-  actorId: dto.actorId as UserId,
-  actorName: dto.actorName,
-  role: dto.role,
+  at: dto.occurredAt,
+  actorId: (dto.actorId || '') as UserId,
+  actorName: dto.actorNameSnap || '',
+  role: (dto.actorRoleSnap || 'system_administrator') as UserRole,
   action: dto.action,
-  entityType: dto.entityType,
-  entityId: dto.entityId,
+  entityType: dto.resourceType,
+  entityId: dto.resourceId || '',
   patientId: optionalString(dto.patientId) as PatientId | undefined,
   encounterId: optionalString(dto.encounterId) as EncounterId | undefined,
-  previousState: optionalString(dto.previousState),
-  newState: optionalString(dto.newState),
+  previousState: optionalString(dto.beforeRedacted),
+  newState: optionalString(dto.afterRedacted),
   reason: optionalString(dto.reason),
-  sourceModule: dto.sourceModule,
-  severity: dto.severity,
+  sourceModule: dto.sourceModule || '',
+  severity: dto.severity || 'info',
 });
 
 export const listAudit = async () => (await http.get<AuditEventDto[]>('/api/v1/audit')).map(mapEvent);

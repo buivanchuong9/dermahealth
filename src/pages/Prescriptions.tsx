@@ -85,7 +85,7 @@ export default function Prescriptions() {
           startDate,
           ...(endDate ? { endDate } : {}),
           times: normalizedTimes,
-          weekdays,
+          daysOfWeek: weekdays,
         },
       });
       await reload();

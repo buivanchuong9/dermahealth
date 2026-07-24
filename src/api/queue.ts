@@ -1,5 +1,6 @@
 import type { QueueTicket } from "../domain/core/entities";
 import { http } from "./http";
+import { getAccessToken } from "./authToken";
 
 export interface ApiQueueTicket {
   id: string;
@@ -110,7 +111,9 @@ const API_BASE_URL =
 export function subscribeQueueStream(
   onSnapshot: (tickets: QueueTicket[]) => void,
 ): () => void {
-  const source = new EventSource(`${API_BASE_URL}/api/v1/queue/stream`, {
+  const token = getAccessToken();
+  const url = `${API_BASE_URL}/api/v1/queue/stream${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+  const source = new EventSource(url, {
     withCredentials: true,
   });
   const handleSnapshot = (event: MessageEvent<string>) => {

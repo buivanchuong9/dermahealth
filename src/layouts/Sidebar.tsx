@@ -4,7 +4,7 @@ import {
   Home, User, Cpu, Activity, TrendingUp, Heart, Calendar,
   BarChart2, Settings, MessageCircle, TriangleAlert, MapPinned,
   Stethoscope, ListChecks, Workflow, ShieldCheck, Plug,
-  QrCode, MonitorPlay, KeyRound,
+  QrCode, MonitorPlay, KeyRound, UserPlus,
 } from 'lucide-react';
 import { AppLogo } from '../components/brand';
 import { useAppState } from '../state/useAppState';
@@ -54,6 +54,7 @@ const NAV_MAIN: NavItem[] = [
   { key: '/app/reports', label: 'Báo cáo', icon: BarChart2, roles: ['patient'] },
   { key: '/app/audit', label: 'Nhật ký kiểm toán', icon: ShieldCheck, roles: ['medical_administrator', 'system_administrator'] },
   { key: '/app/integrations', label: 'Tình trạng tích hợp', icon: Plug, roles: ['system_administrator', 'medical_administrator'] },
+  { key: '/app/staff', label: 'Quản lý nhân sự', icon: UserPlus, roles: ['super_administrator'] },
   { key: '/app/owner', label: 'Owner Control Center', icon: KeyRound, roles: ['super_administrator'] },
 ];
 

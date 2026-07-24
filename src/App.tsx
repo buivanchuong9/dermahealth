@@ -48,6 +48,7 @@ const QueueStations = lazy(() => import('./pages/QueueStations'));
 const PatientJourneyDetail = lazy(() => import('./pages/PatientJourneyDetail'));
 const EncounterWorkflow = lazy(() => import('./pages/EncounterWorkflow'));
 const OwnerOperations = lazy(() => import('./pages/OwnerOperations'));
+const StaffManagement = lazy(() => import('./pages/StaffManagement'));
 
 export default function App() {
   return (
@@ -101,6 +102,7 @@ export default function App() {
                   <Route path="audit" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator']} featureName="Nhật ký kiểm toán"><AuditViewer /></RoleProtectedRoute>} />
                   <Route path="integrations" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator']} featureName="Tình trạng tích hợp"><Integrations /></RoleProtectedRoute>} />
                   <Route path="owner" element={<RoleProtectedRoute allowed={['super_administrator']} featureName="Owner Control Center"><OwnerOperations /></RoleProtectedRoute>} />
+                  <Route path="staff" element={<RoleProtectedRoute allowed={['super_administrator']} featureName="Quản lý nhân sự"><StaffManagement /></RoleProtectedRoute>} />
                   <Route path="reception/qr-check-in" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Check-in QR tại lễ tân"><KioskCheckIn reception /></RoleProtectedRoute>} />
                   <Route path="reception" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Trung tâm lễ tân"><Reception /></RoleProtectedRoute>} />
                   <Route path="reception/queue" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Hàng đợi lễ tân"><ClinicQueue /></RoleProtectedRoute>} />

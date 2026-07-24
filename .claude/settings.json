@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --no-install playwright --version)",
+      "Bash(node -e \"console.log\\(require.resolve\\('playwright'\\)\\)\")",
+      "Bash(find / -maxdepth 4 -iname \"*ms-playwright*\")",
+      "Bash(node smoke.js)"
+    ]
+  }
+}
