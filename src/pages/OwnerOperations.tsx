@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Col,
+  Flex,
   Form,
   Input,
   Modal,
@@ -17,7 +18,16 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { KeyRound, ShieldAlert, UserCog } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  KeyRound,
+  Plus,
+  ShieldAlert,
+  ShieldCheck,
+  UserCog,
+  X,
+} from "lucide-react";
 import { ApiError } from "../api/http";
 import {
   createOwnerBreakGlass,
@@ -37,7 +47,11 @@ import {
   type PermissionCatalogItem,
   type RolePermission,
 } from "../api/ownerOperations";
-import { PERMISSION_GROUP, permissionLabel } from "../domain/core/permission";
+import {
+  PERMISSION_GROUP,
+  permissionColor,
+  permissionLabel,
+} from "../domain/core/permission";
 import { ROLE_LABEL, type UserRole } from "../domain/core/role";
 
 const { Title, Text, Paragraph } = Typography;
@@ -80,6 +94,8 @@ export default function OwnerOperations() {
   const [matrixLoading, setMatrixLoading] = useState(true);
   const [matrixError, setMatrixError] = useState<string | null>(null);
   const [role, setRole] = useState<UserRole>("patient");
+  const [selectedMatrixRole, setSelectedMatrixRole] =
+    useState<UserRole>("patient");
   const [permissionCode, setPermissionCode] = useState<string>();
   const [permissionSearch, setPermissionSearch] = useState("");
   const [granting, setGranting] = useState(false);
@@ -202,6 +218,24 @@ export default function OwnerOperations() {
       })),
     [permissions],
   );
+
+  const permissionGroups = (items: RolePermission[]) => {
+    const groups = new Map<string, RolePermission[]>();
+    for (const item of items) {
+      const group = PERMISSION_GROUP[item.permissionCode] ?? "Khác";
+      groups.set(group, [...(groups.get(group) ?? []), item]);
+    }
+    return [...groups.entries()];
+  };
+
+  const selectedMatrixRow =
+    matrixRows.find((row) => row.role === selectedMatrixRole) ?? matrixRows[0];
+  const selectedPermissionGroups = permissionGroups(
+    selectedMatrixRow?.items ?? [],
+  );
+  const selectedDangerousCount = (selectedMatrixRow?.items ?? []).filter(
+    (item) => permissionColor(item.permissionCode) === "error",
+  ).length;
 
   const addPermission = async () => {
     if (!permissionCode) {
@@ -376,8 +410,42 @@ export default function OwnerOperations() {
   };
 
   const permissionTab = (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card size="small" title="Cấp permission cho role">
+    <Space direction="vertical" size={18} style={{ width: "100%" }}>
+      <Card
+        title={
+          <Flex align="center" gap={10}>
+            <Flex
+              align="center"
+              justify="center"
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: "var(--radius-sm)",
+                background: "var(--medical-blue-50)",
+                color: "var(--medical-blue-700)",
+              }}
+            >
+              <Plus size={17} />
+            </Flex>
+            <div>
+              <Text strong style={{ display: "block" }}>
+                Thêm quyền truy cập
+              </Text>
+              <Text
+                type="secondary"
+                style={{ display: "block", fontSize: 12, fontWeight: 400 }}
+              >
+                Quyền mới được áp dụng ngay cho toàn bộ tài khoản thuộc vai trò
+              </Text>
+            </div>
+          </Flex>
+        }
+        styles={{ body: { padding: 16 } }}
+        style={{
+          borderColor: "var(--border-default)",
+          boxShadow: "var(--shadow-card)",
+        }}
+      >
         {catalogError && (
           <Alert
             style={{ marginBottom: 12 }}
@@ -398,9 +466,11 @@ export default function OwnerOperations() {
               style={{ width: "100%" }}
               value={role}
               options={ROLES}
+              suffixIcon={<ChevronDown size={15} />}
               disabled={granting}
               onChange={(value) => {
                 setRole(value);
+                setSelectedMatrixRole(value);
                 setPermissionCode(undefined);
               }}
             />
@@ -419,6 +489,7 @@ export default function OwnerOperations() {
               onChange={setPermissionCode}
               filterOption={permissionFilterOption}
               notFoundContent={permissionEmptyText()}
+              suffixIcon={<ChevronDown size={15} />}
             />
           </Col>
           <Col xs={24} md={4}>
@@ -433,6 +504,7 @@ export default function OwnerOperations() {
                 !permissionCode
               }
               onClick={() => void addPermission()}
+              icon={<Check size={16} />}
             >
               Cấp quyền
             </Button>
@@ -452,47 +524,361 @@ export default function OwnerOperations() {
           }
         />
       ) : (
-        <Table
-          rowKey={(row) => row.role}
+        <Card
           loading={matrixLoading}
-          dataSource={matrixRows}
-          pagination={false}
-          columns={[
-            {
-              title: "Role",
-              dataIndex: "roleLabel",
-              width: 220,
-            },
-            {
-              title: "Permission",
-              dataIndex: "items",
-              render: (items: RolePermission[]) =>
-                items.length === 0 ? (
-                  <Text type="secondary">— Chưa có permission —</Text>
-                ) : (
-                  <Space size={[8, 8]} wrap>
-                    {items.map((item) => {
-                      const key = `${item.role}:${item.permissionCode}`;
-                      const revoking = revokingKey === key;
-                      return (
-                        <Tag
-                          key={key}
-                          closable={!revoking}
-                          onClose={(event) => {
-                            event.preventDefault();
-                            confirmRevoke(item);
+          styles={{ body: { padding: 0 } }}
+          style={{
+            overflow: "hidden",
+            borderColor: "var(--border-default)",
+            boxShadow: "var(--shadow-card)",
+          }}
+        >
+          <Flex
+            align="center"
+            justify="space-between"
+            wrap
+            gap={12}
+            style={{
+              minHeight: 68,
+              padding: "14px 18px",
+              borderBottom: "1px solid var(--border-default)",
+              background: "var(--surface-card)",
+            }}
+          >
+            <div>
+              <Text strong style={{ display: "block", fontSize: 15 }}>
+                Ma trận phân quyền
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Kiểm soát quyền truy cập theo từng vai trò hệ thống
+              </Text>
+            </div>
+            <Flex align="center" gap={8}>
+              <Tag
+                bordered={false}
+                style={{
+                  margin: 0,
+                  padding: "4px 9px",
+                  color: "var(--medical-blue-700)",
+                  background: "var(--medical-blue-50)",
+                  fontWeight: 600,
+                }}
+              >
+                {ROLES.length} vai trò
+              </Tag>
+              <Tag
+                bordered={false}
+                style={{
+                  margin: 0,
+                  padding: "4px 9px",
+                  color: "var(--success)",
+                  background: "var(--success-bg)",
+                  fontWeight: 600,
+                }}
+              >
+                {permissions.length} lượt cấp quyền
+              </Tag>
+            </Flex>
+          </Flex>
+
+          <Row>
+            <Col
+              xs={24}
+              lg={6}
+              style={{
+                padding: 12,
+                background: "var(--surface-subtle)",
+                borderRight: "1px solid var(--border-default)",
+              }}
+            >
+              <Text
+                type="secondary"
+                style={{
+                  display: "block",
+                  padding: "4px 8px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                }}
+              >
+                VAI TRÒ HỆ THỐNG
+              </Text>
+              <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                {matrixRows.map((row) => {
+                  const selected = row.role === selectedMatrixRole;
+                  return (
+                    <Button
+                      key={row.role}
+                      type="text"
+                      block
+                      onClick={() => {
+                        setSelectedMatrixRole(row.role);
+                        setRole(row.role);
+                        setPermissionCode(undefined);
+                      }}
+                      style={{
+                        height: 48,
+                        paddingInline: 10,
+                        color: selected
+                          ? "var(--medical-blue-800)"
+                          : "var(--text-primary)",
+                        background: selected
+                          ? "var(--surface-selected)"
+                          : "transparent",
+                        border: selected
+                          ? "1px solid var(--medical-blue-200)"
+                          : "1px solid transparent",
+                        fontWeight: selected ? 650 : 500,
+                        textAlign: "left",
+                      }}
+                    >
+                      <Flex
+                        align="center"
+                        justify="space-between"
+                        style={{ width: "100%", minWidth: 0 }}
+                      >
+                        <Flex align="center" gap={9} style={{ minWidth: 0 }}>
+                          <UserCog
+                            size={16}
+                            style={{
+                              flex: "0 0 auto",
+                              color: selected
+                                ? "var(--medical-blue-700)"
+                                : "var(--text-muted)",
+                            }}
+                          />
+                          <span
+                            style={{
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {row.roleLabel}
+                          </span>
+                        </Flex>
+                        <span
+                          style={{
+                            minWidth: 26,
+                            padding: "1px 7px",
+                            borderRadius: 10,
+                            color: selected
+                              ? "var(--medical-blue-700)"
+                              : "var(--text-muted)",
+                            background: selected
+                              ? "var(--medical-blue-100)"
+                              : "var(--surface-card)",
+                            fontSize: 11,
+                            textAlign: "center",
                           }}
                         >
-                          {permissionLabel(item.permissionCode)}
-                          {revoking ? " (đang thu hồi...)" : ""}
-                        </Tag>
-                      );
-                    })}
-                  </Space>
-                ),
-            },
-          ]}
-        />
+                          {row.items.length}
+                        </span>
+                      </Flex>
+                    </Button>
+                  );
+                })}
+              </Space>
+            </Col>
+
+            <Col xs={24} lg={18} style={{ minHeight: 520 }}>
+              <Flex
+                align="center"
+                justify="space-between"
+                wrap
+                gap={12}
+                style={{
+                  padding: "16px 20px",
+                  borderBottom: "1px solid var(--border-default)",
+                  background:
+                    "linear-gradient(90deg, var(--medical-blue-50) 0%, var(--surface-card) 56%)",
+                }}
+              >
+                <Flex align="center" gap={12}>
+                  <Flex
+                    align="center"
+                    justify="center"
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: "var(--radius-md)",
+                      color: "var(--medical-blue-700)",
+                      background: "var(--medical-blue-50)",
+                    }}
+                  >
+                    <ShieldCheck size={19} />
+                  </Flex>
+                  <div>
+                    <Text strong style={{ display: "block", fontSize: 16 }}>
+                      {selectedMatrixRow?.roleLabel}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Chính sách truy cập áp dụng cho toàn bộ thành viên thuộc
+                      vai trò
+                    </Text>
+                  </div>
+                </Flex>
+                <Flex align="center" gap={8} wrap>
+                  <Tag
+                    bordered={false}
+                    style={{
+                      margin: 0,
+                      padding: "4px 9px",
+                      color: "var(--medical-blue-700)",
+                      background: "var(--medical-blue-100)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {selectedMatrixRow?.items.length ?? 0} quyền
+                  </Tag>
+                  <Tag
+                    bordered={false}
+                    color={selectedDangerousCount ? "error" : "success"}
+                    style={{ margin: 0, padding: "4px 9px", fontWeight: 600 }}
+                  >
+                    {selectedDangerousCount
+                      ? `${selectedDangerousCount} quyền rủi ro cao`
+                      : "Không có quyền rủi ro cao"}
+                  </Tag>
+                </Flex>
+              </Flex>
+
+              <div style={{ padding: 18, background: "var(--surface-subtle)" }}>
+                {!selectedMatrixRow?.items.length ? (
+                  <Flex
+                    vertical
+                    align="center"
+                    justify="center"
+                    gap={8}
+                    style={{ minHeight: 280 }}
+                  >
+                    <ShieldCheck
+                      size={32}
+                      style={{ color: "var(--text-muted)" }}
+                    />
+                    <Text strong>Vai trò này chưa có quyền</Text>
+                    <Text type="secondary">
+                      Chọn “Thêm quyền” để bắt đầu cấu hình
+                    </Text>
+                  </Flex>
+                ) : (
+                  <Row gutter={[14, 14]}>
+                    {selectedPermissionGroups.map(([group, groupItems]) => (
+                        <Col xs={24} md={12} xxl={8} key={group}>
+                          <div
+                            style={{
+                              height: "100%",
+                              overflow: "hidden",
+                              border: "1px solid var(--border-default)",
+                              borderRadius: "var(--radius-md)",
+                              background: "var(--surface-card)",
+                              boxShadow: "0 1px 2px rgba(16, 24, 40, 0.03)",
+                            }}
+                          >
+                            <Flex
+                              align="center"
+                              justify="space-between"
+                              style={{
+                                padding: "9px 12px",
+                                borderBottom:
+                                  "1px solid var(--border-default)",
+                                background: "var(--surface-card)",
+                              }}
+                            >
+                              <Flex align="center" gap={7}>
+                                <span
+                                  style={{
+                                    width: 3,
+                                    height: 15,
+                                    borderRadius: 2,
+                                    background: "var(--medical-blue-600)",
+                                  }}
+                                />
+                                <Text strong style={{ fontSize: 12 }}>
+                                  {group}
+                                </Text>
+                              </Flex>
+                              <Text type="secondary" style={{ fontSize: 11 }}>
+                                {groupItems.length} quyền
+                              </Text>
+                            </Flex>
+                            {groupItems.map((item, index) => {
+                              const key = `${item.role}:${item.permissionCode}`;
+                              const revoking = revokingKey === key;
+                              const dangerous =
+                                permissionColor(item.permissionCode) === "error";
+                              return (
+                                <Flex
+                                  key={key}
+                                  align="center"
+                                  justify="space-between"
+                                  gap={10}
+                                  style={{
+                                    minHeight: 45,
+                                    padding: "8px 8px 8px 12px",
+                                    borderBottom:
+                                      index < groupItems.length - 1
+                                        ? "1px solid var(--border-default)"
+                                        : undefined,
+                                  }}
+                                >
+                                  <Flex
+                                    align="center"
+                                    gap={9}
+                                    style={{ minWidth: 0 }}
+                                  >
+                                    <span
+                                      style={{
+                                        width: 7,
+                                        height: 7,
+                                        flex: "0 0 7px",
+                                        borderRadius: "50%",
+                                        background: dangerous
+                                          ? "var(--danger)"
+                                          : "var(--success)",
+                                      }}
+                                    />
+                                    <div style={{ minWidth: 0 }}>
+                                      <Text
+                                        style={{
+                                          display: "block",
+                                          overflow: "hidden",
+                                          color: dangerous
+                                            ? "var(--danger)"
+                                            : "var(--text-primary)",
+                                          fontSize: 12,
+                                          fontWeight: 500,
+                                          lineHeight: 1.35,
+                                          textOverflow: "ellipsis",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {permissionLabel(item.permissionCode)}
+                                      </Text>
+                                    </div>
+                                  </Flex>
+                                  <Button
+                                    type="text"
+                                    danger
+                                    size="small"
+                                    loading={revoking}
+                                    disabled={Boolean(revokingKey) && !revoking}
+                                    aria-label={`Thu hồi ${permissionLabel(item.permissionCode)}`}
+                                    icon={<X size={14} />}
+                                    onClick={() => confirmRevoke(item)}
+                                    style={{ flex: "0 0 auto" }}
+                                  />
+                                </Flex>
+                              );
+                            })}
+                          </div>
+                        </Col>
+                      ))}
+                  </Row>
+                )}
+              </div>
+            </Col>
+          </Row>
+        </Card>
       )}
     </Space>
   );
@@ -701,14 +1087,31 @@ export default function OwnerOperations() {
 
   return (
     <Space direction="vertical" size={18} style={{ width: "100%" }}>
-      <div>
-        <Title level={3} style={{ marginBottom: 4 }}>
-          Owner Control Center
-        </Title>
-        <Text type="secondary">
-          Phân quyền nền tảng, truy cập khẩn cấp và thao tác nguy hiểm.
-        </Text>
-      </div>
+      <Flex align="center" gap={14}>
+        <Flex
+          align="center"
+          justify="center"
+          style={{
+            width: 44,
+            height: 44,
+            flex: "0 0 44px",
+            borderRadius: "var(--radius-lg)",
+            color: "var(--text-inverse)",
+            background: "var(--medical-blue-800)",
+            boxShadow: "var(--shadow-card)",
+          }}
+        >
+          <ShieldCheck size={23} />
+        </Flex>
+        <div>
+          <Title level={3} style={{ marginBottom: 2 }}>
+            Owner Control Center
+          </Title>
+          <Text type="secondary">
+            Phân quyền nền tảng, truy cập khẩn cấp và thao tác nguy hiểm.
+          </Text>
+        </div>
+      </Flex>
       <Tabs
         items={[
           {

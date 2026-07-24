@@ -22,7 +22,7 @@ const CHANNELS = [
 export default function Support() {
   const { message } = App.useApp();
   const [msg, setMsg] = useState('');
-  const [category, setCategory] = useState<CreateSupportTicketRequest['category']>('tech');
+  const [category, setCategory] = useState<CreateSupportTicketRequest['topic']>('tech');
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
@@ -33,7 +33,7 @@ export default function Support() {
     }
     setSubmitting(true);
     try {
-      await createSupportTicket({ category, message: content });
+      await createSupportTicket({ topic: category, message: content });
       setMsg('');
       void message.success('Đã gửi yêu cầu hỗ trợ.');
     } catch (error) {

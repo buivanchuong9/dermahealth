@@ -1,7 +1,7 @@
 import { http } from "./http";
 
 export interface CreateSupportTicketRequest {
-  category: "tech" | "treatment" | "billing" | "other";
+  topic: "tech" | "treatment" | "billing" | "other" | string;
   message: string;
 }
 

@@ -25,7 +25,7 @@ export default function AuditViewer() {
   }, []);
 
   const modules = useMemo(() => Array.from(new Set(events.map((e) => e.sourceModule))), [events]);
-  const sorted = [...events].sort((a, b) => b.at.localeCompare(a.at));
+  const sorted = [...events].sort((a, b) => (b.at || '').localeCompare(a.at || ''));
   const filtered = sorted.filter((e) => (module === 'all' || e.sourceModule === module) && (severity === 'all' || e.severity === severity));
 
   if (!hasRoleAccess(role, ['medical_administrator', 'system_administrator'])) {

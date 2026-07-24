@@ -19,6 +19,37 @@ export async function registerAccount(payload: RegisterRequest): Promise<AuthSes
   return session;
 }
 
+export interface InviteStaffRequest {
+  email: string;
+  displayName: string;
+  role: UserRole;
+  organizationId: string;
+  clinicLocationId?: string;
+  departmentId?: string;
+}
+
+export interface StaffInvitationResult {
+  mode: 'invited';
+  invitationId: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  expiresAt: string;
+  activationUrl: string;
+}
+
+// Same endpoint as registerAccount above — the backend branches on whether the
+// caller sent a bearer token (see AuthController.register): with one, and
+// holding `user.invite`, POST /auth/registrations creates a pending
+// invitation instead of an active session. No mailer is wired up on the
+// backend yet, so `activationUrl` must be relayed to the invitee out-of-band
+// (copy/paste, chat, etc.) by whoever calls this — see the returned value.
+export function inviteStaffAccount(
+  payload: InviteStaffRequest,
+): Promise<StaffInvitationResult> {
+  return http.post<StaffInvitationResult>(REGISTRATIONS_ENDPOINT, payload);
+}
+
 // First membership is treated as the account's primary role — same rule
 // AppStateContext.refreshMe() uses — so permission gating (hasRoleAccess)
 // can key off it right after registration, before the first /me refresh.

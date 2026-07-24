@@ -39,3 +39,24 @@ export const ROLE_LABEL: Record<UserRole, string> = {
 export function hasRoleAccess(role: UserRole, allowed: readonly UserRole[]): boolean {
   return role === 'super_administrator' || allowed.includes(role);
 }
+
+/** Roles that can be granted through staff invitation or membership
+ * assignment — mirrors backend INVITABLE_ROLES (invite-staff.dto.ts).
+ * Excludes `patient` (self-register only) and `super_administrator`
+ * (adding an Owner is a dangerous_action, never a plain invite/assign —
+ * see StaffInvitationsService#inviteOwner). Kept in sync manually since the
+ * backend enum is the source of truth and this list is UI-only; the server
+ * rejects any other role regardless of what this array contains. */
+export const INVITABLE_ROLES: UserRole[] = [
+  'doctor',
+  'nurse',
+  'receptionist',
+  'lab_technician',
+  'imaging_technician',
+  'pharmacist',
+  'care_coordinator',
+  'customer_care_employee',
+  'medical_administrator',
+  'system_administrator',
+  'clinical_process_designer',
+];

@@ -84,3 +84,10 @@ export function permissionLabel(
 ): string {
   return PERMISSION_LABEL[code] ?? description ?? code;
 }
+
+// Color is reserved for permissions that carry real risk, not a rainbow per
+// category — matches how Tag color is used elsewhere in the app (severity,
+// success/warning/error), never as decoration.
+export function permissionColor(code: string): string | undefined {
+  return PERMISSION_GROUP[code] === "Nguy hiểm" ? "error" : undefined;
+}
