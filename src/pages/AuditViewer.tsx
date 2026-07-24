@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, Select, Table, Tag, Typography, Alert } from 'antd';
 import { ShieldCheck, ArrowRight } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
@@ -7,6 +7,7 @@ import { auditRepository } from '../domain/repositories';
 import { hasRoleAccess, ROLE_LABEL } from '../domain/core/role';
 import type { AuditEvent } from '../domain/core/entities';
 import { AccessDenied } from '../components/feedback/AccessDenied';
+import { listAudit } from '../api/audit';
 
 const { Title, Text } = Typography;
 const SEVERITY_COLOR: Record<string, string> = { info: 'default', warning: 'gold', critical: 'red' };
@@ -16,6 +17,12 @@ export default function AuditViewer() {
   const events = useStore(auditRepository);
   const [module, setModule] = useState('all');
   const [severity, setSeverity] = useState('all');
+
+  useEffect(() => {
+    void listAudit()
+      .then((rows) => auditRepository.replaceAll(rows))
+      .catch(() => undefined);
+  }, []);
 
   const modules = useMemo(() => Array.from(new Set(events.map((e) => e.sourceModule))), [events]);
   const sorted = [...events].sort((a, b) => b.at.localeCompare(a.at));

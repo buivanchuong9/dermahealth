@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Row, Col, Card, Steps, Select, Button, Alert, Tag, List, Descriptions, Timeline, Table, Typography, Progress,
 } from 'antd';
@@ -9,6 +9,8 @@ import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, clinicalOrderRepository, workflowRepository, medicalRecordRepository, carePlanRepository } from '../domain/repositories';
 import { encounterService } from '../domain/services/encounterService';
+import { listPatientAlerts } from '../api/alert';
+import { getPatientCarePlan } from '../api/carePlan';
 import { MILESTONES, milestoneIndexForStatus, overallProgressPct } from '../domain/journeyView';
 import { ENCOUNTER_STATUS_LABEL, TASK_STATUS_LABEL, RECORD_STATUS_LABEL } from '../domain/core/enums';
 import { ROLE_LABEL } from '../domain/core/role';
@@ -72,6 +74,17 @@ export default function Journey() {
   const records = useStore(medicalRecordRepository.records());
   const carePlans = useStore(carePlanRepository.plans());
   const alerts = useStore(carePlanRepository.alerts());
+
+  useEffect(() => {
+    void Promise.all([
+      listPatientAlerts(currentPatient.id).then((rows) =>
+        rows.forEach((row) => carePlanRepository.alerts().upsert(row)),
+      ),
+      getPatientCarePlan(currentPatient.id).then((plan) =>
+        carePlanRepository.plans().upsert(plan),
+      ),
+    ]).catch(() => undefined);
+  }, [currentPatient.id]);
 
   const defaultId = encounterService.getActiveEncounter(currentPatient.id)?.id ?? encounters[0]?.id;
   const [selectedId, setSelectedId] = useState<EncounterId | undefined>(defaultId);

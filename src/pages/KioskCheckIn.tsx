@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Button, Card, Input, Result, Space, Statistic, Typography } from 'antd';
 import { QrCode, RotateCcw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { checkInService } from '../domain/services/checkInService';
 import type { QueueTicket } from '../domain/core/entities';
 import { useFriendlyError } from '../components/feedback/useFriendlyError';
+import { checkIn } from '../api/reception';
+import { queueRepository } from '../domain/repositories';
 const { Title, Text } = Typography;
 
 export function QueueResult({ ticket, onReset }: { ticket: QueueTicket; onReset?: () => void }) {
@@ -19,13 +20,32 @@ export function QueueResult({ ticket, onReset }: { ticket: QueueTicket; onReset?
 export default function KioskCheckIn({ reception = false }: { reception?: boolean }) {
   const showError = useFriendlyError(); const nav = useNavigate(); const location = useLocation();
   const initial = (location.state as { ticket?: QueueTicket } | null)?.ticket;
-  const [token, setToken] = useState(''); const [ticket, setTicket] = useState<QueueTicket | undefined>(initial);
-  const submit = () => { const result = checkInService.checkIn({ token: token.trim(), clinicLocationId: 'CS-HCM-01', deviceId: reception ? 'RECEPTION-01' : 'KIOSK-01', actorId: reception ? 'U-0008' : 'U-0005' }); if (!result.ok) { showError(result.message, 'Không thể check-in'); return; } setTicket(result.ticket); if (!reception) nav('/kiosk/check-in/result', { replace: true, state: { ticket: result.ticket } }); };
+  const [token, setToken] = useState(''); const [ticket, setTicket] = useState<QueueTicket | undefined>(initial); const [submitting, setSubmitting] = useState(false);
+  const submit = async () => {
+    if (!token.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const result = await checkIn({
+        token: token.trim(),
+        clinicLocationId: import.meta.env.VITE_KIOSK_CLINIC_LOCATION_ID ?? import.meta.env.VITE_CLINIC_LOCATION_ID ?? 'CS-HCM-01',
+        deviceId: import.meta.env.VITE_KIOSK_DEVICE_ID ?? (reception ? 'RECEPTION-01' : 'KIOSK-01'),
+        deviceSecret: import.meta.env.VITE_KIOSK_DEVICE_SECRET ?? '',
+        patientId: import.meta.env.VITE_KIOSK_PATIENT_ID || undefined,
+      });
+      queueRepository.upsert(result);
+      setTicket(result);
+      if (!reception) nav('/kiosk/check-in/result', { replace: true, state: { ticket: result } });
+    } catch (error) {
+      showError(error, 'Không thể check-in');
+    } finally {
+      setSubmitting(false);
+    }
+  };
   return <div style={{ maxWidth: 720, margin: '40px auto', padding: 16 }}><Card>
     {ticket ? <QueueResult ticket={ticket} onReset={() => { setTicket(undefined); setToken(''); nav(reception ? '/app/reception/qr-check-in' : '/kiosk/check-in', { replace: true }); }}/> : <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <QrCode size={54} color="#1769aa"/><div><Title level={2}>{reception ? 'Check-in QR tại quầy lễ tân' : 'Chào mừng đến DermaHealth'}</Title><Text>Quét mã QR trên phiếu hẹn hoặc nhập mã token từ thiết bị quét.</Text></div>
-      <Input.TextArea autoFocus rows={4} value={token} onChange={(e) => setToken(e.target.value)} placeholder="Đặt con trỏ tại đây và quét mã QR" onPressEnter={submit}/>
-      <Button type="primary" size="large" block disabled={!token.trim()} onClick={submit}>Xác nhận check-in</Button>
+      <Input.TextArea autoFocus rows={4} value={token} onChange={(e) => setToken(e.target.value)} placeholder="Đặt con trỏ tại đây và quét mã QR" onPressEnter={() => void submit()}/>
+      <Button type="primary" size="large" block loading={submitting} disabled={!token.trim()} onClick={() => void submit()}>Xác nhận check-in</Button>
     </Space>}
   </Card></div>;
 }

@@ -53,6 +53,10 @@ export interface LoginRequest {
   mfaCode?: string;
 }
 
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
 export interface RegisterRequest {
   email: string;
   password: string;
@@ -63,6 +67,9 @@ export interface RegisterRequest {
   address?: string;
   organizationId?: string;
   organizationCode?: string;
+  role?: MembershipRole;
+  clinicLocationId?: string;
+  departmentId?: string;
 }
 
 export interface LogoutAllRequest {
@@ -70,7 +77,7 @@ export interface LogoutAllRequest {
 }
 
 export interface UpdateMeRequest {
-  name?: string;
+  displayName?: string;
   phone?: string;
   avatarFileId?: string;
   version: number;

@@ -1,13 +1,29 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, type Node, type Edge, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Card, Button, Tag, Input, Typography, Result, Descriptions } from 'antd';
 import { ArrowLeft, Play, CheckCircle, RotateCcw, XCircle, TriangleAlert, PauseCircle, PlayCircle, Ban, SkipForward, UserPlus, SearchX, ShieldCheck } from 'lucide-react';
-import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
 import { encounterRepository, patientRepository, workflowRepository } from '../../domain/repositories';
-import { workflowService } from '../../domain/services/workflowService';
+import {
+  getWorkflowInstance,
+  verifyWorkflowInstanceIdentity,
+  suspendWorkflowInstance,
+  resumeWorkflowInstance,
+  cancelWorkflowInstance,
+  completeWorkflowInstance,
+} from '../../api/workflowInstance';
+import {
+  listWorkflowTasks,
+  acceptWorkflowTask,
+  startWorkflowTask,
+  completeWorkflowTask,
+  redoWorkflowTask,
+  rejectWorkflowTask,
+  escalateWorkflowTask,
+  skipWorkflowTask,
+} from '../../api/workflowTask';
 import { layoutByPrerequisites } from '../../domain/flowLayout';
 import { TASK_STATUS_LABEL } from '../../domain/core/enums';
 import { ROLE_LABEL } from '../../domain/core/role';
@@ -49,19 +65,37 @@ export default function WorkflowInstancePage() {
   const navigate = useNavigate();
   const instanceId = id as WorkflowInstanceId;
   const showError = useFriendlyError();
-  const { currentUser } = useAppState();
   const instances = useStore(workflowRepository.instances());
   const tasks = useStore(workflowRepository.tasks());
   const encounters = useStore(encounterRepository);
   const patients = useStore(patientRepository);
   const [reasonDraft, setReasonDraft] = useState<Record<string, string>>({});
   const [selectedTaskId, setSelectedTaskId] = useState<WorkflowTaskId | null>(null);
+  const [identityValid, setIdentityValid] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const refreshInstance = () => {
+    if (!id) return;
+    getWorkflowInstance(id).then((row) => workflowRepository.instances().upsert(row)).catch((err: unknown) => { showError(err); });
+  };
+  const refreshTasks = () => {
+    listWorkflowTasks().then((rows) => rows.forEach((row) => workflowRepository.tasks().upsert(row))).catch((err: unknown) => { showError(err); });
+  };
+
+  useEffect(() => {
+    if (!id) return;
+    refreshInstance();
+    refreshTasks();
+    verifyWorkflowInstanceIdentity(id)
+      .then(() => setIdentityValid(true))
+      .catch(() => setIdentityValid(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const instance = instances.find((i) => i.id === instanceId);
   const instanceTasks = useMemo(() => tasks.filter((t) => t.instanceId === instanceId), [tasks, instanceId]);
   const encounter = encounters.find((item) => item.id === instance?.encounterId);
   const patient = patients.find((item) => item.id === (instance?.patientId ?? encounter?.patientId));
-  const identityValid = instance ? workflowService.verifyWorkflowIdentity(instance) : false;
 
   const { nodes, edges }: { nodes: Node[]; edges: Edge[] } = useMemo(() => {
     const positions = layoutByPrerequisites(instanceTasks.map((t) => ({ code: t.stepCode, prerequisiteCodes: t.dependsOnStepCodes })));
@@ -92,8 +126,13 @@ export default function WorkflowInstancePage() {
     );
   }
 
-  const guarded = (fn: () => void) => {
-    try { fn(); } catch (err) { showError(err); }
+  const runInstanceAction = (action: () => Promise<unknown>) => {
+    setBusy(true);
+    action().then(refreshInstance).catch((err: unknown) => { showError(err); }).finally(() => setBusy(false));
+  };
+  const runTaskAction = (action: () => Promise<unknown>) => {
+    setBusy(true);
+    action().then(refreshTasks).catch((err: unknown) => { showError(err); }).finally(() => setBusy(false));
   };
 
   const reason = (taskId: WorkflowTaskId) => reasonDraft[taskId] || 'Lý do mô phỏng (demo)';
@@ -108,10 +147,10 @@ export default function WorkflowInstancePage() {
           <Text type="secondary">Mã vận hành: <strong>{instance.instanceCode ?? instance.id}</strong></Text>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {instance.status === 'active' && <Button icon={<PauseCircle size={14} />} onClick={() => guarded(() => workflowService.suspendInstance(instance.id, currentUser.id, 'Tạm dừng theo yêu cầu'))}>Tạm dừng</Button>}
-          {instance.status === 'suspended' && <Button icon={<PlayCircle size={14} />} onClick={() => guarded(() => workflowService.resumeInstance(instance.id, currentUser.id))}>Tiếp tục</Button>}
-          {(instance.status === 'active' || instance.status === 'suspended') && <Button icon={<Ban size={14} />} onClick={() => guarded(() => workflowService.cancelInstance(instance.id, currentUser.id, 'Hủy theo yêu cầu'))}>Hủy quy trình</Button>}
-          {instance.status === 'active' && <Button type="primary" icon={<CheckCircle size={14} />} onClick={() => guarded(() => workflowService.checkAndCompleteInstance(instance.id, currentUser.id))}>Kiểm tra hoàn tất</Button>}
+          {instance.status === 'active' && <Button loading={busy} icon={<PauseCircle size={14} />} onClick={() => runInstanceAction(() => suspendWorkflowInstance(instance.id, { reason: 'Tạm dừng theo yêu cầu', version: instance.version ?? 0 }))}>Tạm dừng</Button>}
+          {instance.status === 'suspended' && <Button loading={busy} icon={<PlayCircle size={14} />} onClick={() => runInstanceAction(() => resumeWorkflowInstance(instance.id, instance.version ?? 0))}>Tiếp tục</Button>}
+          {(instance.status === 'active' || instance.status === 'suspended') && <Button loading={busy} icon={<Ban size={14} />} onClick={() => runInstanceAction(() => cancelWorkflowInstance(instance.id, { reason: 'Hủy theo yêu cầu', version: instance.version ?? 0 }))}>Hủy quy trình</Button>}
+          {instance.status === 'active' && <Button type="primary" loading={busy} icon={<CheckCircle size={14} />} onClick={() => runInstanceAction(() => completeWorkflowInstance(instance.id, instance.version ?? 0))}>Kiểm tra hoàn tất</Button>}
         </div>
       </div>
 
@@ -163,20 +202,20 @@ export default function WorkflowInstancePage() {
             </Text>
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-              {selectedTask.status === 'ready' && <Button size="small" icon={<UserPlus size={13} />} onClick={() => guarded(() => workflowService.acceptTask(selectedTask.id, currentUser.id))}>Nhận việc</Button>}
-              {(selectedTask.status === 'accepted' || selectedTask.status === 'assigned') && <Button size="small" icon={<Play size={13} />} onClick={() => guarded(() => workflowService.startTask(selectedTask.id, currentUser.id))}>Bắt đầu</Button>}
-              {selectedTask.status === 'in_progress' && <Button size="small" type="primary" icon={<CheckCircle size={13} />} onClick={() => guarded(() => workflowService.completeTask(selectedTask.id, currentUser.id))}>Hoàn thành</Button>}
+              {selectedTask.status === 'ready' && <Button size="small" loading={busy} icon={<UserPlus size={13} />} onClick={() => runTaskAction(() => acceptWorkflowTask(selectedTask.id, selectedTask.version ?? 0))}>Nhận việc</Button>}
+              {(selectedTask.status === 'accepted' || selectedTask.status === 'assigned') && <Button size="small" loading={busy} icon={<Play size={13} />} onClick={() => runTaskAction(() => startWorkflowTask(selectedTask.id, selectedTask.version ?? 0))}>Bắt đầu</Button>}
+              {selectedTask.status === 'in_progress' && <Button size="small" type="primary" loading={busy} icon={<CheckCircle size={13} />} onClick={() => runTaskAction(() => completeWorkflowTask(selectedTask.id, selectedTask.version ?? 0))}>Hoàn thành</Button>}
               {(selectedTask.status === 'in_progress' || selectedTask.status === 'completed') && (
-                <Button size="small" icon={<RotateCcw size={13} />} onClick={() => guarded(() => workflowService.requestRedo(selectedTask.id, currentUser.id, reason(selectedTask.id)))}>Yêu cầu làm lại</Button>
+                <Button size="small" loading={busy} icon={<RotateCcw size={13} />} onClick={() => runTaskAction(() => redoWorkflowTask(selectedTask.id, { reason: reason(selectedTask.id), version: selectedTask.version ?? 0 }))}>Yêu cầu làm lại</Button>
               )}
               {selectedTask.status !== 'completed' && selectedTask.status !== 'skipped' && selectedTask.status !== 'cancelled' && (
-                <Button size="small" danger icon={<TriangleAlert size={13} />} onClick={() => guarded(() => workflowService.escalateTask(selectedTask.id, currentUser.id, reason(selectedTask.id)))}>Báo cáo bất thường</Button>
+                <Button size="small" danger loading={busy} icon={<TriangleAlert size={13} />} onClick={() => runTaskAction(() => escalateWorkflowTask(selectedTask.id, { reason: reason(selectedTask.id), version: selectedTask.version ?? 0 }))}>Báo cáo bất thường</Button>
               )}
               {(selectedTask.status === 'pending' || selectedTask.status === 'blocked' || selectedTask.status === 'ready') && (
-                <Button size="small" icon={<SkipForward size={13} />} onClick={() => guarded(() => workflowService.skipTask(selectedTask.id, currentUser.id, reason(selectedTask.id)))}>Bỏ qua (nếu không bắt buộc)</Button>
+                <Button size="small" loading={busy} icon={<SkipForward size={13} />} onClick={() => runTaskAction(() => skipWorkflowTask(selectedTask.id, { reason: reason(selectedTask.id), version: selectedTask.version ?? 0 }))}>Bỏ qua (nếu không bắt buộc)</Button>
               )}
               {selectedTask.status === 'in_progress' && (
-                <Button size="small" icon={<XCircle size={13} />} onClick={() => guarded(() => workflowService.rejectResult(selectedTask.id, currentUser.id, reason(selectedTask.id)))}>Từ chối kết quả</Button>
+                <Button size="small" loading={busy} icon={<XCircle size={13} />} onClick={() => runTaskAction(() => rejectWorkflowTask(selectedTask.id, { reason: reason(selectedTask.id), version: selectedTask.version ?? 0 }))}>Từ chối kết quả</Button>
               )}
             </div>
             <Input

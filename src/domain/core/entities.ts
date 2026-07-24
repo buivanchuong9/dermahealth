@@ -54,6 +54,10 @@ export interface Appointment {
   clinicName?: string;
   department?: string;
   consultationType?: string;
+  startAt?: string;
+  endAt?: string;
+  cancelReason?: string;
+  version?: number;
 }
 
 export type CheckInTokenStatus = 'active' | 'used' | 'expired' | 'revoked' | 'replaced';
@@ -71,6 +75,7 @@ export interface QueueTicket {
   priority: 'normal' | 'priority' | 'urgent'; status: QueueTicketStatus; issuedAt: string;
   calledAt?: string; acknowledgedAt?: string; serviceStartedAt?: string; completedAt?: string;
   peopleAhead: number; estimatedWaitMinutes: number; preparationInstructions: string[]; nextStation?: string;
+  version?: number;
 }
 
 export interface EncounterEvent {
@@ -105,6 +110,7 @@ export interface MedicalEncounter {
   workflowInstanceId?: WorkflowInstanceId;
   medicalRecordId?: MedicalRecordId;
   blockingCondition?: string;
+  version?: number;
   events: EncounterEvent[];
 }
 
@@ -259,6 +265,7 @@ export interface WorkflowTemplateVersion {
   nodePositions?: Record<string, { x: number; y: number }>;
   createdAt: string;
   publishedAt?: string;
+  rowVersion?: number;
 }
 
 export interface WorkflowTemplate {
@@ -269,6 +276,7 @@ export interface WorkflowTemplate {
   createdBy: UserId;
   versionIds: WorkflowTemplateVersionId[];
   latestPublishedVersionId?: WorkflowTemplateVersionId;
+  version?: number;
 }
 
 export interface WorkflowTask {
@@ -291,6 +299,7 @@ export interface WorkflowTask {
   clinicalWarning?: string;
   patientArrivalStatus?: 'not_arrived' | 'arrived' | 'in_room';
   reworkCount: number;
+  version?: number;
 }
 
 export interface WorkflowInstance {
@@ -312,6 +321,7 @@ export interface WorkflowInstance {
   completedAt?: string;
   suspendedReason?: string;
   taskIds: WorkflowTaskId[];
+  version?: number;
 }
 
 export interface ClinicalDocument {
@@ -400,6 +410,8 @@ export interface FollowUpActivity {
   automationAction?: string;
   lastAutomatedAt?: string;
   automationRunCount?: number;
+  version?: number;
+  createdAt?: string;
 }
 
 export interface ClinicalAlert {

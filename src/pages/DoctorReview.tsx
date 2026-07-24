@@ -3,9 +3,17 @@ import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Typography
 import { Brain, CheckCircle, XCircle, MinusCircle, ClipboardList, FlaskConical, FileCheck2 } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
-import { encounterRepository, aiAssessmentRepository, clinicalOrderRepository } from '../domain/repositories';
-import { doctorDecisionService } from '../domain/services/doctorDecisionService';
-import { clinicalOrderService } from '../domain/services/clinicalOrderService';
+import { encounterRepository, aiAssessmentRepository, clinicalOrderRepository, diagnosisRepository, workflowRepository } from '../domain/repositories';
+import { encounterService } from '../domain/services/encounterService';
+import { workflowService } from '../domain/services/workflowService';
+import {
+  submitAssessmentReview,
+  createEncounterDiagnosis,
+  createEncounterClinicalPlan,
+} from '../api/doctorDecision';
+import { createClinicalOrder } from '../api/clinicalOrder';
+import { activateEncounterWorkflow } from '../api/encounters';
+import { listWorkflowTemplates } from '../api/workflowTemplate';
 import { type AIHumanReviewStatus } from '../domain/core/enums';
 import { hasRoleAccess } from '../domain/core/role';
 import type { EncounterId, AIAssessmentId } from '../domain/core/ids';
@@ -24,6 +32,9 @@ export default function DoctorReview() {
   const encounters = useStore(encounterRepository).filter((e) => e.patientId === currentPatient.id && e.status !== 'closed');
   const assessments = useStore(aiAssessmentRepository);
   const orders = useStore(clinicalOrderRepository.orders());
+  const allReviews = useStore(diagnosisRepository.reviews());
+  const allDiagnoses = useStore(diagnosisRepository.diagnoses());
+  const allPlans = useStore(diagnosisRepository.plans());
 
   const [selectedId, setSelectedId] = useState<EncounterId | undefined>(encounters[0]?.id);
   const [rationale, setRationale] = useState('');
@@ -34,6 +45,7 @@ export default function DoctorReview() {
   const [orderType, setOrderType] = useState<ClinicalOrder['type']>('laboratory');
   const [orderJustification, setOrderJustification] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
 
@@ -48,45 +60,82 @@ export default function DoctorReview() {
   const assessment = encounter.aiAssessmentIds.length
     ? assessments.find((a) => a.id === encounter.aiAssessmentIds[encounter.aiAssessmentIds.length - 1])
     : undefined;
-  const reviews = doctorDecisionService.listReviews(encounter.id);
-  const diagnoses = doctorDecisionService.listDiagnoses(encounter.id);
-  const plan = doctorDecisionService.getPlan(encounter.id);
+  const reviews = allReviews.filter((r) => r.encounterId === encounter.id);
+  const diagnoses = allDiagnoses.filter((d) => d.encounterId === encounter.id);
+  const plan = allPlans.find((p) => p.encounterId === encounter.id);
   const confirmedDiagnosis = diagnoses.find((d) => d.status === 'confirmed' || d.status === 'revised');
   const encounterOrders = orders.filter((o) => o.encounterId === encounter.id);
 
-  const runGuarded = (fn: () => void) => {
+  const runGuarded = (fn: () => Promise<void>) => {
     setError(null);
-    try {
-      fn();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    setBusy(true);
+    fn()
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(false));
   };
 
-  const handleReview = (aiAssessmentId: AIAssessmentId, action: AIHumanReviewStatus, code?: string) => runGuarded(() => {
-    doctorDecisionService.reviewAssessment(encounter.id, aiAssessmentId, currentUser.id, action, code, rationale || undefined);
+  const handleReview = (aiAssessmentId: AIAssessmentId, action: AIHumanReviewStatus, code?: string) => runGuarded(async () => {
+    const topRanked = assessment?.candidateConditions[0]?.code;
+    if (action !== 'accepted' && !rationale.trim()) {
+      throw new Error('Cần ghi rõ lý do khi bác sĩ không chấp nhận nguyên trạng gợi ý hàng đầu của AI.');
+    }
+    if (action === 'accepted' && code && code !== topRanked && !rationale.trim()) {
+      throw new Error('Cần ghi rõ lý do khi bác sĩ chọn gợi ý khác với gợi ý xếp hạng cao nhất của AI.');
+    }
+    const review = await submitAssessmentReview(encounter.id, aiAssessmentId, {
+      action, acceptedConditionCode: code, rationale: rationale || undefined,
+    });
+    diagnosisRepository.reviews().upsert(review);
     setRationale('');
   });
 
-  const handleRecordDiagnosis = (status: 'provisional' | 'confirmed') => runGuarded(() => {
+  const handleRecordDiagnosis = (status: 'provisional' | 'confirmed') => runGuarded(async () => {
     if (!diagnosisName.trim()) throw new Error('Vui lòng nhập tên chẩn đoán.');
-    doctorDecisionService.recordDiagnosis(encounter.id, currentUser.id, {
+    const diagnosis = await createEncounterDiagnosis(encounter.id, {
       conditionName: diagnosisName, conditionCode: diagnosisCode || undefined, aiAssessmentId: assessment?.id,
       isAdditionalToAI: isAdditional, rationale: rationale || undefined, status,
     });
+    diagnosisRepository.diagnoses().upsert(diagnosis);
+    if (status === 'confirmed' && encounterService.canTransition(encounter.status, 'diagnosed')) {
+      encounterService.transitionStatus(encounter.id, 'diagnosed', currentUser.id);
+    }
     setDiagnosisName(''); setDiagnosisCode(''); setIsAdditional(false); setRationale('');
   });
 
-  const handleApprovePlan = () => runGuarded(() => {
+  const handleApprovePlan = () => runGuarded(async () => {
     if (!confirmedDiagnosis) throw new Error('Cần xác nhận chẩn đoán trước khi duyệt phác đồ.');
     if (!planSummary.trim()) throw new Error('Vui lòng nhập nội dung phác đồ.');
-    doctorDecisionService.approveClinicalPlan(encounter.id, currentUser.id, confirmedDiagnosis.id, planSummary);
+    const approvedPlan = await createEncounterClinicalPlan(encounter.id, { diagnosisId: confirmedDiagnosis.id, summary: planSummary });
+    diagnosisRepository.plans().upsert(approvedPlan);
+    if (encounterService.canTransition(encounter.status, 'plan_approved')) {
+      encounterService.transitionStatus(encounter.id, 'plan_approved', currentUser.id);
+    }
+    const approvedEncounter = encounterRepository.getById(encounter.id);
+    if (approvedEncounter && !approvedEncounter.workflowInstanceId) {
+      const templates = await listWorkflowTemplates();
+      templates.forEach((row) => workflowRepository.templates().upsert(row));
+      const recommendedTemplate = workflowService.recommendTemplate(approvedEncounter.department);
+      if (recommendedTemplate) {
+        await activateEncounterWorkflow(encounter.id, {
+          templateId: recommendedTemplate.id,
+          encounterVersion: approvedEncounter.version ?? 0,
+        });
+      }
+    }
     setPlanSummary('');
   });
 
-  const handleCreateOrder = () => runGuarded(() => {
+  const handleCreateOrder = () => runGuarded(async () => {
     if (!orderJustification.trim()) throw new Error('Vui lòng nhập lý do chỉ định.');
-    clinicalOrderService.createOrder(encounter.id, currentUser.id, { type: orderType, justification: orderJustification, assignedRole: orderType === 'laboratory' ? 'lab_technician' : orderType === 'imaging' ? 'imaging_technician' : 'doctor' });
+    const order = await createClinicalOrder(encounter.id, {
+      type: orderType,
+      justification: orderJustification,
+      assignedRole: orderType === 'laboratory' ? 'lab_technician' : orderType === 'imaging' ? 'imaging_technician' : 'doctor',
+    });
+    clinicalOrderRepository.orders().upsert(order);
+    if (encounterService.canTransition(encounter.status, 'awaiting_results')) {
+      encounterService.transitionStatus(encounter.id, 'awaiting_results', currentUser.id, { reason: `Chờ kết quả: ${orderType}` });
+    }
     setOrderJustification('');
   });
 
@@ -124,9 +173,9 @@ export default function DoctorReview() {
                 <Text type="success" style={{ fontSize: 12 }}>Ủng hộ: {c.supportingEvidence.join(', ')}</Text>
                 {c.conflictingEvidence.length > 0 && <Text type="danger" style={{ fontSize: 12, display: 'block' }}>Trái ngược: {c.conflictingEvidence.join(', ')}</Text>}
                 <Space style={{ marginTop: 10 }} size={6}>
-                  <Button size="small" type="primary" ghost icon={<CheckCircle size={13} />} onClick={() => handleReview(assessment.id, 'accepted', c.code)}>Chấp nhận</Button>
-                  <Button size="small" icon={<MinusCircle size={13} />} onClick={() => handleReview(assessment.id, 'partial', c.code)}>Chấp nhận một phần</Button>
-                  <Button size="small" danger icon={<XCircle size={13} />} onClick={() => handleReview(assessment.id, 'rejected', c.code)}>Từ chối</Button>
+                  <Button size="small" type="primary" ghost loading={busy} icon={<CheckCircle size={13} />} onClick={() => handleReview(assessment.id, 'accepted', c.code)}>Chấp nhận</Button>
+                  <Button size="small" loading={busy} icon={<MinusCircle size={13} />} onClick={() => handleReview(assessment.id, 'partial', c.code)}>Chấp nhận một phần</Button>
+                  <Button size="small" danger loading={busy} icon={<XCircle size={13} />} onClick={() => handleReview(assessment.id, 'rejected', c.code)}>Từ chối</Button>
                 </Space>
               </div>
             ))}
@@ -175,8 +224,8 @@ export default function DoctorReview() {
               <Input value={diagnosisCode} onChange={(e) => setDiagnosisCode(e.target.value)} style={{ marginBottom: 10 }} />
               <Checkbox checked={isAdditional} onChange={(e) => setIsAdditional(e.target.checked)} style={{ marginBottom: 12, fontSize: 13 }}>Chẩn đoán này không nằm trong gợi ý của AI</Checkbox>
               <Space>
-                <Button onClick={() => handleRecordDiagnosis('provisional')}>Lưu tạm thời</Button>
-                <Button type="primary" icon={<FileCheck2 size={14} />} onClick={() => handleRecordDiagnosis('confirmed')}>Xác nhận chẩn đoán</Button>
+                <Button loading={busy} onClick={() => handleRecordDiagnosis('provisional')}>Lưu tạm thời</Button>
+                <Button type="primary" loading={busy} icon={<FileCheck2 size={14} />} onClick={() => handleRecordDiagnosis('confirmed')}>Xác nhận chẩn đoán</Button>
               </Space>
             </Card>
 
@@ -186,7 +235,7 @@ export default function DoctorReview() {
               ) : (
                 <>
                   <Input.TextArea rows={3} value={planSummary} onChange={(e) => setPlanSummary(e.target.value)} placeholder="Nội dung phác đồ điều trị..." style={{ marginBottom: 10 }} />
-                  <Button type="primary" disabled={!confirmedDiagnosis} onClick={handleApprovePlan}>Duyệt phác đồ</Button>
+                  <Button type="primary" loading={busy} disabled={!confirmedDiagnosis} onClick={handleApprovePlan}>Duyệt phác đồ</Button>
                   {!confirmedDiagnosis && <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>Cần xác nhận chẩn đoán trước.</Text>}
                 </>
               )}
@@ -205,7 +254,7 @@ export default function DoctorReview() {
                 { value: 'consultation', label: 'Hội chẩn chuyên khoa' },
               ]} />
               <Input value={orderJustification} onChange={(e) => setOrderJustification(e.target.value)} placeholder="Lý do chỉ định..." style={{ marginBottom: 10 }} />
-              <Button onClick={handleCreateOrder}>Tạo chỉ định</Button>
+              <Button loading={busy} onClick={handleCreateOrder}>Tạo chỉ định</Button>
             </Card>
           </div>
         </Col>

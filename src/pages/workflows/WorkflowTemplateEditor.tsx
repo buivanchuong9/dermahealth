@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ReactFlow, Background, Controls, Handle, Position, MiniMap, Panel, type Node, type Edge, type NodeProps, type Connection, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -13,10 +13,28 @@ import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
 import { encounterRepository, patientRepository, workflowRepository } from '../../domain/repositories';
 import { workflowService } from '../../domain/services/workflowService';
+import {
+  listWorkflowTemplates,
+  listWorkflowTemplateVersions,
+  updateWorkflowTemplate,
+  createWorkflowTemplateVersion,
+  addWorkflowTemplateVersionStep,
+  updateWorkflowTemplateVersionStep,
+  deleteWorkflowTemplateVersionStep,
+  reorderWorkflowTemplateVersionSteps,
+  connectWorkflowTemplateVersionSteps,
+  disconnectWorkflowTemplateVersionSteps,
+  saveWorkflowTemplateVersionNodePositions,
+  publishWorkflowTemplateVersion,
+  archiveWorkflowTemplateVersion,
+  getWorkflowTemplateVersion,
+} from '../../api/workflowTemplate';
+import { activateEncounterWorkflow } from '../../api/encounters';
+import { listWorkflowInstances } from '../../api/workflowInstance';
 import { layoutByPrerequisites } from '../../domain/flowLayout';
 import { hasRoleAccess, type UserRole } from '../../domain/core/role';
 import type { EncounterId, WorkflowTemplateId } from '../../domain/core/ids';
-import type { WorkflowExecutorType, WorkflowStepDefinition } from '../../domain/core/entities';
+import type { WorkflowExecutorType, WorkflowStepDefinition, WorkflowTemplateVersion } from '../../domain/core/entities';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
 import { ProfessionalEmpty } from '../../components/feedback/ProfessionalEmpty';
 
@@ -209,6 +227,14 @@ export default function WorkflowTemplateEditor() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
+  useEffect(() => {
+    if (!resolvedId) return;
+    listWorkflowTemplateVersions(resolvedId)
+      .then((rows) => rows.forEach((row) => workflowRepository.versions().upsert(row)))
+      .catch((err: unknown) => { showError(err); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedId]);
+
   const template = templates.find((t) => t.id === canonicalTemplateId);
   const templateVersions = versions.filter((v) => v.templateId === canonicalTemplateId).sort((a, b) => a.version - b.version);
   const draft = templateVersions.find((v) => v.status === 'draft');
@@ -265,19 +291,87 @@ export default function WorkflowTemplateEditor() {
     try { fn(); } catch (err) { showError(err); }
   };
 
+  const guardedAsync = (fn: () => Promise<void>) => {
+    fn().catch((err: unknown) => { showError(err); });
+  };
+
+  const refreshVersion = (versionId: string, local: WorkflowTemplateVersion) => {
+    getWorkflowTemplateVersion(versionId)
+      .then((fresh) => workflowRepository.versions().upsert({ ...local, ...fresh, nodePositions: fresh.nodePositions ?? local.nodePositions }))
+      .catch((err: unknown) => { showError(err); });
+  };
+
+  const syncNewStep = (versionId: string, step: WorkflowStepDefinition, local: WorkflowTemplateVersion) => {
+    addWorkflowTemplateVersionStep(versionId, step)
+      .then(() => refreshVersion(versionId, local))
+      .catch((err: unknown) => { showError(err); });
+  };
+
+  const syncStepPatch = (versionId: string, code: string, patch: Partial<WorkflowStepDefinition>, local: WorkflowTemplateVersion) => {
+    updateWorkflowTemplateVersionStep(versionId, code, patch)
+      .then(() => refreshVersion(versionId, local))
+      .catch((err: unknown) => { showError(err); });
+  };
+
+  const syncStepRemoval = (versionId: string, code: string, local: WorkflowTemplateVersion) => {
+    deleteWorkflowTemplateVersionStep(versionId, code)
+      .then(() => refreshVersion(versionId, local))
+      .catch((err: unknown) => { showError(err); });
+  };
+
+  const syncReorder = (versionId: string, orderedCodes: string[], local: WorkflowTemplateVersion) => {
+    reorderWorkflowTemplateVersionSteps(versionId, orderedCodes)
+      .then(() => refreshVersion(versionId, local))
+      .catch((err: unknown) => { showError(err); });
+  };
+
+  const syncConnect = (versionId: string, sourceCode: string, targetCode: string, local: WorkflowTemplateVersion) => {
+    connectWorkflowTemplateVersionSteps(versionId, sourceCode, targetCode)
+      .then(() => refreshVersion(versionId, local))
+      .catch((err: unknown) => { showError(err); });
+  };
+
+  const syncDisconnect = (versionId: string, edges: Array<{ source: string; target: string }>, local: WorkflowTemplateVersion) => {
+    Promise.all(edges.map((edge) => disconnectWorkflowTemplateVersionSteps(versionId, edge.source, edge.target)))
+      .then(() => refreshVersion(versionId, local))
+      .catch((err: unknown) => { showError(err); });
+  };
+
+  const syncNodePositions = (versionId: string, positions: Record<string, { x: number; y: number }>) => {
+    saveWorkflowTemplateVersionNodePositions(versionId, positions).catch((err: unknown) => { showError(err); });
+  };
+
+  const syncPublish = (versionId: string, version: number, local: WorkflowTemplateVersion) => {
+    publishWorkflowTemplateVersion(versionId, version)
+      .then(() => {
+        refreshVersion(versionId, local);
+        return listWorkflowTemplates();
+      })
+      .then((rows) => rows.forEach((row) => workflowRepository.templates().upsert(row)))
+      .catch((err: unknown) => { showError(err); });
+  };
+
+  const syncArchive = (versionId: string, version: number, local: WorkflowTemplateVersion) => {
+    archiveWorkflowTemplateVersion(versionId, version)
+      .then(() => refreshVersion(versionId, local))
+      .catch((err: unknown) => { showError(err); });
+  };
+
   const addStep = () => guarded(() => {
     if (!draftStep.name.trim()) throw new Error('Vui lòng nhập tên bước.');
     const code = makeStepCode(draftStep.name, draft?.steps.map((step) => step.code) ?? []);
     const executorType = draftStep.executorType ?? executorForRole(draftStep.responsibleRole);
     const executor = EXECUTOR_META[executorType];
-    workflowService.addStep(canonicalTemplateId, {
+    const newStep: WorkflowStepDefinition = {
       ...draftStep,
       code,
       executorType,
       responsibleRole: executor.role,
       icon: executor.icon,
       department: executor.department || template.specialty,
-    }, currentUser.id);
+    };
+    const updated = workflowService.addStep(canonicalTemplateId, newStep, currentUser.id);
+    syncNewStep(updated.id, newStep, updated);
     setDraftStep(EMPTY_STEP);
     setSidePanel('steps');
     message.success('Đã thêm bước vào quy trình.');
@@ -298,33 +392,58 @@ export default function WorkflowTemplateEditor() {
     }));
   };
 
-  const removeStep = (code: string) => guarded(() => workflowService.removeStep(canonicalTemplateId, code, currentUser.id));
-  const toggleMandatory = (code: string, mandatory: boolean) => guarded(() => workflowService.editStep(canonicalTemplateId, code, { mandatory }, currentUser.id));
-  const startNewDraft = () => guarded(() => {
-    workflowService.startNewDraftFromPublished(canonicalTemplateId, currentUser.id);
+  const removeStep = (code: string) => guarded(() => {
+    const updated = workflowService.removeStep(canonicalTemplateId, code, currentUser.id);
+    syncStepRemoval(updated.id, code, updated);
+  });
+  const toggleMandatory = (code: string, mandatory: boolean) => guarded(() => {
+    const updated = workflowService.editStep(canonicalTemplateId, code, { mandatory }, currentUser.id);
+    syncStepPatch(updated.id, code, { mandatory }, updated);
+  });
+  const startNewDraft = () => guardedAsync(async () => {
+    const version = await createWorkflowTemplateVersion(canonicalTemplateId);
+    workflowRepository.versions().upsert(version);
     message.success('Đã tạo bản chỉnh sửa mới. Quy trình đang dùng không bị ảnh hưởng.');
   });
   const publish = () => guarded(() => {
-    workflowService.publishVersion(canonicalTemplateId, currentUser.id);
+    const published = workflowService.publishVersion(canonicalTemplateId, currentUser.id);
+    syncPublish(published.id, published.version, published);
     setDeploymentEncounterId(eligibleEncounters[0]?.id);
     setDeploymentOpen(true);
     message.success('Quy trình đã sẵn sàng để sử dụng.');
   });
-  const deployNow = () => guarded(() => {
+  const deployNow = () => guardedAsync(async () => {
     if (!deploymentEncounterId) throw new Error('Vui lòng chọn lượt khám cần khởi chạy.');
-    const instance = workflowService.activateWorkflow(deploymentEncounterId, canonicalTemplateId, currentUser.id);
+    const targetEncounter = encounters.find((e) => e.id === deploymentEncounterId);
+    await activateEncounterWorkflow(deploymentEncounterId, {
+      templateId: canonicalTemplateId,
+      encounterVersion: targetEncounter?.version ?? 0,
+    });
+    const instances = await listWorkflowInstances();
+    instances.forEach((row) => workflowRepository.instances().upsert(row));
+    const created = instances.find((i) => i.encounterId === deploymentEncounterId);
     setDeploymentOpen(false);
-    navigate(`/app/workflows/instances/${instance.id}`);
+    if (created) navigate(`/app/workflows/instances/${created.id}`);
   });
-  const archive = (versionId: string) => guarded(() => workflowService.archiveVersion(versionId, currentUser.id));
+  const archive = (versionId: string) => guarded(() => {
+    const archived = workflowService.archiveVersion(versionId, currentUser.id);
+    syncArchive(archived.id, archived.version, archived);
+  });
   const openDetails = () => {
     setEditedName(template.name);
     setEditedSpecialty(template.specialty);
     setEditedDescription(template.description);
     setDetailsOpen(true);
   };
-  const saveDetails = () => guarded(() => {
-    workflowService.updateTemplateDetails(canonicalTemplateId, { name: editedName, specialty: editedSpecialty, description: editedDescription }, currentUser.id);
+  const saveDetails = () => guardedAsync(async () => {
+    if (!editedName.trim() || !editedSpecialty.trim()) throw new Error('Vui lòng nhập tên quy trình và chuyên khoa.');
+    const updated = await updateWorkflowTemplate(canonicalTemplateId, {
+      name: editedName.trim(),
+      specialty: editedSpecialty.trim(),
+      description: editedDescription.trim(),
+      version: template.version ?? 0,
+    });
+    workflowRepository.templates().upsert(updated);
     setDetailsOpen(false);
     message.success('Đã cập nhật thông tin quy trình.');
   });
@@ -332,7 +451,7 @@ export default function WorkflowTemplateEditor() {
     if (!editingStep?.name.trim()) throw new Error('Vui lòng nhập tên bước.');
     const executorType = editingStep.executorType ?? executorForRole(editingStep.responsibleRole);
     const executor = EXECUTOR_META[executorType];
-    workflowService.editStep(canonicalTemplateId, editingStep.code, {
+    const patch: Partial<WorkflowStepDefinition> = {
       name: editingStep.name.trim(),
       description: editingStep.description.trim(),
       taskType: editingStep.taskType,
@@ -350,7 +469,9 @@ export default function WorkflowTemplateEditor() {
       maxWaitingMinutes: editingStep.maxWaitingMinutes,
       prerequisiteStepCodes: editingStep.prerequisiteStepCodes,
       conditionalRule: editingStep.conditionalRule?.trim() || undefined,
-    }, currentUser.id);
+    };
+    const updated = workflowService.editStep(canonicalTemplateId, editingStep.code, patch, currentUser.id);
+    syncStepPatch(updated.id, editingStep.code, patch, updated);
     setEditingStep(null);
     setSidePanel(null);
     message.success('Đã cập nhật bước trong quy trình.');
@@ -358,21 +479,25 @@ export default function WorkflowTemplateEditor() {
   const saveCurrentNodePositions = () => {
     const currentNodes = (flowInstanceRef.current?.getNodes() ?? []).filter((node) => node.type === 'stepNode');
     if (currentNodes.length === 0) return;
-    workflowService.saveNodePositions(
+    const updated = workflowService.saveNodePositions(
       canonicalTemplateId,
       Object.fromEntries(currentNodes.map((node) => [node.id, { x: node.position.x, y: node.position.y }])),
       currentUser.id,
     );
+    syncNodePositions(updated.id, updated.nodePositions ?? {});
   };
   const connect = (connection: Connection) => guarded(() => {
     if (!connection.source || !connection.target) throw new Error('Cần chọn đủ bước nguồn và bước đích.');
     saveCurrentNodePositions();
-    workflowService.connectSteps(canonicalTemplateId, connection.source, connection.target, currentUser.id);
+    const updated = workflowService.connectSteps(canonicalTemplateId, connection.source, connection.target, currentUser.id);
+    syncConnect(updated.id, connection.source, connection.target, updated);
     message.success('Đã nối hai bước và lưu quan hệ phụ thuộc.');
   });
   const deleteEdges = (deleted: Edge[]) => guarded(() => {
     saveCurrentNodePositions();
-    deleted.forEach((edge) => workflowService.disconnectSteps(canonicalTemplateId, edge.source, edge.target, currentUser.id));
+    let updated: WorkflowTemplateVersion | undefined;
+    deleted.forEach((edge) => { updated = workflowService.disconnectSteps(canonicalTemplateId, edge.source, edge.target, currentUser.id); });
+    if (updated) syncDisconnect(updated.id, deleted.map((edge) => ({ source: edge.source, target: edge.target })), updated);
     message.success('Đã xóa dây nối.');
   });
 
@@ -384,7 +509,10 @@ export default function WorkflowTemplateEditor() {
     const oldIndex = codes.indexOf(String(active.id));
     const newIndex = codes.indexOf(String(over.id));
     const reordered = arrayMove(codes, oldIndex, newIndex);
-    guarded(() => workflowService.reorderSteps(canonicalTemplateId, reordered, currentUser.id));
+    guarded(() => {
+      const updated = workflowService.reorderSteps(canonicalTemplateId, reordered, currentUser.id);
+      syncReorder(updated.id, reordered, updated);
+    });
   };
 
   return (
@@ -447,7 +575,10 @@ export default function WorkflowTemplateEditor() {
               defaultNodes={nodes}
               defaultEdges={edges}
               onInit={(instance) => { flowInstanceRef.current = instance; }}
-              onNodeDragStop={(_, node) => node.type === 'stepNode' && guarded(() => workflowService.saveNodePositions(canonicalTemplateId, { [node.id]: { x: node.position.x, y: node.position.y } }, currentUser.id))}
+              onNodeDragStop={(_, node) => node.type === 'stepNode' && guarded(() => {
+                const updated = workflowService.saveNodePositions(canonicalTemplateId, { [node.id]: { x: node.position.x, y: node.position.y } }, currentUser.id);
+                syncNodePositions(updated.id, updated.nodePositions ?? {});
+              })}
               onNodeDoubleClick={(_, node) => node.type === 'stepNode' && openStepEditor(node.id)}
               nodeTypes={nodeTypes}
               onConnect={canDesign ? connect : undefined}
@@ -499,7 +630,10 @@ export default function WorkflowTemplateEditor() {
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={draft.steps.map((s) => s.code)} strategy={verticalListSortingStrategy}>
                 {draft.steps.map((s) => (
-                  <SortableStepRow key={s.code} step={s} canDesign={canDesign} onToggleMandatory={(v) => toggleMandatory(s.code, v)} onIconChange={(icon) => guarded(() => workflowService.editStep(canonicalTemplateId, s.code, { icon }, currentUser.id))} onRemove={() => removeStep(s.code)} />
+                  <SortableStepRow key={s.code} step={s} canDesign={canDesign} onToggleMandatory={(v) => toggleMandatory(s.code, v)} onIconChange={(icon) => guarded(() => {
+                    const updated = workflowService.editStep(canonicalTemplateId, s.code, { icon }, currentUser.id);
+                    syncStepPatch(updated.id, s.code, { icon }, updated);
+                  })} onRemove={() => removeStep(s.code)} />
                 ))}
               </SortableContext>
             </DndContext>

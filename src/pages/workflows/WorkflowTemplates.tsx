@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Input, Button, Tag, Typography, Alert, List, App as AntApp, Grid } from 'antd';
 import { Plus, Workflow, Lock, History } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
 import { workflowRepository } from '../../domain/repositories';
-import { workflowService } from '../../domain/services/workflowService';
+import { listWorkflowTemplates, createWorkflowTemplate } from '../../api/workflowTemplate';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
 import { hasRoleAccess } from '../../domain/core/role';
 
@@ -14,7 +14,7 @@ const { Text, Title, Paragraph } = Typography;
 export default function WorkflowTemplates() {
   const { message } = AntApp.useApp();
   const showError = useFriendlyError();
-  const { currentUser, role } = useAppState();
+  const { role } = useAppState();
   const screens = Grid.useBreakpoint();
   const isStacked = screens.lg === false;
   const templates = useStore(workflowRepository.templates());
@@ -22,17 +22,29 @@ export default function WorkflowTemplates() {
   const [name, setName] = useState('');
   const [specialty, setSpecialty] = useState('');
   const [description, setDescription] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const canDesign = hasRoleAccess(role, ['clinical_process_designer', 'medical_administrator']);
 
-  const create = () => {
+  useEffect(() => {
+    listWorkflowTemplates()
+      .then((rows) => rows.forEach((row) => workflowRepository.templates().upsert(row)))
+      .catch((err: unknown) => { showError(err); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const create = async () => {
     try {
       if (!name.trim() || !specialty.trim()) throw new Error('Vui lòng nhập tên quy trình và chuyên khoa.');
-      workflowService.createDraftTemplate(name, specialty, description, currentUser.id);
+      setCreating(true);
+      const template = await createWorkflowTemplate({ name: name.trim(), specialty: specialty.trim(), description: description.trim() });
+      workflowRepository.templates().upsert(template);
       setName(''); setSpecialty(''); setDescription('');
       message.success('Đã tạo bản nháp quy trình mới.');
     } catch (err) {
       showError(err);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -90,7 +102,7 @@ export default function WorkflowTemplates() {
                 <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Mô tả</Text>
                 <Input.TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
               </div>
-              <Button type="primary" block onClick={create}>Bắt đầu thiết kế</Button>
+              <Button type="primary" block loading={creating} onClick={() => void create()}>Bắt đầu thiết kế</Button>
             </div>
           </Card>
         )}
