@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Pill, Activity, Calendar, FileText, Trash2, Upload, FileSignature, History, ShieldAlert, Lock, Home,
@@ -17,7 +17,17 @@ import {
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, medicalRecordRepository, clinicalOrderRepository, workflowRepository, auditRepository } from '../domain/repositories';
-import { medicalRecordService } from '../domain/services/medicalRecordService';
+import {
+  getEncounterMedicalRecord,
+  getEncounterDocuments,
+  getMedicalRecordCompletionCheck,
+  createEncounterDocument,
+  signMedicalRecord,
+  addMedicalRecordAddendum,
+  reopenMedicalRecord,
+  type MedicalRecordCompletionCheck,
+} from '../api/medicalRecord';
+import { getEncounterAuditTrail } from '../api/audit';
 import { auditService } from '../domain/services/auditService';
 import { RECORD_STATUS_LABEL, ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
 import { hasRoleAccess, type UserRole } from '../domain/core/role';
@@ -155,8 +165,33 @@ function EMRWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [breakGlassGranted, setBreakGlassGranted] = useState(false);
   const [breakGlassReason, setBreakGlassReason] = useState('');
+  const [completion, setCompletion] = useState<MedicalRecordCompletionCheck>({
+    ok: false,
+    missing: [{ code: 'RECORD_NOT_LOADED', message: 'Chưa tải hồ sơ' }],
+    checkedAt: '',
+    recordVersion: 0,
+  });
 
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
+
+  useEffect(() => {
+    if (!encounter) return;
+    getEncounterMedicalRecord(encounter.id)
+      .then((row) => {
+        medicalRecordRepository.records().upsert(row);
+        return getMedicalRecordCompletionCheck(row.id);
+      })
+      .then(setCompletion)
+      .catch(() => undefined);
+    getEncounterDocuments(encounter.id)
+      .then((rows) => rows.forEach((row) => medicalRecordRepository.documents().upsert(row)))
+      .catch(() => undefined);
+    getEncounterAuditTrail(encounter.id)
+      .then((rows) => rows.forEach((row) => auditRepository.upsert(row)))
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [encounter?.id]);
+
   if (!encounter) return <Text type="secondary">Chưa có lượt khám nào.</Text>;
 
   const NORMAL_ACCESS_ROLES: UserRole[] = ['patient', 'doctor', 'medical_administrator'];
@@ -191,32 +226,44 @@ function EMRWorkspace() {
   const isDoctor = hasRoleAccess(role, ['doctor']);
   const isAdmin = hasRoleAccess(role, ['medical_administrator']);
 
-  const guarded = (fn: () => void) => {
+  const uploadDocument = () => {
     setError(null);
-    try { fn(); } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    createEncounterDocument(encounter.id, { type: 'other', fileName: `tai-lieu-${Date.now()}.pdf` })
+      .then((row) => medicalRecordRepository.documents().upsert(row))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  };
+  const refreshRecord = () =>
+    getEncounterMedicalRecord(encounter.id)
+      .then(async (row) => {
+        medicalRecordRepository.records().upsert(row);
+        setCompletion(await getMedicalRecordCompletionCheck(row.id));
+      })
+      .catch(() => undefined);
+
+  const guardedAsync = (fn: () => Promise<void>) => {
+    setError(null);
+    fn().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   };
 
-  const uploadMockDocument = () => guarded(() => {
-    medicalRecordService.uploadDocument(encounter.id, currentUser.id, { type: 'other', fileName: `tai-lieu-${Date.now()}.pdf` });
-  });
-  const sign = () => guarded(() => {
+  const sign = () => guardedAsync(async () => {
     if (!record) throw new Error('Chưa có hồ sơ để ký.');
-    medicalRecordService.signRecord(record.id, currentUser.id);
+    await signMedicalRecord(record.id);
+    await refreshRecord();
   });
-  const addAddendum = () => guarded(() => {
+  const addAddendum = () => guardedAsync(async () => {
     if (!record) throw new Error('Chưa có hồ sơ.');
     if (!addendumText.trim()) throw new Error('Vui lòng nhập nội dung bổ sung.');
-    medicalRecordService.addAddendum(record.id, currentUser.id, addendumText);
+    await addMedicalRecordAddendum(record.id, addendumText);
+    await refreshRecord();
     setAddendumText('');
   });
-  const reopen = () => guarded(() => {
+  const reopen = () => guardedAsync(async () => {
     if (!record) throw new Error('Chưa có hồ sơ.');
     if (!reopenReason.trim()) throw new Error('Vui lòng nhập lý do mở lại hồ sơ.');
-    medicalRecordService.reopenRecord(record.id, currentUser.id, reopenReason);
+    await reopenMedicalRecord(record.id, reopenReason);
+    await refreshRecord();
     setReopenReason('');
   });
-
-  const completion = record ? medicalRecordService.checkCompletionRequirements(record) : { ok: false, missing: ['Chưa tạo hồ sơ'] };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -255,7 +302,7 @@ function EMRWorkspace() {
             </div>
 
             {!completion.ok && (
-              <Alert type="warning" showIcon style={{ marginTop: 12 }} message={`Còn thiếu để hoàn tất: ${completion.missing.join(', ')}`} />
+              <Alert type="warning" showIcon style={{ marginTop: 12 }} message={`Còn thiếu để hoàn tất: ${completion.missing.map((item) => item.message).join(', ')}`} />
             )}
 
             {isDoctor && record && record.status !== 'signed' && (
@@ -299,7 +346,7 @@ function EMRWorkspace() {
               />
             </Card>
 
-            <Card title="Tài liệu lâm sàng" size="small" extra={<Button size="small" icon={<Upload size={13} />} onClick={uploadMockDocument}>Tải lên (mô phỏng)</Button>}>
+            <Card title="Tài liệu lâm sàng" size="small" extra={<Button size="small" icon={<Upload size={13} />} onClick={uploadDocument}>Tải lên</Button>}>
               <List
                 size="small"
                 dataSource={encounterDocs}

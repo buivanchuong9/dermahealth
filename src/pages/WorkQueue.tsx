@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { App as AntApp, Card, Select, Table, Tag, Typography, Button } from 'antd';
 import {
@@ -12,7 +12,14 @@ import { DragConfirmDialog, type PendingDrop } from '../components/common/DragCo
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { workflowRepository, encounterRepository } from '../domain/repositories';
-import { workflowService } from '../domain/services/workflowService';
+import {
+  listWorkflowTasks,
+  acceptWorkflowTask,
+  startWorkflowTask,
+  completeWorkflowTask,
+  escalateWorkflowTask,
+  reassignWorkflowTask,
+} from '../api/workflowTask';
 import { TASK_STATUS_LABEL } from '../domain/core/enums';
 import { hasRoleAccess, ROLE_LABEL } from '../domain/core/role';
 import type { WorkflowTaskStatus, Priority, Urgency } from '../domain/core/enums';
@@ -116,7 +123,6 @@ export default function WorkQueue() {
   const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
-  const canSupervise = hasRoleAccess(role, ['medical_administrator', 'care_coordinator']);
 
   const departments = useMemo(() => Array.from(new Set(tasks.map((t) => t.department))), [tasks]);
   const visibleForRole = tasks.filter((t) => hasRoleAccess(role, ['medical_administrator', 'system_administrator']) || t.responsibleRole === role);
@@ -135,11 +141,23 @@ export default function WorkQueue() {
   const byColumn = (key: ColumnKey) => filtered.filter((t) => columnFor(t, currentUser.id) === key);
   const otherTasks = filtered.filter((t) => columnFor(t, currentUser.id) === null);
 
+  const refreshTasks = () =>
+    listWorkflowTasks().then((rows) => rows.forEach((row) => workflowRepository.tasks().upsert(row))).catch((err: unknown) => { showError(err); });
+
+  useEffect(() => {
+    refreshTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const autoAssign = () => {
     const candidates = tasks.filter((t) => t.responsibleRole === role && t.status === 'ready' && !t.assigneeId);
     if (candidates.length === 0) { message.info('Không có tác vụ nào phù hợp để tự động phân công.'); return; }
-    candidates.forEach((t) => workflowService.reassignTask(t.id, currentUser.id, currentUser.id));
-    message.success(`Đã tự động phân công ${candidates.length} tác vụ cho bạn.`);
+    Promise.all(candidates.map((t) => reassignWorkflowTask(t.id, { assigneeId: currentUser.id, version: t.version ?? 0 })))
+      .then(() => {
+        refreshTasks();
+        message.success(`Đã tự động phân công ${candidates.length} tác vụ cho bạn.`);
+      })
+      .catch((err: unknown) => { showError(err); });
   };
 
   const handleDragStart = (e: DragStartEvent) => {
@@ -152,8 +170,8 @@ export default function WorkQueue() {
 
   const dropError = (task: WorkflowTask, target: ColumnKey): string | null => {
     if (target === 'in_progress') {
-      if (task.status === 'escalated' && !canSupervise) return 'Chỉ giám sát viên (Điều phối viên chăm sóc / Quản trị viên y tế) mới có thể mở lại tác vụ đã báo cáo bất thường.';
-      if (task.status === 'ready' || task.status === 'accepted' || task.status === 'assigned' || task.status === 'escalated') return null;
+      if (task.status === 'escalated') return 'Chưa hỗ trợ mở lại tác vụ đã báo cáo bất thường qua API — vui lòng xử lý ngoài hệ thống.';
+      if (task.status === 'ready' || task.status === 'accepted' || task.status === 'assigned') return null;
       return `Không thể chuyển tác vụ "${task.name}" sang Đang thực hiện từ trạng thái hiện tại.`;
     }
     if (target === 'completed') {
@@ -165,29 +183,24 @@ export default function WorkQueue() {
   };
 
   const applyDrop = (task: WorkflowTask, target: ColumnKey) => {
-    try {
-      if (target === 'in_progress') {
-        if (task.status === 'escalated') workflowService.transitionTask(task.id, 'ready', currentUser.id, { reason: 'Giám sát viên đã xem xét và mở lại tác vụ' });
-        else if (task.status === 'ready') workflowService.acceptTask(task.id, currentUser.id);
-        else workflowService.startTask(task.id, currentUser.id);
-      } else if (target === 'completed') {
-        workflowService.completeTask(task.id, currentUser.id);
-      } else if (target === 'escalated') {
-        workflowService.escalateTask(task.id, currentUser.id, 'Chuyển bằng kéo thả trong hàng đợi công việc');
-      }
-      message.success(`Đã cập nhật trạng thái tác vụ "${task.name}".`);
-    } catch (err) {
-      showError(err);
-    } finally {
-      setPendingDrop(null);
-    }
+    const version = task.version ?? 0;
+    const action = target === 'in_progress'
+      ? (task.status === 'ready' ? acceptWorkflowTask(task.id, version) : startWorkflowTask(task.id, version))
+      : target === 'completed'
+        ? completeWorkflowTask(task.id, version)
+        : escalateWorkflowTask(task.id, { reason: 'Chuyển bằng kéo thả trong hàng đợi công việc', version });
+
+    action
+      .then(() => {
+        refreshTasks();
+        message.success(`Đã cập nhật trạng thái tác vụ "${task.name}".`);
+      })
+      .catch((err: unknown) => { showError(err); })
+      .finally(() => setPendingDrop(null));
   };
 
   const dropDescription = (task: WorkflowTask, target: ColumnKey): { question: string; confirmLabel: string } => {
     const col = COLUMNS.find((c) => c.key === target)!;
-    if (target === 'in_progress' && task.status === 'escalated') {
-      return { question: `Mở lại tác vụ "${task.name}" và đưa về hàng "Sẵn sàng"?`, confirmLabel: 'Mở lại tác vụ' };
-    }
     if (target === 'in_progress') return { question: `Chuyển tác vụ "${task.name}" sang "${col.title}"?`, confirmLabel: 'Xác nhận' };
     if (target === 'completed') return { question: `Chuyển tác vụ "${task.name}" sang "${col.title}"?`, confirmLabel: 'Hoàn thành' };
     if (target === 'escalated') return { question: `Chuyển tác vụ "${task.name}" sang "${col.title}"?`, confirmLabel: 'Báo cáo' };

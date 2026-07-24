@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { auditService } from '../../domain/services/auditService';
-import { userRepository } from '../../domain/repositories';
 import { useFriendlyError } from './useFriendlyError';
+import { logClientEvent } from '../../api/audit';
 
 /** Covers failures outside React rendering (event handlers, timers and rejected
  * promises). Render failures remain the responsibility of AppErrorBoundary. */
@@ -14,10 +13,14 @@ export function GlobalErrorListener() {
       if (showing.current) return;
       showing.current = true;
       const error = reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : 'Lỗi không xác định');
-      try {
-        const actor = userRepository.getAll()[0];
-        if (actor) auditService.log({ actorId: actor.id, action: 'UNHANDLED_CLIENT_ERROR', entityType: 'Application', entityId: 'client', reason: error.message, sourceModule: 'GlobalErrorListener', severity: 'critical' });
-      } catch { /* giao diện lỗi không được phụ thuộc vào audit */ }
+      void logClientEvent({
+        entityType: 'Application',
+        entityId: 'client',
+        reason: error.message,
+        sourceModule: 'GlobalErrorListener',
+        severity: 'critical',
+        occurredAt: new Date().toISOString(),
+      }).catch(() => undefined);
       const instance = showError('Hệ thống chưa thể hoàn tất thao tác này. Vui lòng thử lại sau ít phút.');
       window.setTimeout(() => { showing.current = false; }, 800);
       return instance;

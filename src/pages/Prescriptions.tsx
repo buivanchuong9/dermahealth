@@ -1,130 +1,203 @@
-import { useState } from 'react';
-import { Row, Col, Card, Progress, Button, Tag, Collapse, Typography, Alert, Statistic } from 'antd';
-import { Pill, Clock, CheckCircle, TriangleAlert, Bell, FileText, Plus, Calendar } from 'lucide-react';
-import { mockPrescriptions, mockMedicineReminders } from '../data/mockData';
-
-const { Title, Text } = Typography;
-
-const WEEK_SCHEDULE = [
-  { day: 'Thứ 2', date: '09/10', meds: ['Tretinoin', 'Omega-3', 'Kem chống nắng'], status: 'done' },
-  { day: 'Thứ 3', date: '10/10', meds: ['Tretinoin', 'Omega-3', 'Kem chống nắng'], status: 'done' },
-  { day: 'Thứ 4', date: '11/10', meds: ['Tretinoin', 'Omega-3', 'Kem chống nắng'], status: 'done' },
-  { day: 'Thứ 5', date: '12/10', meds: ['Tretinoin', 'Omega-3', 'Kem chống nắng'], status: 'done' },
-  { day: 'Thứ 6', date: '13/10', meds: ['Tretinoin', 'Omega-3', 'Kem chống nắng'], status: 'today' },
-  { day: 'Thứ 7', date: '14/10', meds: ['Tretinoin', 'Omega-3'], status: 'upcoming' },
-  { day: 'CN', date: '15/10', meds: ['Tretinoin', 'Omega-3'], status: 'upcoming' },
-];
-
+import { useCallback, useEffect, useState } from "react";
+import {
+  App,
+  Button,
+  Card,
+  Empty,
+  Input,
+  List,
+  Modal,
+  Select,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+} from "antd";
+import { Pill } from "lucide-react";
+import { useAppState } from "../state/useAppState";
+import {
+  getMedicationReminders,
+  getReport,
+  markReminderTaken,
+  createMedicationReminder,
+  type MedicationReminder,
+} from "../api/clinical";
+const { Title } = Typography;
+interface Prescription {
+  id: string;
+  issuedAt: string;
+  medications: unknown;
+}
 export default function Prescriptions() {
-  const [reminders, setReminders] = useState(mockMedicineReminders);
-  const toggleTaken = (id: number) => setReminders((r) => r.map((m) => (m.id === id ? { ...m, taken: !m.taken } : m)));
-  const takenCount = reminders.filter((r) => r.taken).length;
-  const pct = Math.round((takenCount / reminders.length) * 100);
-
+  const { message } = App.useApp();
+  const { currentPatient } = useAppState();
+  const [reminders, setReminders] = useState<MedicationReminder[]>([]);
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [medicationName, setMedicationName] = useState("");
+  const [startDate, setStartDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [endDate, setEndDate] = useState("");
+  const [times, setTimes] = useState("08:00");
+  const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
+  const reload = useCallback(
+    () =>
+      Promise.all([
+        getMedicationReminders(currentPatient.id),
+        getReport<Prescription[]>(currentPatient.id, "medicine-history"),
+      ]).then(([r, p]) => {
+        setReminders(r);
+        setPrescriptions(p);
+      }),
+    [currentPatient.id],
+  );
+  useEffect(() => {
+    reload().finally(() => setLoading(false));
+  }, [reload]);
+  const taken = async (id: string) => {
+    try {
+      await markReminderTaken(id);
+      await reload();
+      message.success("Đã lưu thời điểm dùng thuốc.");
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : "Không cập nhật được.",
+      );
+    }
+  };
+  const create = async () => {
+    try {
+      const normalizedTimes = times
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (!medicationName.trim() || !startDate || !normalizedTimes.length) {
+        throw new Error("Vui lòng nhập tên thuốc, ngày bắt đầu và giờ nhắc.");
+      }
+      await createMedicationReminder(currentPatient.id, {
+        medicationName: medicationName.trim(),
+        schedule: {
+          timezone:
+            Intl.DateTimeFormat().resolvedOptions().timeZone ||
+            "Asia/Ho_Chi_Minh",
+          startDate,
+          ...(endDate ? { endDate } : {}),
+          times: normalizedTimes,
+          weekdays,
+        },
+      });
+      await reload();
+      setCreateOpen(false);
+      setMedicationName("");
+      message.success("Đã tạo nhắc thuốc.");
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : "Không tạo được nhắc thuốc.",
+      );
+    }
+  };
+  if (loading) return <Spin />;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <Title level={3} style={{ margin: '4px 0 0' }}>Đơn Thuốc</Title>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button icon={<FileText size={15} />}>Lịch sử đơn thuốc</Button>
-          <Button type="primary" icon={<Plus size={16} />}>Yêu cầu tái kê đơn</Button>
-        </div>
-      </div>
-
-      <Row gutter={16}>
-        <Col xs={24} md={12}>
-          <Card
-            title={<span><Pill size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Thuốc hôm nay</span>}
-            extra={<Statistic value={pct} suffix="%" valueStyle={{ fontSize: 22, color: 'var(--medical-blue-700)' }} />}
-            size="small"
-          >
-            <Progress percent={pct} showInfo={false} strokeColor="var(--medical-blue-600)" style={{ marginBottom: 16 }} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {reminders.map((med) => (
-                <div key={med.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8, background: med.taken ? 'var(--success-bg)' : 'var(--surface-subtle)', border: `1px solid ${med.taken ? 'rgba(35,138,87,0.25)' : 'var(--border-default)'}` }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: med.taken ? 'var(--success)' : 'var(--medical-blue-600)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Pill size={16} color="white" />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <Text strong style={{ fontSize: 13.5, display: 'block' }}>{med.name}</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}><Clock size={11} style={{ verticalAlign: -1 }} /> {med.time} · {med.type}</Text>
-                  </div>
-                  <Button
-                    shape="circle" size="small"
-                    type={med.taken ? 'primary' : 'default'}
-                    style={med.taken ? { background: 'var(--success)', borderColor: 'var(--success)' } : undefined}
-                    icon={med.taken ? <CheckCircle size={14} /> : undefined}
-                    onClick={() => toggleTaken(med.id)}
-                  />
-                </div>
-              ))}
-            </div>
-            <Button block style={{ marginTop: 16 }} icon={<Bell size={15} />}>Đặt nhắc nhở tùy chỉnh</Button>
-          </Card>
-        </Col>
-
-        <Col xs={24} md={12}>
-          <Card title={<span><Calendar size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Lịch dùng thuốc tuần này</span>} size="small">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {WEEK_SCHEDULE.map((d) => (
-                <div key={d.day} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 8, background: d.status === 'today' ? 'var(--surface-selected)' : 'var(--surface-subtle)', border: `1px solid ${d.status === 'today' ? 'var(--medical-blue-200)' : 'var(--border-default)'}` }}>
-                  <div style={{ textAlign: 'center', minWidth: 38 }}>
-                    <Text type="secondary" style={{ fontSize: 10.5, fontWeight: 600, display: 'block' }}>{d.day}</Text>
-                    <Text strong style={{ fontSize: 14, color: d.status === 'today' ? 'var(--medical-blue-700)' : undefined }}>{d.date.split('/')[0]}</Text>
-                  </div>
-                  <Text type="secondary" style={{ fontSize: 12, flex: 1 }}>{d.meds.join(' · ')}</Text>
-                  {d.status === 'done' && <CheckCircle size={16} color="var(--success)" />}
-                  {d.status === 'today' && <Tag color="blue">Hôm nay</Tag>}
-                  {d.status === 'upcoming' && <Tag>Sắp tới</Tag>}
-                </div>
-              ))}
-            </div>
-          </Card>
-        </Col>
-      </Row>
-
-      <Card title="Lịch sử đơn thuốc" size="small" extra={<Text type="secondary" style={{ fontSize: 12 }}>{mockPrescriptions.length} đơn thuốc</Text>}>
-        <Collapse
-          defaultActiveKey={['RX-001']}
-          items={mockPrescriptions.map((rx) => ({
-            key: rx.id,
-            label: (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-                <div style={{ width: 36, height: 36, borderRadius: 8, background: rx.status === 'active' ? 'var(--medical-blue-700)' : 'var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <FileText size={16} color={rx.status === 'active' ? 'white' : 'var(--text-muted)'} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Text strong style={{ fontSize: 13.5, display: 'block' }}>Đơn thuốc {rx.id}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}><Calendar size={11} style={{ verticalAlign: -1 }} /> {rx.date} · {rx.doctor}</Text>
-                </div>
-                <Tag color={rx.status === 'active' ? 'blue' : 'default'}>{rx.status === 'active' ? 'Đang dùng' : 'Hoàn thành'}</Tag>
-              </div>
-            ),
-            children: (
-              <div>
-                {rx.note && <Alert type="warning" showIcon icon={<TriangleAlert size={14} />} message={rx.note} style={{ marginBottom: 12 }} />}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {rx.medicines.map((med) => (
-                    <div key={med.name} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'var(--surface-subtle)', borderRadius: 8, border: '1px solid var(--border-default)' }}>
-                      <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--medical-blue-100)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Pill size={15} color="var(--medical-blue-700)" /></div>
-                      <div style={{ flex: 1 }}>
-                        <Text strong style={{ fontSize: 13.5, display: 'block' }}>{med.name}</Text>
-                        <Text type="secondary" style={{ fontSize: 12 }}>{med.dose}</Text>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <Text strong style={{ fontSize: 12.5, display: 'block' }}>{med.duration}</Text>
-                        <Text type="secondary" style={{ fontSize: 11 }}>{rx.status === 'active' ? `Còn ${med.remaining}` : 'Hoàn thành'}</Text>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ),
-          }))}
+    <Space direction="vertical" size={18} style={{ width: "100%" }}>
+      <Space style={{ width: "100%", justifyContent: "space-between" }}>
+        <Title level={3} style={{ margin: 0 }}>Đơn thuốc</Title>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>
+          Tạo nhắc thuốc
+        </Button>
+      </Space>
+      <Card title="Nhắc thuốc">
+        <List
+          dataSource={reminders}
+          locale={{ emptyText: <Empty description="Chưa có nhắc thuốc" /> }}
+          renderItem={(item) => (
+            <List.Item
+              actions={[
+                item.takenAt ? (
+                  <Tag color="success">
+                    Đã dùng {new Date(item.takenAt).toLocaleString("vi-VN")}
+                  </Tag>
+                ) : (
+                  <Button onClick={() => void taken(item.id)}>
+                    Đánh dấu đã dùng
+                  </Button>
+                ),
+              ]}
+            >
+              <List.Item.Meta
+                avatar={<Pill />}
+                title={item.medicationName}
+                description={JSON.stringify(item.schedule)}
+              />
+            </List.Item>
+          )}
         />
       </Card>
-    </div>
+      <Card title="Lịch sử đơn thuốc">
+        <List
+          dataSource={prescriptions}
+          locale={{ emptyText: <Empty description="Chưa có đơn thuốc" /> }}
+          renderItem={(item) => (
+            <List.Item>
+              <List.Item.Meta
+                title={`Đơn ${item.id}`}
+                description={`${new Date(item.issuedAt).toLocaleString("vi-VN")} — ${JSON.stringify(item.medications)}`}
+              />
+            </List.Item>
+          )}
+        />
+      </Card>
+      <Modal
+        title="Tạo nhắc thuốc"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={() => void create()}
+        okText="Tạo nhắc"
+        cancelText="Hủy"
+      >
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Input
+            value={medicationName}
+            onChange={(event) => setMedicationName(event.target.value)}
+            placeholder="Tên thuốc"
+          />
+          <Space.Compact style={{ width: "100%" }}>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+              aria-label="Ngày bắt đầu"
+            />
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
+              aria-label="Ngày kết thúc"
+            />
+          </Space.Compact>
+          <Input
+            value={times}
+            onChange={(event) => setTimes(event.target.value)}
+            placeholder="Giờ nhắc, cách nhau bằng dấu phẩy: 08:00, 20:00"
+          />
+          <Select
+            mode="multiple"
+            value={weekdays}
+            onChange={setWeekdays}
+            style={{ width: "100%" }}
+            options={[
+              { value: 1, label: "Thứ 2" },
+              { value: 2, label: "Thứ 3" },
+              { value: 3, label: "Thứ 4" },
+              { value: 4, label: "Thứ 5" },
+              { value: 5, label: "Thứ 6" },
+              { value: 6, label: "Thứ 7" },
+              { value: 7, label: "Chủ nhật" },
+            ]}
+          />
+        </Space>
+      </Modal>
+    </Space>
   );
 }

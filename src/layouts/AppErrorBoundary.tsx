@@ -1,7 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { FriendlyErrorPage } from '../components/feedback/FriendlyError';
-import { auditService } from '../domain/services/auditService';
-import { userRepository } from '../domain/repositories';
+import { logClientEvent } from '../api/audit';
 
 interface Props {
   children: ReactNode;
@@ -28,22 +27,14 @@ export class AppErrorBoundary extends Component<Props, State> {
     if (import.meta.env.DEV) {
       console.error('AppErrorBoundary caught a render error:', error, info.componentStack);
     }
-    try {
-      const actor = userRepository.getAll()[0];
-      if (actor) {
-        auditService.log({
-          actorId: actor.id,
-          action: 'UNHANDLED_RENDER_ERROR',
-          entityType: 'Application',
-          entityId: 'root',
-          reason: error.message,
-          sourceModule: 'ErrorBoundary',
-          severity: 'critical',
-        });
-      }
-    } catch {
-      // Auditing the crash must never itself crash the error screen.
-    }
+    void logClientEvent({
+      entityType: 'Application',
+      entityId: 'root',
+      reason: error.message,
+      sourceModule: 'ErrorBoundary',
+      severity: 'critical',
+      occurredAt: new Date().toISOString(),
+    }).catch(() => undefined);
   }
 
   private reset = () => this.setState({ hasError: false, error: null });

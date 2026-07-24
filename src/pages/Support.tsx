@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Row, Col, Card, Collapse, Select, Input, Button, Typography } from 'antd';
+import { App, Row, Col, Card, Collapse, Select, Input, Button, Typography } from 'antd';
 import { MessageCircle, Phone, Mail, Send } from 'lucide-react';
+import { createSupportTicket, type CreateSupportTicketRequest } from '../api/support';
 
 const { Title, Text } = Typography;
 
@@ -19,7 +20,30 @@ const CHANNELS = [
 ];
 
 export default function Support() {
+  const { message } = App.useApp();
   const [msg, setMsg] = useState('');
+  const [category, setCategory] = useState<CreateSupportTicketRequest['category']>('tech');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    const content = msg.trim();
+    if (!content) {
+      void message.warning('Vui lòng nhập nội dung cần hỗ trợ.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createSupportTicket({ category, message: content });
+      setMsg('');
+      void message.success('Đã gửi yêu cầu hỗ trợ.');
+    } catch (error) {
+      void message.error(
+        error instanceof Error ? error.message : 'Không gửi được yêu cầu hỗ trợ.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -55,7 +79,8 @@ export default function Support() {
             <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Chủ đề</Text>
             <Select
               style={{ width: '100%', marginBottom: 14 }}
-              defaultValue="tech"
+              value={category}
+              onChange={setCategory}
               options={[
                 { value: 'tech', label: 'Vấn đề kỹ thuật' },
                 { value: 'treatment', label: 'Câu hỏi về điều trị' },
@@ -65,7 +90,7 @@ export default function Support() {
             />
             <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Nội dung</Text>
             <Input.TextArea rows={4} value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Mô tả vấn đề bạn đang gặp phải..." style={{ marginBottom: 14 }} />
-            <Button type="primary" block icon={<Send size={15} />} onClick={() => setMsg('')}>Gửi yêu cầu</Button>
+            <Button type="primary" block loading={submitting} icon={<Send size={15} />} onClick={() => void submit()}>Gửi yêu cầu</Button>
           </Card>
         </Col>
       </Row>

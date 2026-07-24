@@ -5,11 +5,14 @@ import {
 } from 'antd';
 import { Upload as UploadIcon, Camera, Loader, CheckCircle2, Phone, FlaskConical, ZoomIn } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
-import { encounterService } from '../domain/services/encounterService';
 import { aiAssessmentService, SYMPTOM_OPTIONS, type IntakeDraft, type SymptomKey } from '../domain/services/aiAssessmentService';
 import type { AIPreliminaryAssessment, ClinicalRedFlag, ConfidenceBand } from '../domain/core/entities';
 import type { EncounterId } from '../domain/core/ids';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
+import { createEncounter, getActiveEncounter } from '../api/encounters';
+import { submitEncounterIntake } from '../api/aiAssessment';
+import { uploadFile } from '../api/uploads';
+import { aiAssessmentRepository, encounterRepository } from '../domain/repositories';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -33,7 +36,7 @@ const BAND_META: Record<ConfidenceBand, { label: string; color: string }> = {
 const STEP_INDEX: Record<Step, number> = { upload: 0, scan: 1, result: 2, emergency: 2 };
 
 export default function AIAnalysis() {
-  const { currentPatient, currentUser } = useAppState();
+  const { currentPatient } = useAppState();
   const [step, setStep] = useState<Step>('upload');
   const [pct, setPct] = useState(0);
   const [stepIdx, setStepIdx] = useState(0);
@@ -42,6 +45,8 @@ export default function AIAnalysis() {
   const [emergency, setEmergency] = useState<ClinicalRedFlag | null>(null);
   const [assessment, setAssessment] = useState<AIPreliminaryAssessment | null>(null);
   const [encounterId, setEncounterId] = useState<EncounterId | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   const toggleSymptoms = (values: SymptomKey[]) => setIntake((p) => ({ ...p, symptoms: values }));
 
@@ -55,7 +60,7 @@ export default function AIAnalysis() {
     }, 90);
   };
 
-  const startAnalysis = () => {
+  const startAnalysis = async () => {
     const errs = aiAssessmentService.validateIntake(intake);
     if (errs.length) { setErrors(errs); return; }
     setErrors([]);
@@ -67,22 +72,73 @@ export default function AIAnalysis() {
       return;
     }
 
-    const encounter = encounterService.createEncounter(
-      { patientId: currentPatient.id, type: 'standard', origin: 'walk_in', department: 'Khoa Da liễu' },
-      currentUser.id,
-    );
-    encounterService.transitionStatus(encounter.id, 'intake_in_progress', currentUser.id);
-    setEncounterId(encounter.id);
+    setSubmitting(true);
+    let uploadedFileId: string | undefined;
+    if (imageFile) {
+      try {
+        uploadedFileId = (await uploadFile(imageFile)).fileId;
+      } catch (error) {
+        setSubmitting(false);
+        setErrors([
+          error instanceof Error ? error.message : 'Không tải được ảnh lên hệ thống.',
+        ]);
+        return;
+      }
+    }
+    let encounter;
+    try {
+      encounter = await getActiveEncounter();
+    } catch {
+      try {
+        encounter = await createEncounter({
+          patientId: currentPatient.id,
+          type: 'standard',
+          origin: 'walk_in',
+          department: 'Khoa Da liễu',
+        });
+      } catch (error) {
+        setSubmitting(false);
+        setErrors([
+          error instanceof Error
+            ? error.message
+            : 'Không thể tạo lượt khám để gửi đánh giá AI.',
+        ]);
+        return;
+      }
+    }
+    setEncounterId(encounter.id as EncounterId);
 
     runScanAnimation(() => {
-      const { assessment: result } = aiAssessmentService.requestAssessment(encounter.id, intake, currentUser.id);
-      setAssessment(result);
-      setStep('result');
+      void submitEncounterIntake(encounter.id, {
+        chiefComplaint: intake.chiefComplaint.trim(),
+        severity: intake.severity ?? 0,
+        durationDays: intake.durationDays ?? 0,
+        symptoms: intake.symptoms,
+        history: intake.history,
+        currentMedication: intake.currentMedication,
+        images: uploadedFileId ? [uploadedFileId] : [],
+      })
+        .then(({ intake: savedIntake, assessment: result }) => {
+          encounterRepository.intakes().upsert(savedIntake);
+          aiAssessmentRepository.upsert(result);
+          setAssessment(result);
+          setSubmitting(false);
+          setStep('result');
+        })
+        .catch((error: unknown) => {
+          setErrors([
+            error instanceof Error
+              ? error.message
+              : 'Không thể gửi dữ liệu đánh giá AI.',
+          ]);
+          setSubmitting(false);
+          setStep('upload');
+        });
     });
   };
 
   const resetAll = () => {
-    setIntake(EMPTY_INTAKE); setErrors([]); setEmergency(null); setAssessment(null); setEncounterId(null); setStep('upload');
+    setIntake(EMPTY_INTAKE); setErrors([]); setEmergency(null); setAssessment(null); setEncounterId(null); setSubmitting(false); setImageFile(null); setStep('upload');
   };
 
   return (
@@ -106,10 +162,29 @@ export default function AIAnalysis() {
       {step === 'upload' && (
         <Row gutter={16}>
           <Col xs={24} md={14}>
-            <Upload.Dragger multiple={false} showUploadList={false} beforeUpload={() => false} style={{ background: 'var(--surface-card)' }}>
+            <Upload.Dragger
+              accept=".jpg,.jpeg,.png,.heic,image/jpeg,image/png,image/heic"
+              multiple={false}
+              maxCount={1}
+              fileList={imageFile ? [{ uid: imageFile.name, name: imageFile.name, status: 'done', size: imageFile.size, type: imageFile.type }] : []}
+              beforeUpload={(file) => {
+                if (file.size > 5 * 1024 * 1024) {
+                  setErrors(['Ảnh vượt quá dung lượng tối đa 5MB.']);
+                  return Upload.LIST_IGNORE;
+                }
+                setImageFile(file);
+                setErrors([]);
+                return false;
+              }}
+              onRemove={() => {
+                setImageFile(null);
+                return true;
+              }}
+              style={{ background: 'var(--surface-card)' }}
+            >
               <p className="ant-upload-drag-icon"><Camera size={32} color="var(--medical-blue-600)" /></p>
               <p style={{ fontWeight: 600, fontSize: 16 }}>Kéo thả hoặc nhấp để tải lên</p>
-              <p style={{ color: 'var(--text-secondary)' }}>Hỗ trợ JPG, PNG, HEIC · Tối đa 5MB (mô phỏng — không lưu file thật)</p>
+              <p style={{ color: 'var(--text-secondary)' }}>Hỗ trợ JPG, PNG, HEIC · Tối đa 5MB</p>
               <Space style={{ marginTop: 16 }}>
                 <Button icon={<UploadIcon size={15} />}>Chọn tệp</Button>
                 <Button icon={<Camera size={15} />}>Dùng camera</Button>
@@ -158,7 +233,7 @@ export default function AIAnalysis() {
                   <div style={{ marginBottom: 14 }}><FriendlyErrorInline title="Thông tin chưa đầy đủ" error={errors.join(' · ')} onClose={() => setErrors([])} /></div>
                 )}
 
-                <Button type="primary" block icon={<FlaskConical size={15} />} onClick={startAnalysis}>Bắt đầu phân tích AI</Button>
+                <Button type="primary" block loading={submitting} icon={<FlaskConical size={15} />} onClick={() => void startAnalysis()}>Bắt đầu phân tích AI</Button>
               </Card>
 
               <Alert type="warning" showIcon message="Kết quả AI chỉ là hỗ trợ ra quyết định (AI Preliminary Assessment), không phải chẩn đoán. Chẩn đoán chính thức luôn do bác sĩ xác nhận." />
@@ -273,10 +348,14 @@ export default function AIAnalysis() {
               <Card title="Đề Xuất Tiếp Theo" size="small">
                 <Paragraph style={{ fontSize: 13 }}>
                   Đây là kết quả hỗ trợ từ AI, chưa phải chẩn đoán chính thức. Bác sĩ sẽ xem xét thông tin này cùng với hồ sơ của bạn trong lần khám tới.
-                  {assessment.redFlag.urgency === 'urgent'
-                    ? ' Do có dấu hiệu cần lưu ý, khuyến nghị đặt lịch khám trong 24–48 giờ tới.'
-                    : ' Khuyến nghị đặt lịch với bác sĩ chuyên khoa da liễu trong vòng 7 ngày để được tư vấn phù hợp.'}
                 </Paragraph>
+                {assessment.suggestedSpecialty && <Tag color="blue" style={{ marginBottom: 8 }}>Chuyên khoa: {assessment.suggestedSpecialty}</Tag>}
+                <List
+                  size="small"
+                  dataSource={assessment.suggestedNextActions}
+                  locale={{ emptyText: assessment.redFlag.urgency === 'urgent' ? 'Khuyến nghị đặt lịch khám trong 24–48 giờ.' : 'Khuyến nghị đặt lịch khám để được bác sĩ tư vấn.' }}
+                  renderItem={(action) => <List.Item>{action}</List.Item>}
+                />
                 <Button type="primary" block href="/app/appointments">Đặt lịch khám ngay</Button>
               </Card>
             </div>

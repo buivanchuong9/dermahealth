@@ -9,6 +9,10 @@ export function updateMe(payload: UpdateMeRequest): Promise<AuthUser> {
   return http.patch<AuthUser>('/api/v1/me', payload);
 }
 
+export function enableMfa(): Promise<AuthUser> {
+  return http.post<AuthUser>('/api/v1/me/mfa');
+}
+
 export function getMyPreferences(): Promise<UserPreferences> {
   return http.get<UserPreferences>('/api/v1/me/preferences');
 }

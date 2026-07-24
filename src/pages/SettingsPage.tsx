@@ -1,12 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Shield, User, Smartphone, Moon, Globe, FileCheck, Settings2, RotateCcw, LogOut } from 'lucide-react';
-import { App as AntApp, Row, Col, Card, Menu, Switch, Input, Select, Button, Alert, Typography, Segmented } from 'antd';
+import { Bell, Shield, User, Smartphone, Moon, Globe, FileCheck, Settings2, RotateCcw, LogOut, Flag } from 'lucide-react';
+import { App as AntApp, Row, Col, Card, Menu, Switch, Input, Select, Button, Alert, Typography, Segmented, Spin } from 'antd';
 import { useAppState } from '../state/useAppState';
-import { useStore } from '../state/useStore';
-import { consentRepository } from '../domain/repositories';
-import { patientService } from '../domain/services/patientService';
 import { logoutCurrentSession } from '../api/auth';
+import { enableMfa, getMe, getMyPreferences, updateMe, updateMyPreferences } from '../api/me';
+import type { AuthUser, UserPreferences } from '../api/types';
+import { requestUserDeletion } from '../api/users';
+import {
+  clearOrganizationFeatureFlag,
+  listOwnerFeatureFlags,
+  setOrganizationFeatureFlag,
+  type OwnerFeatureFlag,
+} from '../api/ownerFeatureFlags';
+import {
+  getPatientConsents,
+  getPatientDetails,
+  grantPatientConsent,
+  updatePatient,
+  withdrawPatientConsent,
+  type ApiConsent,
+  type ApiPatient,
+} from '../api/clinical';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -38,38 +53,150 @@ const SECTIONS = [
   { key: 'display', label: 'Giao diện', icon: <Moon size={15} /> },
   { key: 'language', label: 'Ngôn ngữ & Khu vực', icon: <Globe size={15} /> },
   { key: 'app', label: 'Ứng dụng', icon: <Settings2 size={15} /> },
+  { key: 'features', label: 'Feature flags', icon: <Flag size={15} /> },
 ];
 
 export default function SettingsPage() {
   const [active, setActive] = useState('notif');
   const nav = useNavigate();
-  const { modal } = AntApp.useApp();
-  const { currentPatient, resetToSeed, resetSession } = useAppState();
-  const consents = useStore(consentRepository).filter((c) => c.patientId === currentPatient.id);
+  const { modal, message } = AntApp.useApp();
+  const { currentPatient, resetToSeed, resetSession, role } = useAppState();
+  const [me, setMe] = useState<AuthUser>();
+  const [patient, setPatient] = useState<ApiPatient>();
+  const [consents, setConsents] = useState<ApiConsent[]>([]);
+  const [preferences, setPreferences] = useState<UserPreferences>();
+  const [apiLoading, setApiLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [deletionRequested, setDeletionRequested] = useState(false);
+  const [featureFlags, setFeatureFlags] = useState<OwnerFeatureFlag[]>([]);
+  const [featureLoading, setFeatureLoading] = useState(false);
 
-  const [notifs, setNotifs] = useState([
-    { label: 'Nhắc uống thuốc hàng ngày', desc: 'Thông báo vào giờ uống thuốc đã đặt', val: true },
-    { label: 'Nhắc tái khám', desc: 'Nhắc 1 ngày trước lịch hẹn', val: true },
-    { label: 'Kết quả phân tích AI', desc: 'Khi AI hoàn thành phân tích ảnh da', val: true },
-    { label: 'Cảnh báo sức khỏe', desc: 'Khi AI phát hiện nguy cơ cao', val: true },
-    { label: 'Tin nhắn từ bác sĩ', desc: 'Khi bác sĩ gửi tin hoặc phản hồi', val: true },
-    { label: 'Khuyến mãi & Tin tức', desc: 'Thông tin ưu đãi và tính năng mới', val: false },
-  ]);
+  useEffect(() => {
+    Promise.all([
+      getMe(),
+      getMyPreferences(),
+      getPatientDetails(currentPatient.id),
+      getPatientConsents(currentPatient.id),
+    ])
+      .then(([user, prefs, patientDetails, consentRows]) => {
+        setMe(user);
+        setPreferences(prefs);
+        setPatient(patientDetails);
+        setConsents(consentRows);
+      })
+      .catch((error) => {
+        void message.error(error instanceof Error ? error.message : 'Không tải được cài đặt.');
+      })
+      .finally(() => setApiLoading(false));
+  }, [currentPatient.id, message]);
+
+  useEffect(() => {
+    if (active !== 'features' || role !== 'super_administrator') return;
+    const timer = window.setTimeout(() => {
+      setFeatureLoading(true);
+      void listOwnerFeatureFlags()
+        .then(setFeatureFlags)
+        .catch((error: unknown) => {
+          void message.error(
+            error instanceof Error ? error.message : 'Không tải được feature flags.',
+          );
+        })
+        .finally(() => setFeatureLoading(false));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [active, message, role]);
+
+  const saveAccount = async () => {
+    if (!me || !patient) return;
+    setSaving(true);
+    try {
+      const [updatedUser, updatedPatient] = await Promise.all([
+        updateMe({
+          displayName: me.displayName,
+          phone: patient.phone,
+          version: me.version,
+        }),
+        updatePatient(patient.id, {
+          name: patient.name,
+          dob: patient.dob,
+          gender: patient.gender,
+          phone: patient.phone,
+          email: patient.email,
+          address: patient.address,
+          bloodType: patient.bloodType,
+          primaryDoctorId: patient.primaryDoctor?.id ?? null,
+          version: patient.version,
+        }),
+      ]);
+      setMe(updatedUser);
+      setPatient(updatedPatient);
+      void message.success('Đã cập nhật thông tin tài khoản.');
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : 'Cập nhật thất bại.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setConsent = (consent: ApiConsent, granted: boolean) => {
+    modal.confirm({
+      title: granted ? 'Xác nhận đồng ý?' : 'Rút lại đồng ý?',
+      content: granted
+        ? `Bạn đồng ý với chính sách ${CONSENT_LABEL[consent.type] ?? consent.type}.`
+        : 'Việc rút lại có thể làm giới hạn một số chức năng chăm sóc.',
+      okText: granted ? 'Đồng ý' : 'Rút lại',
+      okButtonProps: { danger: !granted },
+      cancelText: 'Hủy',
+      onOk: async () => {
+        const updated = granted
+          ? await grantPatientConsent(currentPatient.id, {
+              type: consent.type,
+              policyVersion: consent.policyVersion,
+              grantedAt: new Date().toISOString(),
+            })
+          : await withdrawPatientConsent(currentPatient.id, {
+              type: consent.type,
+              reason: 'Người dùng rút lại đồng ý trong phần cài đặt',
+              version: consent.version,
+            });
+        setConsents((rows) =>
+          rows.map((row) => (row.type === updated.type ? updated : row)),
+        );
+        void message.success(granted ? 'Đã ghi nhận đồng ý.' : 'Đã rút lại đồng ý.');
+      },
+    });
+  };
+
+  const savePreferences = async () => {
+    if (!preferences) return;
+    setSaving(true);
+    try {
+      const updated = await updateMyPreferences({
+        locale: preferences.locale,
+        timezone: preferences.timezone,
+        dateFormat: preferences.dateFormat,
+        theme: preferences.theme,
+        notificationChannels: preferences.notificationChannels,
+        deviceSettings: preferences.deviceSettings,
+        version: preferences.version,
+      });
+      setPreferences(updated);
+      void message.success('Đã lưu cài đặt.');
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : 'Không thể lưu cài đặt.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const [privacy, setPrivacy] = useState([
     { label: 'Chia sẻ dữ liệu ẩn danh với nghiên cứu', desc: 'Giúp cải thiện AI và điều trị cho bệnh nhân khác', val: true },
     { label: 'Cho phép bác sĩ xem lịch sử', desc: 'Bác sĩ phụ trách có thể xem toàn bộ hồ sơ', val: true },
-    { label: 'Xác thực 2 yếu tố (2FA)', desc: 'Bảo vệ tài khoản với mã OTP khi đăng nhập', val: false },
     { label: 'Lưu ảnh vào thiết bị', desc: 'Tự động lưu ảnh tiến triển vào Camera Roll', val: true },
   ]);
 
-  const [device, setDevice] = useState([
-    { label: 'Cho phép thông báo đẩy', desc: 'Nhận thông báo ngay cả khi không mở ứng dụng', val: true },
-    { label: 'Cho phép camera', desc: 'Cần để chụp ảnh tiến triển da', val: true },
-    { label: 'Cho phép microphone', desc: 'Cần để cuộc gọi video với bác sĩ', val: false },
-  ]);
-
-  const toggle = (setArr: typeof setNotifs, i: number, v: boolean) => setArr((a) => a.map((x, idx) => (idx === i ? { ...x, val: v } : x)));
+  const toggle = (setArr: typeof setPrivacy, i: number, v: boolean) => setArr((a) => a.map((x, idx) => (idx === i ? { ...x, val: v } : x)));
 
   const confirmReset = () => {
     modal.confirm({
@@ -82,6 +209,82 @@ export default function SettingsPage() {
     });
   };
 
+  const confirmEnableMfa = () => {
+    modal.confirm({
+      title: 'Bật xác thực đa yếu tố?',
+      content: 'Sau khi bật, tài khoản có thể yêu cầu mã MFA trong lần đăng nhập tiếp theo.',
+      okText: 'Bật MFA',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        const updated = await enableMfa();
+        setMe(updated);
+        setMfaEnabled(true);
+        void message.success('Đã bật xác thực đa yếu tố.');
+      },
+    });
+  };
+
+  const confirmDeletionRequest = () => {
+    if (!me || deletionRequested) return;
+    modal.confirm({
+      title: 'Yêu cầu xóa tài khoản?',
+      content:
+        'Yêu cầu sẽ được gửi đến quản trị viên để xử lý. Dữ liệu không bị xóa ngay lập tức.',
+      okText: 'Gửi yêu cầu',
+      okButtonProps: { danger: true },
+      cancelText: 'Hủy',
+      onOk: async () => {
+        await requestUserDeletion(me.id);
+        setDeletionRequested(true);
+        void message.success('Đã gửi yêu cầu xóa tài khoản.');
+      },
+    });
+  };
+
+  const toggleFeatureFlag = async (flag: OwnerFeatureFlag, enabled: boolean) => {
+    const organizationId = me?.activeOrganizationId;
+    if (!organizationId) {
+      void message.error('Tài khoản chưa có organization đang hoạt động.');
+      return;
+    }
+    setFeatureLoading(true);
+    try {
+      await setOrganizationFeatureFlag(flag.key, organizationId, enabled);
+      setFeatureFlags((rows) =>
+        rows.map((row) => (row.key === flag.key ? { ...row, enabled } : row)),
+      );
+      void message.success('Đã cập nhật feature flag.');
+    } catch (error) {
+      void message.error(
+        error instanceof Error ? error.message : 'Không cập nhật được feature flag.',
+      );
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  const resetFeatureFlag = async (flag: OwnerFeatureFlag) => {
+    const organizationId = me?.activeOrganizationId;
+    if (!organizationId) {
+      void message.error('Tài khoản chưa có organization đang hoạt động.');
+      return;
+    }
+    setFeatureLoading(true);
+    try {
+      await clearOrganizationFeatureFlag(flag.key, organizationId);
+      setFeatureFlags(await listOwnerFeatureFlags());
+      void message.success('Đã xóa override của organization.');
+    } catch (error) {
+      void message.error(
+        error instanceof Error ? error.message : 'Không xóa được feature flag.',
+      );
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  if (apiLoading) return <Spin size="large" tip="Đang tải cài đặt…" />;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
@@ -91,38 +294,83 @@ export default function SettingsPage() {
       <Row gutter={16}>
         <Col xs={24} sm={12} md={6}>
           <Card size="small" styles={{ body: { padding: 4 } }}>
-            <Menu mode="inline" selectedKeys={[active]} onClick={({ key }) => setActive(key)} items={SECTIONS.map((s) => ({ key: s.key, icon: s.icon, label: s.label }))} style={{ border: 'none' }} />
+            <Menu mode="inline" selectedKeys={[active]} onClick={({ key }) => setActive(key)} items={SECTIONS.filter((section) => section.key !== 'features' || role === 'super_administrator').map((s) => ({ key: s.key, icon: s.icon, label: s.label }))} style={{ border: 'none' }} />
           </Card>
         </Col>
 
         <Col xs={24} md={18}>
           {active === 'notif' && (
             <Card title="Cài đặt thông báo" size="small">
-              {notifs.map((n, i) => <ToggleRow key={n.label} {...n} onChange={(v) => toggle(setNotifs, i, v)} />)}
-              <Button type="primary" size="small" style={{ marginTop: 16 }}>Lưu cài đặt</Button>
+              {preferences && ([
+                ['inApp', 'Thông báo trong ứng dụng', 'Hiển thị thông báo trực tiếp trong DermaHealth'],
+                ['email', 'Thông báo qua email', 'Nhận cập nhật và nhắc lịch qua email'],
+                ['sms', 'Thông báo SMS', 'Nhận tin nhắn tại số điện thoại tài khoản'],
+                ['push', 'Thông báo đẩy', 'Nhận thông báo trên thiết bị đã đăng nhập'],
+              ] as const).map(([key, label, desc]) => (
+                <ToggleRow
+                  key={key}
+                  label={label}
+                  desc={desc}
+                  val={preferences.notificationChannels[key]}
+                  onChange={(value) => setPreferences({
+                    ...preferences,
+                    notificationChannels: {
+                      ...preferences.notificationChannels,
+                      [key]: value,
+                    },
+                  })}
+                />
+              ))}
+              <Button type="primary" size="small" loading={saving} onClick={savePreferences} style={{ marginTop: 16 }}>Lưu cài đặt</Button>
             </Card>
           )}
 
           {active === 'account' && (
             <Card title="Thông tin tài khoản" size="small">
               <Row gutter={16}>
-                {[
-                  { label: 'Họ và tên', val: currentPatient.name },
-                  { label: 'Ngày sinh', val: currentPatient.profile.dob },
-                  { label: 'Số điện thoại', val: currentPatient.profile.phone },
-                  { label: 'Email', val: currentPatient.profile.email },
-                ].map((f) => (
-                  <Col xs={24} md={12} key={f.label} style={{ marginBottom: 16 }}>
-                    <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>{f.label}</Text>
-                    <Input defaultValue={f.val} />
-                  </Col>
-                ))}
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Họ và tên</Text>
+                  <Input value={me?.displayName} onChange={(event) => me && setMe({ ...me, displayName: event.target.value })} />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Số điện thoại</Text>
+                  <Input value={patient?.phone ?? ''} onChange={(event) => patient && setPatient({ ...patient, phone: event.target.value })} />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email</Text>
+                  <Input value={me?.email} disabled />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Trạng thái</Text>
+                  <Input value={me?.status} disabled />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tên hồ sơ bệnh nhân</Text>
+                  <Input value={patient?.name} onChange={(event) => patient && setPatient({ ...patient, name: event.target.value })} />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Ngày sinh</Text>
+                  <Input type="date" value={patient?.dob} onChange={(event) => patient && setPatient({ ...patient, dob: event.target.value })} />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Giới tính</Text>
+                  <Select style={{ width: '100%' }} value={patient?.gender} onChange={(gender) => patient && setPatient({ ...patient, gender })} options={[{ value: 'male', label: 'Nam' }, { value: 'female', label: 'Nữ' }, { value: 'other', label: 'Khác' }]} />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Nhóm máu</Text>
+                  <Select style={{ width: '100%' }} value={patient?.bloodType} onChange={(bloodType) => patient && setPatient({ ...patient, bloodType })} options={['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((value) => ({ value, label: value }))} />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email liên hệ</Text>
+                  <Input value={patient?.email ?? ''} onChange={(event) => patient && setPatient({ ...patient, email: event.target.value || null })} />
+                </Col>
+                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Địa chỉ</Text>
+                  <Input value={patient?.address ?? ''} onChange={(event) => patient && setPatient({ ...patient, address: event.target.value || null })} />
+                </Col>
               </Row>
-              <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Địa chỉ</Text>
-              <Input defaultValue={currentPatient.profile.address} style={{ marginBottom: 16 }} />
               <div style={{ display: 'flex', gap: 8 }}>
-                <Button type="primary">Lưu thay đổi</Button>
-                <Button>Hủy</Button>
+                <Button type="primary" loading={saving} onClick={saveAccount}>Lưu thay đổi</Button>
               </div>
             </Card>
           )}
@@ -130,6 +378,16 @@ export default function SettingsPage() {
           {active === 'privacy' && (
             <Card title="Quyền riêng tư & Bảo mật" size="small">
               {privacy.map((n, i) => <ToggleRow key={n.label} {...n} onChange={(v) => toggle(setPrivacy, i, v)} />)}
+
+              <div style={{ padding: '16px 0', borderBottom: '1px solid var(--border-default)' }}>
+                <Text strong style={{ display: 'block', fontSize: 13.5 }}>Xác thực đa yếu tố (MFA)</Text>
+                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 10 }}>
+                  Tăng bảo mật bằng mã xác minh khi đăng nhập.
+                </Text>
+                <Button type="primary" size="small" disabled={mfaEnabled} onClick={confirmEnableMfa}>
+                  {mfaEnabled ? 'MFA đã được bật' : 'Bật MFA'}
+                </Button>
+              </div>
 
               <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-default)' }}>
                 <Text strong style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}><FileCheck size={15} /> Trạng thái đồng ý (Consent)</Text>
@@ -139,7 +397,7 @@ export default function SettingsPage() {
                     label={CONSENT_LABEL[c.type] ?? c.type}
                     desc={c.granted ? `Đã đồng ý lúc ${c.grantedAt ? new Date(c.grantedAt.replace(' ', 'T')).toLocaleString('vi-VN') : ''}` : `Đã rút lại lúc ${c.withdrawnAt ? new Date(c.withdrawnAt.replace(' ', 'T')).toLocaleString('vi-VN') : ''}`}
                     val={c.granted}
-                    onChange={(v) => patientService.setConsent(currentPatient.id, c.type, v)}
+                    onChange={(value) => setConsent(c, value)}
                   />
                 ))}
               </div>
@@ -151,7 +409,9 @@ export default function SettingsPage() {
                 message="Xóa tài khoản"
                 description={<>
                   <Paragraph style={{ fontSize: 12.5, marginBottom: 8 }}>Xóa vĩnh viễn tất cả dữ liệu. Hành động này không thể hoàn tác.</Paragraph>
-                  <Button danger size="small">Yêu cầu xóa tài khoản</Button>
+                  <Button danger size="small" disabled={deletionRequested} onClick={confirmDeletionRequest}>
+                    {deletionRequested ? 'Đã gửi yêu cầu' : 'Yêu cầu xóa tài khoản'}
+                  </Button>
                 </>}
               />
             </Card>
@@ -160,10 +420,18 @@ export default function SettingsPage() {
           {active === 'display' && (
             <Card title="Giao diện" size="small">
               <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 8 }}>Giao diện màu</Text>
-              <Segmented block options={['Sáng', 'Tối', 'Theo hệ thống']} defaultValue="Sáng" style={{ marginBottom: 16 }} />
-              <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 8 }}>Cỡ chữ</Text>
-              <Select style={{ width: '100%' }} defaultValue="Vừa (Mặc định)" options={['Nhỏ', 'Vừa (Mặc định)', 'Lớn', 'Rất lớn (Cao tuổi)'].map((v) => ({ value: v, label: v }))} />
-              <Button type="primary" size="small" style={{ marginTop: 16 }}>Lưu cài đặt</Button>
+              <Segmented
+                block
+                options={[
+                  { label: 'Sáng', value: 'light' },
+                  { label: 'Tối', value: 'dark' },
+                  { label: 'Theo hệ thống', value: 'system' },
+                ]}
+                value={preferences?.theme}
+                onChange={(theme) => preferences && setPreferences({ ...preferences, theme: String(theme) })}
+                style={{ marginBottom: 16 }}
+              />
+              <Button type="primary" size="small" loading={saving} onClick={savePreferences}>Lưu cài đặt</Button>
             </Card>
           )}
 
@@ -171,28 +439,42 @@ export default function SettingsPage() {
             <Card title="Ngôn ngữ & Khu vực" size="small">
               <div style={{ marginBottom: 14 }}>
                 <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Ngôn ngữ hiển thị</Text>
-                <Select style={{ width: '100%' }} defaultValue="Tiếng Việt" options={[{ value: 'Tiếng Việt', label: 'Tiếng Việt' }, { value: 'English', label: 'English' }]} />
+                <Select style={{ width: '100%' }} value={preferences?.locale} onChange={(locale) => preferences && setPreferences({ ...preferences, locale })} options={[{ value: 'vi-VN', label: 'Tiếng Việt' }, { value: 'en-US', label: 'English' }]} />
               </div>
               <div style={{ marginBottom: 14 }}>
                 <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Múi giờ</Text>
-                <Select style={{ width: '100%' }} defaultValue="UTC+7 (Hà Nội / TP.HCM)" options={[{ value: 'UTC+7 (Hà Nội / TP.HCM)', label: 'UTC+7 (Hà Nội / TP.HCM)' }]} />
+                <Select style={{ width: '100%' }} value={preferences?.timezone} onChange={(timezone) => preferences && setPreferences({ ...preferences, timezone })} options={[{ value: 'Asia/Ho_Chi_Minh', label: 'UTC+7 (Hà Nội / TP.HCM)' }]} />
               </div>
               <div>
                 <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Định dạng ngày</Text>
-                <Select style={{ width: '100%' }} defaultValue="DD/MM/YYYY" options={[{ value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' }, { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' }]} />
+                <Select style={{ width: '100%' }} value={preferences?.dateFormat} onChange={(dateFormat) => preferences && setPreferences({ ...preferences, dateFormat })} options={[{ value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' }, { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' }]} />
               </div>
-              <Button type="primary" size="small" style={{ marginTop: 16 }}>Lưu cài đặt</Button>
+              <Button type="primary" size="small" loading={saving} onClick={savePreferences} style={{ marginTop: 16 }}>Lưu cài đặt</Button>
             </Card>
           )}
 
           {active === 'device' && (
             <Card title="Thiết bị & Ứng dụng" size="small">
-              {device.map((n, i) => <ToggleRow key={n.label} {...n} onChange={(v) => toggle(setDevice, i, v)} />)}
+              {preferences && ([
+                ['biometricLogin', 'Đăng nhập sinh trắc học', 'Cho phép xác thực bằng vân tay hoặc khuôn mặt'],
+                ['mobileNotifications', 'Thông báo trên thiết bị', 'Cho phép ứng dụng gửi thông báo di động'],
+              ] as const).map(([key, label, desc]) => (
+                <ToggleRow
+                  key={key}
+                  label={label}
+                  desc={desc}
+                  val={preferences.deviceSettings[key]}
+                  onChange={(value) => setPreferences({
+                    ...preferences,
+                    deviceSettings: { ...preferences.deviceSettings, [key]: value },
+                  })}
+                />
+              ))}
               <div style={{ marginTop: 16, padding: 12, background: 'var(--surface-subtle)', borderRadius: 8 }}>
                 <Text strong style={{ fontSize: 12.5, display: 'block', marginBottom: 4 }}>Phiên bản ứng dụng</Text>
                 <Text type="secondary" style={{ fontSize: 13 }}>DermaHealth v2.4.1 · Cập nhật mới nhất</Text>
               </div>
-              <Button type="primary" size="small" style={{ marginTop: 16 }}>Lưu cài đặt</Button>
+              <Button type="primary" size="small" loading={saving} onClick={savePreferences} style={{ marginTop: 16 }}>Lưu cài đặt</Button>
             </Card>
           )}
 
@@ -219,6 +501,49 @@ export default function SettingsPage() {
                   Đăng xuất
                 </Button>
               </div>
+            </Card>
+          )}
+
+          {active === 'features' && role === 'super_administrator' && (
+            <Card title="Feature flags theo organization" size="small" loading={featureLoading}>
+              <Paragraph type="secondary" style={{ fontSize: 12.5 }}>
+                Organization hiện tại: {me?.activeOrganizationId ?? 'Chưa xác định'}
+              </Paragraph>
+              {featureFlags.map((flag) => (
+                <div
+                  key={flag.key}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '12px 0',
+                    borderBottom: '1px solid var(--border-default)',
+                  }}
+                >
+                  <div>
+                    <Text strong style={{ display: 'block' }}>{flag.key}</Text>
+                    {flag.description && <Text type="secondary">{flag.description}</Text>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Switch
+                      checked={flag.enabled}
+                      disabled={featureLoading}
+                      onChange={(enabled) => void toggleFeatureFlag(flag, enabled)}
+                    />
+                    <Button
+                      size="small"
+                      disabled={featureLoading}
+                      onClick={() => void resetFeatureFlag(flag)}
+                    >
+                      Xóa override
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {!featureLoading && featureFlags.length === 0 && (
+                <Text type="secondary">Backend chưa trả feature flag nào.</Text>
+              )}
             </Card>
           )}
         </Col>

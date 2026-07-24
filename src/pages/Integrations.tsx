@@ -1,13 +1,19 @@
-import { useState } from 'react';
-import { Row, Col, Card, Table, Tag, Button, Typography, App as AntApp } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
+import { Row, Col, Card, Table, Tag, Button, Typography, App as AntApp, Spin } from 'antd';
 import { Plug, RotateCcw, RefreshCw } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { integrationRepository } from '../domain/repositories';
-import type { IntegrationConnection } from '../domain/core/entities';
 import { type IntegrationStatus } from '../domain/core/enums';
 import { hasRoleAccess } from '../domain/core/role';
 import { AccessDenied } from '../components/feedback/AccessDenied';
+import {
+  listIntegrationConnections,
+  listIntegrationMessages,
+  reconcileIntegrationConnection,
+  retryIntegrationConnection,
+} from '../api/integrations';
+import { getLiveHealth, getReadyHealth } from '../api/health';
 
 const { Title, Text } = Typography;
 const STATUS_COLOR: Record<IntegrationStatus, string> = { healthy: 'success', degraded: 'gold', down: 'red' };
@@ -19,25 +25,104 @@ export default function Integrations() {
   const { role } = useAppState();
   const connections = useStore(integrationRepository.connections());
   const messages = useStore(integrationRepository.messages());
-  const [selected, setSelected] = useState<IntegrationConnection | null>(null);
+  const [selectedId, setSelectedId] = useState<string>();
+  const [loading, setLoading] = useState(true);
+  const [action, setAction] = useState<'retry' | 'reconcile'>();
+  const [health, setHealth] = useState({ live: false, ready: false, checked: false });
+  const selected = connections.find((item) => item.id === selectedId) ?? null;
+
+  const loadConnections = useCallback(async () => {
+    const rows = await listIntegrationConnections();
+    integrationRepository.connections().replaceAll(rows);
+    setSelectedId((current) =>
+      current && rows.some((row) => row.id === current)
+        ? current
+        : rows[0]?.id,
+    );
+  }, []);
+
+  const loadMessages = useCallback(async (connectionId: string) => {
+    const rows = await listIntegrationMessages(connectionId);
+    const otherRows = integrationRepository
+      .messages()
+      .getAll()
+      .filter((row) => row.connectionId !== connectionId);
+    integrationRepository.messages().replaceAll([...otherRows, ...rows]);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadConnections()
+        .catch((error: unknown) => {
+          void message.error(
+            error instanceof Error
+              ? error.message
+              : 'Không tải được trạng thái tích hợp.',
+          );
+        })
+        .finally(() => setLoading(false));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadConnections, message]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void Promise.allSettled([getLiveHealth(), getReadyHealth()]).then(([live, ready]) => {
+        setHealth({
+          live: live.status === 'fulfilled',
+          ready: ready.status === 'fulfilled',
+          checked: true,
+        });
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const timer = window.setTimeout(() => {
+      void loadMessages(selectedId).catch((error: unknown) => {
+        void message.error(
+          error instanceof Error
+            ? error.message
+            : 'Không tải được lịch sử tích hợp.',
+        );
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadMessages, message, selectedId]);
 
   if (!hasRoleAccess(role, ['system_administrator', 'medical_administrator'])) {
     return <AccessDenied featureName="Tình trạng tích hợp" allowedRoles={['system_administrator', 'medical_administrator']} />;
   }
 
-  const retry = (connectionId: string) => {
-    const msgs = integrationRepository.messages().getAll().filter((m) => m.connectionId === connectionId && m.status === 'failed');
-    msgs.forEach((m) => integrationRepository.messages().upsert({ ...m, status: 'delivered' }));
-    const conn = integrationRepository.connections().getById(connectionId);
-    if (conn) integrationRepository.connections().upsert({ ...conn, status: 'healthy', pendingMessages: Math.max(0, conn.pendingMessages - msgs.length), lastSuccessAt: new Date().toISOString() });
-    message.success('Đã thử lại các tin nhắn lỗi.');
+  const retry = async (connectionId: string) => {
+    setAction('retry');
+    try {
+      await retryIntegrationConnection(connectionId);
+      await Promise.all([loadConnections(), loadMessages(connectionId)]);
+      void message.success('Đã gửi yêu cầu thử lại các tin nhắn lỗi.');
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : 'Thử lại thất bại.');
+    } finally {
+      setAction(undefined);
+    }
   };
 
-  const reconcile = (connectionId: string) => {
-    const conn = integrationRepository.connections().getById(connectionId);
-    if (conn) integrationRepository.connections().upsert({ ...conn, deadLetterCount: 0, retryCount: 0 });
-    message.success('Đã đối soát thủ công.');
+  const reconcile = async (connectionId: string) => {
+    setAction('reconcile');
+    try {
+      await reconcileIntegrationConnection(connectionId);
+      await Promise.all([loadConnections(), loadMessages(connectionId)]);
+      void message.success('Đã gửi yêu cầu đối soát thủ công.');
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : 'Đối soát thất bại.');
+    } finally {
+      setAction(undefined);
+    }
   };
+
+  if (loading) return <Spin size="large" tip="Đang tải trạng thái tích hợp…" />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -46,9 +131,28 @@ export default function Integrations() {
       </div>
 
       <Row gutter={[12, 12]}>
+        <Col xs={24} sm={12}>
+          <Card size="small">
+            <Text strong>Health / Live</Text>
+            <Tag color={!health.checked ? 'default' : health.live ? 'success' : 'error'} style={{ float: 'right' }}>
+              {!health.checked ? 'Đang kiểm tra' : health.live ? 'Đang hoạt động' : 'Không phản hồi'}
+            </Tag>
+          </Card>
+        </Col>
+        <Col xs={24} sm={12}>
+          <Card size="small">
+            <Text strong>Health / Ready</Text>
+            <Tag color={!health.checked ? 'default' : health.ready ? 'success' : 'error'} style={{ float: 'right' }}>
+              {!health.checked ? 'Đang kiểm tra' : health.ready ? 'Sẵn sàng nhận tải' : 'Chưa sẵn sàng'}
+            </Tag>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
         {connections.map((c) => (
           <Col xs={24} sm={12} md={8} key={c.id}>
-            <Card size="small" hoverable onClick={() => setSelected(c)} style={{ borderColor: selected?.id === c.id ? 'var(--medical-blue-500)' : undefined }}>
+            <Card size="small" hoverable onClick={() => setSelectedId(c.id)} style={{ borderColor: selected?.id === c.id ? 'var(--medical-blue-500)' : undefined }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <Text strong style={{ fontSize: 13.5 }}><Plug size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{c.name}</Text>
                 <Tag color={STATUS_COLOR[c.status]}>{STATUS_LABEL[c.status]}</Tag>
@@ -64,8 +168,8 @@ export default function Integrations() {
           title={selected.name}
           size="small"
           extra={<div style={{ display: 'flex', gap: 8 }}>
-            <Button size="small" icon={<RotateCcw size={13} />} onClick={() => retry(selected.id)}>Thử lại tin nhắn lỗi</Button>
-            <Button size="small" icon={<RefreshCw size={13} />} onClick={() => reconcile(selected.id)}>Đối soát thủ công</Button>
+            <Button size="small" loading={action === 'retry'} disabled={Boolean(action)} icon={<RotateCcw size={13} />} onClick={() => void retry(selected.id)}>Thử lại tin nhắn lỗi</Button>
+            <Button size="small" loading={action === 'reconcile'} disabled={Boolean(action)} icon={<RefreshCw size={13} />} onClick={() => void reconcile(selected.id)}>Đối soát thủ công</Button>
           </div>}
         >
           <Row gutter={16} style={{ marginBottom: 16 }}>
