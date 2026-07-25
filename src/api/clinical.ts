@@ -82,15 +82,47 @@ export interface AvailabilitySlot {
   startsAt: string;
   endsAt: string;
   remainingCapacity: number;
+  capacity?: number;
+  bookedCount?: number;
+  status?:
+    | "AVAILABLE"
+    | "FULL"
+    | "BLOCKED"
+    | "BREAK"
+    | "LEAVE"
+    | "PAST"
+    | "CANCELLED";
+  selectable?: boolean;
+  unavailableReason?: {
+    code: string;
+    display: string;
+  } | null;
 }
 export interface PractitionerAvailability {
   practitionerId: string;
   clinicLocationId: string;
   timezone: string | null;
   date: string;
+  workingDay?: boolean;
   slotDurationMinutes: number | null;
   capacity: number | null;
+  defaultCapacity?: number | null;
+  schedule?: {
+    startsAt: string;
+    endsAt: string;
+    breaks: Array<{
+      startsAt: string;
+      endsAt: string;
+      reasonCode: string;
+    }>;
+  } | null;
   slots: AvailabilitySlot[];
+  nextAvailableDates?: Array<{
+    date: string;
+    availableSlotCount: number;
+    firstAvailableAt: string;
+  }>;
+  generatedAt?: string;
 }
 export interface Practitioner extends User {
   clinicLocationId?: string;
@@ -202,13 +234,105 @@ export async function getAvailability(
   clinicLocationId: string,
   date: string,
 ): Promise<AvailabilitySlot[]> {
-  const query = new URLSearchParams({ clinicLocationId, date });
   return (
-    await http.get<PractitionerAvailability>(
-      `/api/v1/practitioners/${encodeURIComponent(practitionerId)}/availability?${query}`,
-    )
+    await getPractitionerAvailability(practitionerId, clinicLocationId, date)
   ).slots;
 }
+
+export function getPractitionerAvailability(
+  practitionerId: string,
+  clinicLocationId: string,
+  date: string,
+): Promise<PractitionerAvailability> {
+  const query = new URLSearchParams({
+    clinicLocationId,
+    date,
+    includeUnavailable: "true",
+  });
+  return http.get<PractitionerAvailability>(
+    `/api/v1/practitioners/${encodeURIComponent(practitionerId)}/availability?${query}`,
+  );
+}
+
+export interface ScheduleWindow {
+  id: string;
+  /** 0 = Sunday .. 6 = Saturday, matching JS Date#getDay(). */
+  dayOfWeek: number;
+  startMinute: number;
+  endMinute: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+}
+export interface ScheduleException {
+  id: string;
+  kind: "unavailable" | "override";
+  startsAt: string;
+  endsAt: string;
+  reason: string | null;
+}
+export interface PractitionerScheduleConfig {
+  practitionerId: string;
+  clinicLocationId: string;
+  assignmentId: string;
+  timezone: string;
+  slotDurationMinutes: number;
+  capacity: number;
+  weeklySchedule: ScheduleWindow[];
+  exceptions: ScheduleException[];
+}
+export interface WeeklyScheduleWindowInput {
+  dayOfWeek: number;
+  startMinute: number;
+  endMinute: number;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+}
+
+export function getPractitionerSchedule(
+  practitionerId: string,
+  clinicLocationId: string,
+): Promise<PractitionerScheduleConfig> {
+  const query = new URLSearchParams({ clinicLocationId });
+  return http.get<PractitionerScheduleConfig>(
+    `/api/v1/practitioners/${encodeURIComponent(practitionerId)}/schedule?${query}`,
+  );
+}
+
+export function replacePractitionerSchedule(
+  practitionerId: string,
+  clinicLocationId: string,
+  windows: WeeklyScheduleWindowInput[],
+): Promise<PractitionerScheduleConfig> {
+  const query = new URLSearchParams({ clinicLocationId });
+  return http.put<PractitionerScheduleConfig>(
+    `/api/v1/practitioners/${encodeURIComponent(practitionerId)}/schedule?${query}`,
+    { windows },
+  );
+}
+
+export function createScheduleException(
+  practitionerId: string,
+  clinicLocationId: string,
+  payload: { kind: "unavailable" | "override"; startsAt: string; endsAt: string; reason?: string },
+): Promise<ScheduleException> {
+  const query = new URLSearchParams({ clinicLocationId });
+  return http.post<ScheduleException>(
+    `/api/v1/practitioners/${encodeURIComponent(practitionerId)}/schedule-exceptions?${query}`,
+    payload,
+  );
+}
+
+export function deleteScheduleException(
+  practitionerId: string,
+  clinicLocationId: string,
+  exceptionId: string,
+): Promise<{ deleted: boolean }> {
+  const query = new URLSearchParams({ clinicLocationId });
+  return http.delete<{ deleted: boolean }>(
+    `/api/v1/practitioners/${encodeURIComponent(practitionerId)}/schedule-exceptions/${encodeURIComponent(exceptionId)}?${query}`,
+  );
+}
+
 export interface HealthPoint {
   id: string;
   takenAt: string;

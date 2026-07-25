@@ -16,6 +16,7 @@ const STAFF_QUEUE_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'lab_t
 const QUEUE_CONTROL_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'medical_administrator'];
 const RECEPTION_ROLES: UserRole[] = ['receptionist', 'medical_administrator'];
 const WORKFLOW_DESIGN_ROLES: UserRole[] = ['clinical_process_designer', 'medical_administrator'];
+const SCHEDULE_MANAGE_ROLES: UserRole[] = ['doctor', 'medical_administrator', 'super_administrator'];
 
 // Phân tách router cấp trang
 const Login = lazy(() => import('./pages/Login'));
@@ -49,6 +50,7 @@ const PatientJourneyDetail = lazy(() => import('./pages/PatientJourneyDetail'));
 const EncounterWorkflow = lazy(() => import('./pages/EncounterWorkflow'));
 const OwnerOperations = lazy(() => import('./pages/OwnerOperations'));
 const StaffManagement = lazy(() => import('./pages/StaffManagement'));
+const PractitionerSchedule = lazy(() => import('./pages/PractitionerSchedule'));
 
 export default function App() {
   return (
@@ -103,6 +105,7 @@ export default function App() {
                   <Route path="integrations" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator']} featureName="Tình trạng tích hợp"><Integrations /></RoleProtectedRoute>} />
                   <Route path="owner" element={<RoleProtectedRoute allowed={['super_administrator']} featureName="Owner Control Center"><OwnerOperations /></RoleProtectedRoute>} />
                   <Route path="staff" element={<RoleProtectedRoute allowed={['super_administrator', 'medical_administrator']} featureName="Quản lý nhân sự"><StaffManagement /></RoleProtectedRoute>} />
+                  <Route path="practitioner-schedule" element={<RoleProtectedRoute allowed={SCHEDULE_MANAGE_ROLES} featureName="Lịch làm việc bác sĩ"><PractitionerSchedule /></RoleProtectedRoute>} />
                   <Route path="reception/qr-check-in" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Check-in QR tại lễ tân"><KioskCheckIn reception /></RoleProtectedRoute>} />
                   <Route path="reception" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Trung tâm lễ tân"><Reception /></RoleProtectedRoute>} />
                   <Route path="reception/queue" element={<RoleProtectedRoute allowed={RECEPTION_ROLES} featureName="Hàng đợi lễ tân"><ClinicQueue /></RoleProtectedRoute>} />

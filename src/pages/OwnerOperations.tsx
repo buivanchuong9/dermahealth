@@ -51,6 +51,7 @@ import {
   type RolePermission,
 } from "../api/ownerOperations";
 import {
+  PATIENT_SELF_SERVICE_PERMISSIONS,
   PERMISSION_GROUP,
   permissionColor,
   permissionLabel,
@@ -136,6 +137,7 @@ export default function OwnerOperations() {
   const [permissionSearch, setPermissionSearch] = useState("");
   const [granting, setGranting] = useState(false);
   const [revokingKey, setRevokingKey] = useState<string | null>(null);
+  const [applyingPatientPreset, setApplyingPatientPreset] = useState(false);
 
   const [grants, setGrants] = useState<BreakGlassGrant[]>([]);
   const [myGrants, setMyGrants] = useState<BreakGlassGrant[]>([]);
@@ -364,6 +366,33 @@ export default function OwnerOperations() {
     });
   };
 
+  const applyPatientSelfServicePreset = async () => {
+    const granted = grantedCodesByRole.get("patient") ?? new Set<string>();
+    const missing = PATIENT_SELF_SERVICE_PERMISSIONS.filter(
+      (code) => !granted.has(code),
+    );
+    if (missing.length === 0) {
+      void message.info("Vai trò Bệnh nhân đã có đủ bộ quyền tự phục vụ.");
+      return;
+    }
+    setApplyingPatientPreset(true);
+    try {
+      await Promise.all(
+        missing.map((permissionCode) =>
+          grantOwnerRolePermission({ role: "patient", permissionCode }),
+        ),
+      );
+      await loadMatrix();
+      void message.success(`Đã bổ sung ${missing.length} quyền cho Bệnh nhân.`);
+    } catch (error) {
+      void message.error(
+        describeError(error, "Không áp dụng được bộ quyền Bệnh nhân."),
+      );
+    } finally {
+      setApplyingPatientPreset(false);
+    }
+  };
+
   const requestBreakGlass = async () => {
     const values = await breakGlassForm.validateFields();
     const reason = String(values.reason ?? "").trim();
@@ -489,6 +518,15 @@ export default function OwnerOperations() {
         showIcon
         message="Mỗi vai trò dùng chung một bộ quyền"
         description="Ví dụ: khi cấp một quyền cho vai trò Bác sĩ, tất cả bác sĩ hiện tại và bác sĩ được thêm sau này đều nhận quyền đó. Nếu chỉ muốn thêm một bác sĩ mới, hãy dùng trang Quản lý nhân sự."
+        action={
+          <Button
+            size="small"
+            loading={applyingPatientPreset}
+            onClick={() => void applyPatientSelfServicePreset()}
+          >
+            Bổ sung quyền Bệnh nhân
+          </Button>
+        }
       />
       <Card
         title={
