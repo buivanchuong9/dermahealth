@@ -91,3 +91,17 @@ export function permissionLabel(
 export function permissionColor(code: string): string | undefined {
   return PERMISSION_GROUP[code] === "Nguy hiểm" ? "error" : undefined;
 }
+
+/**
+ * Minimum self-service bundle required by the patient web journey. The server
+ * remains authoritative and still scopes patient data to the authenticated
+ * person's own record.
+ */
+export const PATIENT_SELF_SERVICE_PERMISSIONS = [
+  "patient.read.assigned",
+  "patient.write.contact",
+  "consent.manage.self",
+  "appointment.book",
+  "queue.view",
+  "workflow_task.execute",
+] as const;

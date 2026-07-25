@@ -4,7 +4,7 @@ import {
   Home, User, Cpu, Activity, TrendingUp, Heart, Calendar,
   BarChart2, Settings, MessageCircle, TriangleAlert, MapPinned,
   Stethoscope, ListChecks, Workflow, ShieldCheck, Plug,
-  QrCode, MonitorPlay, KeyRound, UserPlus,
+  QrCode, MonitorPlay, KeyRound, UserPlus, Clock,
 } from 'lucide-react';
 import { AppLogo } from '../components/brand';
 import { useAppState } from '../state/useAppState';
@@ -55,6 +55,7 @@ const NAV_MAIN: NavItem[] = [
   { key: '/app/audit', label: 'Nhật ký kiểm toán', icon: ShieldCheck, roles: ['medical_administrator', 'system_administrator'] },
   { key: '/app/integrations', label: 'Tình trạng tích hợp', icon: Plug, roles: ['system_administrator', 'medical_administrator'] },
   { key: '/app/staff', label: 'Quản lý nhân sự', icon: UserPlus, roles: ['super_administrator', 'medical_administrator'] },
+  { key: '/app/practitioner-schedule', label: 'Lịch làm việc bác sĩ', icon: Clock, roles: ['doctor', 'medical_administrator', 'super_administrator'] },
   { key: '/app/owner', label: 'Owner Control Center', icon: KeyRound, roles: ['super_administrator'] },
 ];
 
@@ -120,8 +121,14 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {role === 'patient' && (
         <div style={{ padding: '0 16px 10px' }}>
-          <Button danger block icon={<TriangleAlert size={14} />} style={{ background: 'rgba(200,62,77,0.15)', borderColor: 'rgba(200,62,77,0.3)', color: '#f3a9b1', fontSize: 13 }}>
-            Cấp cứu khẩn cấp
+          <Button
+            danger
+            block
+            icon={<TriangleAlert size={14} />}
+            onClick={() => goTo('/app/care')}
+            style={{ background: 'rgba(200,62,77,0.15)', borderColor: 'rgba(200,62,77,0.3)', color: '#f3a9b1', fontSize: 13 }}
+          >
+            Báo tình trạng bất thường
           </Button>
         </div>
       )}
