@@ -79,7 +79,13 @@ function updateTemplateDetails(
 function getDraftVersion(templateId: WorkflowTemplateId): WorkflowTemplateVersion | undefined {
   const template = workflowRepository.templates().getById(templateId);
   if (!template) return undefined;
-  return template.versionIds.map((id) => workflowRepository.versions().getById(id)).find((v) => v?.status === 'draft');
+  // Backend-created versions may arrive before the template's denormalized
+  // versionIds list is refreshed. Querying by the canonical templateId keeps
+  // the editor usable immediately after "create draft".
+  return workflowRepository
+    .versions()
+    .getAll()
+    .find((version) => version.templateId === templateId && version.status === 'draft');
 }
 
 function addStep(templateId: WorkflowTemplateId, step: WorkflowStepDefinition, actorId: UserId): WorkflowTemplateVersion {

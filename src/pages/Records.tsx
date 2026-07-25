@@ -37,6 +37,7 @@ import { hasRoleAccess, type UserRole } from '../domain/core/role';
 import type { EncounterId } from '../domain/core/ids';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
+import { LifetimeMedicalRecord } from '../components/medical-record/LifetimeMedicalRecord';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -502,19 +503,23 @@ function TreatmentPlanKanban() {
 }
 
 export default function Records() {
-  const [activeTab, setActiveTab] = useState('plan');
+  const [activeTab, setActiveTab] = useState('lifetime');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <Title level={3} style={{ margin: '4px 0 0' }}>Tiến Trình Điều Trị</Title>
+        <Title level={3} style={{ margin: '4px 0 0' }}>Hồ sơ sức khỏe</Title>
+        <Text type="secondary">
+          Theo dõi lịch sử khám chữa bệnh xuyên suốt và kế hoạch điều trị hiện tại.
+        </Text>
       </div>
       <TabPanel
         activeKey={activeTab}
         onChange={setActiveTab}
         items={[
+          { key: 'lifetime', label: 'Bệnh án trọn đời', children: <LifetimeMedicalRecord /> },
           { key: 'plan', label: 'Kế hoạch điều trị', children: <TreatmentPlanKanban /> },
-          { key: 'emr', label: 'Hồ sơ bệnh án (EMR)', children: <EMRWorkspace /> },
+          { key: 'emr', label: 'Chi tiết lượt khám', children: <EMRWorkspace /> },
         ]}
       />
     </div>

@@ -373,6 +373,9 @@ function FeatureCard({
 /* ─── Main ───────────────────────────────────────────── */
 export default function Login() {
   const nav = useNavigate();
+  const sessionExpired =
+    new URLSearchParams(window.location.search).get("reason") ===
+    "session-expired";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -389,7 +392,15 @@ export default function Login() {
         password: values.password,
         rememberMe: values.remember,
       });
-      window.location.assign("/app/dashboard");
+      let returnTo = "/app/dashboard";
+      try {
+        const stored = sessionStorage.getItem("dermahealth:returnTo");
+        if (stored?.startsWith("/app/")) returnTo = stored;
+        sessionStorage.removeItem("dermahealth:returnTo");
+      } catch {
+        // Fall back to the dashboard when session storage is unavailable.
+      }
+      window.location.assign(returnTo);
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -953,6 +964,17 @@ export default function Login() {
                     <Alert
                       type="error"
                       message={error}
+                      showIcon
+                      style={{ marginBottom: 16, borderRadius: 12 }}
+                    />
+                  </motion.div>
+                )}
+                {sessionExpired && !error && (
+                  <motion.div variants={fadeUp}>
+                    <Alert
+                      type="info"
+                      message="Phiên đăng nhập đã hết hạn"
+                      description="Vui lòng đăng nhập lại. Sau đó hệ thống sẽ đưa bạn về màn hình đang làm việc."
                       showIcon
                       style={{ marginBottom: 16, borderRadius: 12 }}
                     />

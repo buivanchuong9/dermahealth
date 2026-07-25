@@ -9,6 +9,9 @@ export default defineConfig({
       '/api': {
         target: 'https://dermahealth.fitdnu.id.vn',
         changeOrigin: true,
+        // The backend refresh cookie is issued for its production domain.
+        // Rewrite it in development so Chrome can store/send it for localhost.
+        cookieDomainRewrite: '',
       },
     },
   },

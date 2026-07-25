@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   App,
+  AutoComplete,
   Button,
   Card,
   Col,
@@ -29,6 +30,8 @@ import {
   X,
 } from "lucide-react";
 import { ApiError } from "../api/http";
+import { listPatients } from "../api/clinical";
+import type { Patient } from "../domain/core/entities";
 import {
   createOwnerBreakGlass,
   createOwnerDangerousAction,
@@ -60,6 +63,39 @@ const ROLES = Object.entries(ROLE_LABEL).map(([value, label]) => ({
   value: value as UserRole,
   label,
 }));
+
+const EMERGENCY_REASON_OPTIONS = [
+  { value: "Cấp cứu, cần xem ngay tiền sử và dị ứng", label: "Cấp cứu — kiểm tra tiền sử và dị ứng" },
+  { value: "Bác sĩ điều trị hiện tại không thể truy cập hồ sơ", label: "Bác sĩ điều trị không thể truy cập hồ sơ" },
+  { value: "Hỗ trợ hội chẩn khẩn cấp", label: "Hội chẩn khẩn cấp" },
+  { value: "Xử lý sự cố an toàn người bệnh", label: "Xử lý sự cố an toàn người bệnh" },
+];
+
+const SENSITIVE_ACTION_OPTIONS = [
+  { value: "add_owner", label: "Thêm quản trị viên cấp cao" },
+  { value: "revoke_all_sessions", label: "Đăng xuất tất cả tài khoản khỏi hệ thống" },
+  { value: "export_directory_bulk", label: "Xuất toàn bộ danh bạ người dùng" },
+  { value: "revoke_memberships_bulk", label: "Thu hồi hàng loạt quyền thành viên" },
+  { value: "disable_non_critical_audit", label: "Tạm dừng nhật ký không trọng yếu" },
+];
+
+const SENSITIVE_REASON_OPTIONS = [
+  { value: "Thực hiện theo yêu cầu quản trị đã được phê duyệt", label: "Theo yêu cầu quản trị đã được phê duyệt" },
+  { value: "Ứng phó sự cố an toàn thông tin", label: "Ứng phó sự cố an toàn thông tin" },
+  { value: "Khắc phục sự cố vận hành nghiêm trọng", label: "Khắc phục sự cố vận hành nghiêm trọng" },
+  { value: "Thực hiện yêu cầu kiểm toán hoặc tuân thủ", label: "Theo yêu cầu kiểm toán hoặc tuân thủ" },
+];
+
+const ACTION_SCOPE_OPTIONS = [
+  { value: "{}", label: "Theo cấu hình mặc định của thao tác" },
+  { value: '{"scope":"organization"}', label: "Chỉ trong tổ chức hiện tại" },
+  { value: '{"scope":"platform"}', label: "Toàn bộ nền tảng" },
+];
+
+const firstSelection = (value: unknown): string => {
+  if (Array.isArray(value)) return String(value[0] ?? "").trim();
+  return String(value ?? "").trim();
+};
 
 const displayTime = (value?: string | null) =>
   value ? new Date(value).toLocaleString("vi-VN") : "—";
@@ -93,9 +129,9 @@ export default function OwnerOperations() {
   const [permissions, setPermissions] = useState<RolePermission[]>([]);
   const [matrixLoading, setMatrixLoading] = useState(true);
   const [matrixError, setMatrixError] = useState<string | null>(null);
-  const [role, setRole] = useState<UserRole>("patient");
+  const [role, setRole] = useState<UserRole>("doctor");
   const [selectedMatrixRole, setSelectedMatrixRole] =
-    useState<UserRole>("patient");
+    useState<UserRole>("doctor");
   const [permissionCode, setPermissionCode] = useState<string>();
   const [permissionSearch, setPermissionSearch] = useState("");
   const [granting, setGranting] = useState(false);
@@ -103,6 +139,8 @@ export default function OwnerOperations() {
 
   const [grants, setGrants] = useState<BreakGlassGrant[]>([]);
   const [myGrants, setMyGrants] = useState<BreakGlassGrant[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientsLoading, setPatientsLoading] = useState(true);
   const [actions, setActions] = useState<DangerousActionRequest[]>([]);
   const [operationalLoading, setOperationalLoading] = useState(true);
   const [breakGlassForm] = Form.useForm();
@@ -115,7 +153,7 @@ export default function OwnerOperations() {
       setCatalog(await listOwnerPermissionCatalog());
     } catch (error) {
       setCatalogError(
-        describeError(error, "Không tải được catalog permission."),
+        describeError(error, "Không tải được danh sách quyền."),
       );
     } finally {
       setCatalogLoading(false);
@@ -153,14 +191,28 @@ export default function OwnerOperations() {
     }
   }, [message]);
 
+  const loadPatientOptions = useCallback(async () => {
+    setPatientsLoading(true);
+    try {
+      setPatients(await listPatients());
+    } catch (error) {
+      void message.error(
+        describeError(error, "Không tải được danh sách bệnh nhân."),
+      );
+    } finally {
+      setPatientsLoading(false);
+    }
+  }, [message]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadCatalog();
       void loadMatrix();
       void loadOperational();
+      void loadPatientOptions();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadCatalog, loadMatrix, loadOperational]);
+  }, [loadCatalog, loadMatrix, loadOperational, loadPatientOptions]);
 
   const grantedCodesByRole = useMemo(() => {
     const map = new Map<UserRole, Set<string>>();
@@ -189,11 +241,11 @@ export default function OwnerOperations() {
   const permissionEmptyText = () => {
     if (catalogLoading) return "Đang tải...";
     if (catalogError) return catalogError;
-    if (catalog.length === 0) return "Chưa có permission trong catalog";
-    if (permissionSearch.trim()) return "Không tìm thấy permission phù hợp";
+    if (catalog.length === 0) return "Hệ thống chưa có quyền nào để cấp";
+    if (permissionSearch.trim()) return "Không tìm thấy quyền phù hợp";
     if (selectablePermissions.length === 0)
       return "Vai trò này đã có tất cả quyền có thể cấp";
-    return "Không tìm thấy permission phù hợp";
+    return "Không tìm thấy quyền phù hợp";
   };
 
   const permissionFilterOption = (
@@ -239,21 +291,40 @@ export default function OwnerOperations() {
 
   const addPermission = async () => {
     if (!permissionCode) {
-      void message.warning("Chọn permission cần cấp.");
+      void message.warning("Hãy chọn quyền cần cấp.");
       return;
     }
-    setGranting(true);
-    try {
-      await grantOwnerRolePermission({ role, permissionCode });
-      setPermissionCode(undefined);
-      setPermissionSearch("");
-      await loadMatrix();
-      void message.success("Đã cấp permission.");
-    } catch (error) {
-      void message.error(describeError(error, "Không cấp được permission."));
-    } finally {
-      setGranting(false);
-    }
+    const selectedCode = permissionCode;
+    Modal.confirm({
+      title: `Cấp quyền cho vai trò ${ROLE_LABEL[role]}?`,
+      content: (
+        <Space direction="vertical" size={6}>
+          <Text>
+            Quyền: <Text strong>{permissionLabel(selectedCode)}</Text>
+          </Text>
+          <Text type="secondary">
+            Thay đổi có hiệu lực ngay với tất cả tài khoản đang có vai trò này.
+          </Text>
+        </Space>
+      ),
+      okText: "Xác nhận cấp quyền",
+      cancelText: "Kiểm tra lại",
+      onOk: async () => {
+        setGranting(true);
+        try {
+          await grantOwnerRolePermission({ role, permissionCode: selectedCode });
+          setPermissionCode(undefined);
+          setPermissionSearch("");
+          await loadMatrix();
+          void message.success("Đã cấp quyền.");
+        } catch (error) {
+          void message.error(describeError(error, "Không cấp được quyền."));
+          throw error;
+        } finally {
+          setGranting(false);
+        }
+      },
+    });
   };
 
   const removePermission = async (item: RolePermission) => {
@@ -262,10 +333,10 @@ export default function OwnerOperations() {
     try {
       await revokeOwnerRolePermission(item.role, item.permissionCode);
       await loadMatrix();
-      void message.success("Đã thu hồi permission.");
+      void message.success("Đã thu hồi quyền.");
     } catch (error) {
       void message.error(
-        describeError(error, "Không thu hồi được permission."),
+        describeError(error, "Không thu hồi được quyền."),
       );
     } finally {
       setRevokingKey(null);
@@ -276,7 +347,7 @@ export default function OwnerOperations() {
     const label = permissionLabel(item.permissionCode);
     const roleLabel = ROLE_LABEL[item.role] ?? item.role;
     Modal.confirm({
-      title: "Thu hồi permission",
+      title: "Thu hồi quyền truy cập?",
       content: (
         <>
           <p>
@@ -295,9 +366,10 @@ export default function OwnerOperations() {
 
   const requestBreakGlass = async () => {
     const values = await breakGlassForm.validateFields();
+    const reason = String(values.reason ?? "").trim();
     setSaving(true);
     try {
-      await createOwnerBreakGlass(values);
+      await createOwnerBreakGlass({ ...values, reason });
       breakGlassForm.resetFields();
       const [allRows, mineRows] = await Promise.all([
         listOwnerBreakGlass(),
@@ -305,10 +377,10 @@ export default function OwnerOperations() {
       ]);
       setGrants(allRows);
       setMyGrants(mineRows);
-      void message.success("Đã tạo quyền truy cập break-glass.");
+      void message.success("Đã cấp quyền truy cập khẩn cấp.");
     } catch (error) {
       void message.error(
-        error instanceof Error ? error.message : "Không tạo được break-glass.",
+        error instanceof Error ? error.message : "Không cấp được quyền truy cập khẩn cấp.",
       );
     } finally {
       setSaving(false);
@@ -325,7 +397,7 @@ export default function OwnerOperations() {
       ]);
       setGrants(allRows);
       setMyGrants(mineRows);
-      void message.success("Đã kết thúc quyền break-glass.");
+      void message.success("Đã kết thúc quyền truy cập khẩn cấp.");
     } catch (error) {
       void message.error(
         error instanceof Error ? error.message : "Không kết thúc được quyền.",
@@ -337,18 +409,19 @@ export default function OwnerOperations() {
 
   const createDangerous = async () => {
     const values = await dangerousForm.validateFields();
+    const reason = String(values.reason ?? "").trim();
+    const rawScope = firstSelection(values.payload) || "{}";
     let payload: Record<string, unknown>;
     try {
-      payload = JSON.parse(values.payload || "{}") as Record<string, unknown>;
+      payload = JSON.parse(rawScope) as Record<string, unknown>;
     } catch {
-      void message.error("Payload phải là JSON object hợp lệ.");
-      return;
+      payload = { scopeDescription: rawScope };
     }
     setSaving(true);
     try {
       await createOwnerDangerousAction({
         type: values.type,
-        reason: values.reason,
+        reason,
         payload,
         mfaCode: values.mfaCode,
       });
@@ -373,8 +446,8 @@ export default function OwnerOperations() {
     Modal.confirm({
       title:
         decision === "approved"
-          ? "Phê duyệt dangerous action?"
-          : "Từ chối dangerous action?",
+          ? "Phê duyệt thao tác nhạy cảm?"
+          : "Từ chối thao tác nhạy cảm?",
       content: (
         <Space direction="vertical" style={{ width: "100%", marginTop: 12 }}>
           <Input.TextArea
@@ -411,6 +484,12 @@ export default function OwnerOperations() {
 
   const permissionTab = (
     <Space direction="vertical" size={18} style={{ width: "100%" }}>
+      <Alert
+        type="info"
+        showIcon
+        message="Mỗi vai trò dùng chung một bộ quyền"
+        description="Ví dụ: khi cấp một quyền cho vai trò Bác sĩ, tất cả bác sĩ hiện tại và bác sĩ được thêm sau này đều nhận quyền đó. Nếu chỉ muốn thêm một bác sĩ mới, hãy dùng trang Quản lý nhân sự."
+      />
       <Card
         title={
           <Flex align="center" gap={10}>
@@ -429,13 +508,13 @@ export default function OwnerOperations() {
             </Flex>
             <div>
               <Text strong style={{ display: "block" }}>
-                Thêm quyền truy cập
+                Cấp thêm quyền cho một vai trò
               </Text>
               <Text
                 type="secondary"
                 style={{ display: "block", fontSize: 12, fontWeight: 400 }}
               >
-                Quyền mới được áp dụng ngay cho toàn bộ tài khoản thuộc vai trò
+                Chọn vai trò trước, sau đó chọn tính năng được phép sử dụng
               </Text>
             </div>
           </Flex>
@@ -451,7 +530,7 @@ export default function OwnerOperations() {
             style={{ marginBottom: 12 }}
             type="error"
             showIcon
-            message="Không tải được catalog permission"
+            message="Không tải được danh sách quyền"
             description={catalogError}
             action={
               <Button size="small" onClick={() => void loadCatalog()}>
@@ -462,7 +541,11 @@ export default function OwnerOperations() {
         )}
         <Row gutter={[12, 12]}>
           <Col xs={24} md={8}>
+            <Text strong style={{ display: "block", marginBottom: 6 }}>
+              1. Cấp cho vai trò nào?
+            </Text>
             <Select
+              aria-label="Chọn vai trò cần cấp quyền"
               style={{ width: "100%" }}
               value={role}
               options={ROLES}
@@ -476,10 +559,13 @@ export default function OwnerOperations() {
             />
           </Col>
           <Col xs={24} md={12}>
+            <Text strong style={{ display: "block", marginBottom: 6 }}>
+              2. Được sử dụng thêm tính năng nào?
+            </Text>
             <Select
               showSearch
               style={{ width: "100%" }}
-              placeholder="Chọn permission"
+              placeholder="Tìm và chọn một quyền"
               value={permissionCode}
               options={permissionOptions}
               loading={catalogLoading}
@@ -492,7 +578,7 @@ export default function OwnerOperations() {
               suffixIcon={<ChevronDown size={15} />}
             />
           </Col>
-          <Col xs={24} md={4}>
+          <Col xs={24} md={4} style={{ display: "flex", alignItems: "flex-end" }}>
             <Button
               type="primary"
               block
@@ -547,10 +633,10 @@ export default function OwnerOperations() {
           >
             <div>
               <Text strong style={{ display: "block", fontSize: 15 }}>
-                Ma trận phân quyền
+                Quyền đang có theo vai trò
               </Text>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Kiểm soát quyền truy cập theo từng vai trò hệ thống
+                Chọn một vai trò để xem hoặc thu hồi quyền
               </Text>
             </div>
             <Flex align="center" gap={8}>
@@ -576,7 +662,7 @@ export default function OwnerOperations() {
                   fontWeight: 600,
                 }}
               >
-                {permissions.length} lượt cấp quyền
+                {permissions.length} quyền đang bật
               </Tag>
             </Flex>
           </Flex>
@@ -601,7 +687,7 @@ export default function OwnerOperations() {
                   letterSpacing: "0.06em",
                 }}
               >
-                VAI TRÒ HỆ THỐNG
+                CHỌN VAI TRÒ
               </Text>
               <Space direction="vertical" size={4} style={{ width: "100%" }}>
                 {matrixRows.map((row) => {
@@ -712,8 +798,8 @@ export default function OwnerOperations() {
                       {selectedMatrixRow?.roleLabel}
                     </Text>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      Chính sách truy cập áp dụng cho toàn bộ thành viên thuộc
-                      vai trò
+                      Các quyền bên dưới áp dụng cho toàn bộ tài khoản thuộc vai
+                      trò này
                     </Text>
                   </div>
                 </Flex>
@@ -757,7 +843,7 @@ export default function OwnerOperations() {
                     />
                     <Text strong>Vai trò này chưa có quyền</Text>
                     <Text type="secondary">
-                      Chọn “Thêm quyền” để bắt đầu cấu hình
+                      Dùng mục “Cấp thêm quyền” ở phía trên để bắt đầu
                     </Text>
                   </Flex>
                 ) : (
@@ -857,16 +943,17 @@ export default function OwnerOperations() {
                                     </div>
                                   </Flex>
                                   <Button
-                                    type="text"
                                     danger
                                     size="small"
                                     loading={revoking}
                                     disabled={Boolean(revokingKey) && !revoking}
                                     aria-label={`Thu hồi ${permissionLabel(item.permissionCode)}`}
-                                    icon={<X size={14} />}
+                                    icon={<X size={13} />}
                                     onClick={() => confirmRevoke(item)}
                                     style={{ flex: "0 0 auto" }}
-                                  />
+                                  >
+                                    Thu hồi
+                                  </Button>
                                 </Flex>
                               );
                             })}
@@ -890,8 +977,8 @@ export default function OwnerOperations() {
       dataSource={rows}
       pagination={false}
       columns={[
-        { title: "Grant", dataIndex: "id" },
-        { title: "Patient", dataIndex: "patientId" },
+        { title: "Mã cấp quyền", dataIndex: "id" },
+        { title: "Mã bệnh nhân", dataIndex: "patientId" },
         { title: "Lý do", dataIndex: "reason" },
         {
           title: "Hết hạn",
@@ -912,7 +999,7 @@ export default function OwnerOperations() {
           render: (_, item: BreakGlassGrant) =>
             !item.endedAt && (
               <Popconfirm
-                title="Kết thúc quyền break-glass này?"
+                title="Kết thúc quyền truy cập khẩn cấp này?"
                 okText="Kết thúc"
                 cancelText="Hủy"
                 onConfirm={() => endGrant(item.id)}
@@ -929,28 +1016,61 @@ export default function OwnerOperations() {
 
   const breakGlassTab = (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card size="small" title="Tạo quyền break-glass">
+      <Alert
+        type="warning"
+        showIcon
+        message="Chỉ sử dụng trong tình huống khẩn cấp"
+        description="Quyền này cho phép truy cập tạm thời hồ sơ bệnh nhân. Lý do, người thực hiện và thời gian truy cập đều được ghi nhật ký."
+      />
+      <Card size="small" title="Cấp quyền truy cập khẩn cấp">
         <Paragraph type="secondary">
-          Chỉ dùng khi cần truy cập khẩn cấp. Lý do và MFA được ghi vào audit.
+          Chọn bệnh nhân cần hỗ trợ, chọn lý do và nhập mã xác thực của bạn.
         </Paragraph>
         <Form form={breakGlassForm} layout="vertical">
           <Row gutter={12}>
             <Col xs={24} md={8}>
               <Form.Item
                 name="patientId"
-                label="Patient ID"
-                rules={[{ required: true }]}
+                label="Mã bệnh nhân"
+                rules={[{ required: true, message: "Chọn bệnh nhân cần truy cập" }]}
               >
-                <Input />
+                <Select
+                  showSearch
+                  loading={patientsLoading}
+                  placeholder="Tìm theo tên hoặc mã bệnh nhân"
+                  optionFilterProp="label"
+                  options={patients.map((patient) => ({
+                    value: patient.id,
+                    label: `${patient.name} · ${patient.code}`,
+                  }))}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} md={10}>
               <Form.Item
                 name="reason"
                 label="Lý do"
-                rules={[{ required: true, min: 3 }]}
+                extra="Chọn một gợi ý hoặc nhập lý do cụ thể."
+                rules={[
+                  { required: true, message: "Chọn hoặc nhập lý do truy cập" },
+                  {
+                    validator: (_, value) =>
+                      String(value ?? "").trim().length >= 10
+                        ? Promise.resolve()
+                        : Promise.reject(new Error("Lý do cần ít nhất 10 ký tự")),
+                  },
+                ]}
               >
-                <Input />
+                <AutoComplete
+                  allowClear
+                  options={EMERGENCY_REASON_OPTIONS}
+                  placeholder="Chọn gợi ý hoặc nhập lý do…"
+                  filterOption={(input, option) =>
+                    String(option?.label ?? "")
+                      .toLowerCase()
+                      .includes(input.toLowerCase())
+                  }
+                />
               </Form.Item>
             </Col>
             <Col xs={24} md={6}>
@@ -969,14 +1089,14 @@ export default function OwnerOperations() {
             loading={saving}
             onClick={() => void requestBreakGlass()}
           >
-            Tạo break-glass
+            Cấp quyền khẩn cấp
           </Button>
         </Form>
       </Card>
       <Card size="small" title="Quyền của tôi">
         {grantTable(myGrants)}
       </Card>
-      <Card size="small" title="Tất cả quyền break-glass">
+      <Card size="small" title="Tất cả quyền truy cập khẩn cấp">
         {grantTable(grants)}
       </Card>
     </Space>
@@ -984,29 +1104,54 @@ export default function OwnerOperations() {
 
   const dangerousTab = (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card size="small" title="Tạo dangerous action">
+      <Alert
+        type="error"
+        showIcon
+        message="Khu vực dành cho thao tác ảnh hưởng lớn"
+        description="Yêu cầu không được thực thi ngay và phải có người đủ thẩm quyền phê duyệt."
+      />
+      <Card size="small" title="Tạo yêu cầu thao tác nhạy cảm">
         <Paragraph type="secondary">
-          Yêu cầu này chưa thực thi ngay; cần người có thẩm quyền phê duyệt.
+          Chọn thao tác, lý do và phạm vi áp dụng; chỉ mã MFA cần nhập thủ công.
+          Mọi quyết định đều được ghi nhật ký.
         </Paragraph>
         <Form form={dangerousForm} layout="vertical">
           <Row gutter={12}>
             <Col xs={24} md={6}>
               <Form.Item
                 name="type"
-                label="Loại"
+                label="Thao tác cần thực hiện"
                 initialValue="add_owner"
-                rules={[{ required: true }]}
+                rules={[{ required: true, message: "Chọn thao tác" }]}
               >
-                <Input />
+                <Select options={SENSITIVE_ACTION_OPTIONS} />
               </Form.Item>
             </Col>
             <Col xs={24} md={8}>
               <Form.Item
                 name="reason"
                 label="Lý do"
-                rules={[{ required: true, min: 3 }]}
+                extra="Chọn một gợi ý hoặc nhập lý do cụ thể."
+                rules={[
+                  { required: true, message: "Chọn hoặc nhập lý do thực hiện" },
+                  {
+                    validator: (_, value) =>
+                      String(value ?? "").trim().length >= 10
+                        ? Promise.resolve()
+                        : Promise.reject(new Error("Lý do cần ít nhất 10 ký tự")),
+                  },
+                ]}
               >
-                <Input />
+                <AutoComplete
+                  allowClear
+                  options={SENSITIVE_REASON_OPTIONS}
+                  placeholder="Chọn gợi ý hoặc nhập lý do…"
+                  filterOption={(input, option) =>
+                    String(option?.label ?? "")
+                      .toLowerCase()
+                      .includes(input.toLowerCase())
+                  }
+                />
               </Form.Item>
             </Col>
             <Col xs={24} md={4}>
@@ -1021,11 +1166,18 @@ export default function OwnerOperations() {
             <Col xs={24} md={6}>
               <Form.Item
                 name="payload"
-                label="Payload JSON"
-                initialValue="{}"
+                label="Phạm vi áp dụng"
+                initialValue={["{}"]}
                 rules={[{ required: true }]}
               >
-                <Input />
+                <Select
+                  mode="tags"
+                  maxCount={1}
+                  placeholder="Chọn hoặc nhập phạm vi"
+                  options={ACTION_SCOPE_OPTIONS}
+                  tokenSeparators={[]}
+                  suffixIcon={<ChevronDown size={15} />}
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -1105,10 +1257,10 @@ export default function OwnerOperations() {
         </Flex>
         <div>
           <Title level={3} style={{ marginBottom: 2 }}>
-            Owner Control Center
+            Trung tâm quản trị cấp cao
           </Title>
           <Text type="secondary">
-            Phân quyền nền tảng, truy cập khẩn cấp và thao tác nguy hiểm.
+            Quản lý quyền theo vai trò, truy cập khẩn cấp và thao tác nhạy cảm.
           </Text>
         </div>
       </Flex>
@@ -1118,7 +1270,7 @@ export default function OwnerOperations() {
             key: "permissions",
             label: (
               <Space>
-                <UserCog size={15} /> Role permissions
+                <UserCog size={15} /> Quyền theo vai trò
               </Space>
             ),
             children: permissionTab,
@@ -1127,7 +1279,7 @@ export default function OwnerOperations() {
             key: "break-glass",
             label: (
               <Space>
-                <KeyRound size={15} /> Break-glass
+                <KeyRound size={15} /> Truy cập khẩn cấp
               </Space>
             ),
             children: breakGlassTab,
@@ -1136,7 +1288,7 @@ export default function OwnerOperations() {
             key: "dangerous",
             label: (
               <Space>
-                <ShieldAlert size={15} /> Dangerous actions
+                <ShieldAlert size={15} /> Thao tác nhạy cảm
               </Space>
             ),
             children: dangerousTab,

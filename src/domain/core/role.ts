@@ -33,6 +33,39 @@ export const ROLE_LABEL: Record<UserRole, string> = {
   clinical_process_designer: 'Chuyên viên thiết kế quy trình',
 };
 
+/**
+ * Product copy for onboarding previews only. The backend role-permission
+ * matrix remains the authorization source of truth.
+ */
+export const ROLE_CAPABILITY_SUMMARY: Partial<Record<UserRole, readonly string[]>> = {
+  doctor: [
+    'Xem bệnh nhân và lượt khám trong phạm vi được phân công',
+    'Tiếp nhận, chẩn đoán và cập nhật hồ sơ lâm sàng',
+    'Tạo chỉ định, kế hoạch điều trị và ký hồ sơ',
+    'Theo dõi hàng đợi và thực hiện tác vụ trong quy trình khám',
+  ],
+  nurse: [
+    'Xem bệnh nhân trong phạm vi được phân công',
+    'Cập nhật thông tin chăm sóc và thực hiện tác vụ điều dưỡng',
+    'Theo dõi, gọi và chuyển lượt trong hàng đợi',
+  ],
+  receptionist: [
+    'Quản lý lịch hẹn và check-in',
+    'Điều phối hàng đợi tại cơ sở được cấp',
+    'Cập nhật thông tin hành chính của bệnh nhân',
+  ],
+  medical_administrator: [
+    'Điều hành hoạt động khám chữa bệnh trong tổ chức',
+    'Quản lý nhân sự và phạm vi làm việc',
+    'Xem nhật ký kiểm toán nghiệp vụ',
+  ],
+  system_administrator: [
+    'Quản trị cấu hình và tích hợp hệ thống',
+    'Quản lý trạng thái tài khoản theo chính sách được cấp',
+    'Xem nhật ký kiểm toán kỹ thuật',
+  ],
+};
+
 /** Super administrators are an explicit break-glass platform role and pass
  * every role gate. Keeping the override here prevents route, menu and service
  * authorization from drifting apart. */

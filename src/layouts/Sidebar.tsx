@@ -41,7 +41,7 @@ const NAV_MAIN: NavItem[] = [
   {
     key: 'group:treatment', label: 'Điều trị', icon: Activity, roles: ['patient'],
     children: [
-      { key: '/app/records', label: 'Tiến trình điều trị', icon: Activity, roles: ['patient'] },
+      { key: '/app/records', label: 'Bệnh án trọn đời', icon: Activity, roles: ['patient'] },
       { key: '/app/progress', label: 'Theo dõi tiến triển', icon: TrendingUp, roles: ['patient'] },
       { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['patient'] },
     ],
@@ -54,7 +54,7 @@ const NAV_MAIN: NavItem[] = [
   { key: '/app/reports', label: 'Báo cáo', icon: BarChart2, roles: ['patient'] },
   { key: '/app/audit', label: 'Nhật ký kiểm toán', icon: ShieldCheck, roles: ['medical_administrator', 'system_administrator'] },
   { key: '/app/integrations', label: 'Tình trạng tích hợp', icon: Plug, roles: ['system_administrator', 'medical_administrator'] },
-  { key: '/app/staff', label: 'Quản lý nhân sự', icon: UserPlus, roles: ['super_administrator'] },
+  { key: '/app/staff', label: 'Quản lý nhân sự', icon: UserPlus, roles: ['super_administrator', 'medical_administrator'] },
   { key: '/app/owner', label: 'Owner Control Center', icon: KeyRound, roles: ['super_administrator'] },
 ];
 
