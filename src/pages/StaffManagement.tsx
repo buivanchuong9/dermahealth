@@ -12,12 +12,20 @@ import {
   Row,
   Select,
   Space,
+  Steps,
   Table,
   Tabs,
   Tag,
   Typography,
 } from "antd";
-import { Copy, UserPlus, Users, UserCheck } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  ShieldCheck,
+  UserPlus,
+  Users,
+  UserCheck,
+} from "lucide-react";
 import { ApiError } from "../api/http";
 import { getMe } from "../api/me";
 import {
@@ -37,7 +45,12 @@ import {
   type ManagedUser,
   type PendingStaffInvitation,
 } from "../api/users";
-import { INVITABLE_ROLES, ROLE_LABEL, type UserRole } from "../domain/core/role";
+import {
+  INVITABLE_ROLES,
+  ROLE_CAPABILITY_SUMMARY,
+  ROLE_LABEL,
+  type UserRole,
+} from "../domain/core/role";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -131,7 +144,7 @@ function ScopeFields({
 }
 
 export default function StaffManagement() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -158,6 +171,7 @@ export default function StaffManagement() {
   const [assignForm] = Form.useForm();
   const assignOrgId = Form.useWatch("organizationId", assignForm);
   const assignLocationId = Form.useWatch("clinicLocationId", assignForm);
+  const assignRole = Form.useWatch("role", assignForm) as UserRole | undefined;
   const [assigning, setAssigning] = useState(false);
 
   const loadCatalog = useCallback(async () => {
@@ -175,8 +189,8 @@ export default function StaffManagement() {
       setDepartments(depts);
       const defaultOrg = me.memberships[0]?.organizationId ?? orgs[0]?.id;
       setHomeOrganizationId(defaultOrg);
-      inviteForm.setFieldsValue({ organizationId: defaultOrg });
-      assignForm.setFieldsValue({ organizationId: defaultOrg });
+      inviteForm.setFieldsValue({ organizationId: defaultOrg, role: "doctor" });
+      assignForm.setFieldsValue({ organizationId: defaultOrg, role: "doctor" });
     } catch (error) {
       setCatalogError(
         describeError(error, "Không tải được danh mục tổ chức/cơ sở/phòng ban."),
@@ -283,22 +297,61 @@ export default function StaffManagement() {
       return;
     }
     const values = await assignForm.validateFields();
-    setAssigning(true);
-    try {
-      await assignUserRole(selectedUser.id, {
-        role: values.role,
-        organizationId: values.organizationId,
-        clinicLocationId: values.clinicLocationId || undefined,
-        departmentId: values.departmentId || undefined,
-      });
-      void message.success(`Đã gán vai trò cho ${selectedUser.displayName}.`);
-      setSelectedUser(null);
-      assignForm.resetFields(["role", "clinicLocationId", "departmentId"]);
-    } catch (error) {
-      void message.error(describeError(error, "Không gán được vai trò."));
-    } finally {
-      setAssigning(false);
-    }
+    const organizationName =
+      organizations.find((item) => item.id === values.organizationId)?.name ??
+      values.organizationId;
+    const locationName = values.clinicLocationId
+      ? clinicLocations.find((item) => item.id === values.clinicLocationId)?.name
+      : "Toàn tổ chức";
+    const departmentName = values.departmentId
+      ? departments.find((item) => item.id === values.departmentId)?.name
+      : "Không giới hạn phòng ban";
+
+    modal.confirm({
+      title: `Xác nhận cấp vai trò ${ROLE_LABEL[values.role as UserRole]}`,
+      icon: <ShieldCheck size={20} />,
+      okText: "Xác nhận cấp quyền",
+      cancelText: "Kiểm tra lại",
+      content: (
+        <Space direction="vertical" size={6} style={{ marginTop: 10 }}>
+          <Text>
+            Tài khoản: <Text strong>{selectedUser.displayName}</Text> ({selectedUser.email})
+          </Text>
+          <Text>
+            Phạm vi: <Text strong>{organizationName}</Text> · {locationName} ·{" "}
+            {departmentName}
+          </Text>
+          <Text type="secondary">
+            Tài khoản sẽ kế thừa bộ quyền hiện hành của vai trò. Thao tác này
+            không cấp permission riêng lẻ cho người dùng.
+          </Text>
+        </Space>
+      ),
+      onOk: async () => {
+        setAssigning(true);
+        try {
+          await assignUserRole(selectedUser.id, {
+            role: values.role,
+            organizationId: values.organizationId,
+            clinicLocationId: values.clinicLocationId || undefined,
+            departmentId: values.departmentId || undefined,
+          });
+          void message.success(
+            `Đã cấp vai trò ${ROLE_LABEL[values.role as UserRole]} cho ${selectedUser.displayName}.`,
+          );
+          setSelectedUser(null);
+          setSearchResults([]);
+          setSearchTerm("");
+          assignForm.resetFields(["clinicLocationId", "departmentId"]);
+          assignForm.setFieldValue("role", "doctor");
+        } catch (error) {
+          void message.error(describeError(error, "Không cấp được vai trò."));
+          throw error;
+        } finally {
+          setAssigning(false);
+        }
+      },
+    });
   };
 
   const inviteTab = (
@@ -441,9 +494,15 @@ export default function StaffManagement() {
 
   const assignTab = (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card size="small" title="Tìm tài khoản đã tồn tại">
+      <Alert
+        type="info"
+        showIcon
+        message="Dùng luồng này khi bác sĩ đã tự đăng ký tài khoản"
+        description="Tìm đúng tài khoản, chọn vai trò Bác sĩ và giới hạn phạm vi làm việc. Quyền tính năng được kế thừa từ vai trò; không cấp từng permission trực tiếp cho từng bác sĩ."
+      />
+      <Card size="small" title="1. Tìm và xác minh tài khoản">
         <Input.Search
-          placeholder="Tìm theo email hoặc họ tên"
+          placeholder="Ưu tiên nhập chính xác email bác sĩ đã đăng ký"
           allowClear
           loading={searching}
           onSearch={(term) => void runSearch(term)}
@@ -496,7 +555,7 @@ export default function StaffManagement() {
         />
       </Card>
 
-      <Card size="small" title="Gán vai trò">
+      <Card size="small" title="2. Cấp vai trò và phạm vi làm việc">
         {!selectedUser ? (
           <Text type="secondary">Chọn một tài khoản ở trên trước.</Text>
         ) : (
@@ -524,13 +583,45 @@ export default function StaffManagement() {
                   clinicLocationId={assignLocationId}
                 />
               </Row>
+              <Card
+                size="small"
+                style={{
+                  marginBottom: 16,
+                  background: "var(--surface-subtle, #fafafa)",
+                }}
+                title={
+                  <Space>
+                    <ShieldCheck size={16} />
+                    Quyền được kế thừa từ vai trò
+                  </Space>
+                }
+              >
+                <Space direction="vertical" size={6}>
+                  {(ROLE_CAPABILITY_SUMMARY[assignRole ?? "doctor"] ?? [
+                    "Quyền tính năng áp dụng theo ma trận phân quyền hiện hành của hệ thống",
+                  ]).map((capability) => (
+                    <Space key={capability} align="start">
+                      <CheckCircle2
+                        size={15}
+                        color="var(--success, #389e0d)"
+                        style={{ marginTop: 3 }}
+                      />
+                      <Text>{capability}</Text>
+                    </Space>
+                  ))}
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Đây là bản tóm tắt nghiệp vụ. Backend vẫn kiểm tra permission
+                    và phạm vi tổ chức/cơ sở/phòng ban ở mỗi yêu cầu.
+                  </Text>
+                </Space>
+              </Card>
               <Button
                 type="primary"
                 icon={<UserCheck size={15} />}
                 loading={assigning}
                 onClick={() => void submitAssign()}
               >
-                Gán vai trò
+                Kiểm tra và cấp quyền
               </Button>
             </Form>
           </>
@@ -573,10 +664,31 @@ export default function StaffManagement() {
           Quản lý nhân sự
         </Title>
         <Text type="secondary">
-          Mời bác sĩ/nhân viên mới, theo dõi lời mời đang chờ và gán vai trò cho tài
-          khoản đã tồn tại.
+          Onboarding nhân sự theo vai trò và phạm vi làm việc, có bước xác nhận
+          trước khi quyền được áp dụng.
         </Text>
       </div>
+      <Card size="small">
+        <Steps
+          responsive
+          current={-1}
+          items={[
+            {
+              title: "Có tài khoản",
+              description: "Bác sĩ tự đăng ký hoặc nhận lời mời",
+            },
+            { title: "Xác minh", description: "Đối chiếu email và danh tính" },
+            {
+              title: "Cấp phạm vi",
+              description: "Vai trò, cơ sở và phòng ban",
+            },
+            {
+              title: "Kế thừa quyền",
+              description: "Áp bộ quyền của vai trò",
+            },
+          ]}
+        />
+      </Card>
       <Tabs
         items={[
           {
@@ -592,7 +704,7 @@ export default function StaffManagement() {
             key: "assign",
             label: (
               <Space>
-                <Users size={15} /> Gán vai trò cho tài khoản có sẵn
+                <Users size={15} /> Cấp quyền cho tài khoản đã đăng ký
               </Space>
             ),
             children: assignTab,

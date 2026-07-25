@@ -13,7 +13,7 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { Pill } from "lucide-react";
+import { CalendarDays, Clock3, Pill } from "lucide-react";
 import { useAppState } from "../state/useAppState";
 import {
   getMedicationReminders,
@@ -22,11 +22,105 @@ import {
   createMedicationReminder,
   type MedicationReminder,
 } from "../api/clinical";
-const { Title } = Typography;
+const { Title, Text } = Typography;
 interface Prescription {
   id: string;
   issuedAt: string;
   medications: unknown;
+}
+
+const WEEKDAY_LABEL: Record<number, string> = {
+  1: "T2",
+  2: "T3",
+  3: "T4",
+  4: "T5",
+  5: "T6",
+  6: "T7",
+  7: "CN",
+};
+
+const asObject = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+const asText = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+function ReminderSchedule({ value }: { value: unknown }) {
+  const schedule = asObject(value);
+  const times = Array.isArray(schedule.times)
+    ? schedule.times.filter((item): item is string => typeof item === "string")
+    : [];
+  const days = Array.isArray(schedule.daysOfWeek)
+    ? schedule.daysOfWeek.filter((item): item is number => typeof item === "number")
+    : [];
+  const everyDay = days.length === 0 || days.length === 7;
+  const startDate = asText(schedule.startDate);
+  const endDate = asText(schedule.endDate);
+
+  return (
+    <Space direction="vertical" size={6}>
+      <Space size={[6, 6]} wrap>
+        <Clock3 size={14} />
+        {times.length ? (
+          times.map((time) => (
+            <Tag color="blue" key={time}>
+              {time}
+            </Tag>
+          ))
+        ) : (
+          <Text type="secondary">Chưa đặt giờ nhắc</Text>
+        )}
+        <Text type="secondary">· {everyDay ? "Hằng ngày" : days.map((day) => WEEKDAY_LABEL[day] ?? day).join(", ")}</Text>
+      </Space>
+      <Space size={6} wrap>
+        <CalendarDays size={14} />
+        <Text type="secondary">
+          {startDate
+            ? `Từ ${new Date(`${startDate}T00:00:00`).toLocaleDateString("vi-VN")}`
+            : "Chưa có ngày bắt đầu"}
+          {endDate
+            ? ` đến ${new Date(`${endDate}T00:00:00`).toLocaleDateString("vi-VN")}`
+            : " · Không giới hạn ngày kết thúc"}
+        </Text>
+      </Space>
+    </Space>
+  );
+}
+
+function MedicationList({ value }: { value: unknown }) {
+  const rows = Array.isArray(value) ? value : [];
+  if (!rows.length) return <Text type="secondary">Chưa có chi tiết thuốc</Text>;
+  return (
+    <Space direction="vertical" size={7} style={{ width: "100%" }}>
+      {rows.map((raw, index) => {
+        const medication = asObject(raw);
+        const name =
+          asText(medication.name) ??
+          asText(medication.medicationName) ??
+          asText(medication.display) ??
+          `Thuốc ${index + 1}`;
+        const details = [
+          asText(medication.dosage),
+          asText(medication.frequency),
+          asText(medication.route),
+          asText(medication.duration),
+          asText(medication.instructions),
+        ].filter(Boolean);
+        return (
+          <div key={asText(medication.id) ?? `${name}-${index}`}>
+            <Text strong>{name}</Text>
+            {details.length > 0 && (
+              <Text type="secondary" style={{ display: "block", fontSize: 12 }}>
+                {details.join(" · ")}
+              </Text>
+            )}
+          </div>
+        );
+      })}
+    </Space>
+  );
 }
 export default function Prescriptions() {
   const { message } = App.useApp();
@@ -126,9 +220,13 @@ export default function Prescriptions() {
               ]}
             >
               <List.Item.Meta
-                avatar={<Pill />}
+                avatar={
+                  <span style={{ width: 38, height: 38, borderRadius: 10, display: "grid", placeItems: "center", color: "var(--medical-blue-700)", background: "var(--medical-blue-50)" }}>
+                    <Pill size={19} />
+                  </span>
+                }
                 title={item.medicationName}
-                description={JSON.stringify(item.schedule)}
+                description={<ReminderSchedule value={item.schedule} />}
               />
             </List.Item>
           )}
@@ -141,8 +239,16 @@ export default function Prescriptions() {
           renderItem={(item) => (
             <List.Item>
               <List.Item.Meta
-                title={`Đơn ${item.id}`}
-                description={`${new Date(item.issuedAt).toLocaleString("vi-VN")} — ${JSON.stringify(item.medications)}`}
+                avatar={<Pill size={19} />}
+                title={`Đơn thuốc ngày ${new Date(item.issuedAt).toLocaleDateString("vi-VN")}`}
+                description={
+                  <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                    <Text type="secondary">
+                      Kê lúc {new Date(item.issuedAt).toLocaleString("vi-VN")}
+                    </Text>
+                    <MedicationList value={item.medications} />
+                  </Space>
+                }
               />
             </List.Item>
           )}

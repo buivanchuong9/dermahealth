@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css';
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Grid, Modal, Popconfirm, Drawer, Collapse } from 'antd';
+import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Grid, Modal, Popconfirm, Drawer, Collapse, Spin } from 'antd';
 import { Plus, Trash2, Archive, ArrowLeft, Lock, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck } from 'lucide-react';
 import { DragHandle } from '../../components/common/DragHandle';
 import { IconActionButton } from '../../components/common/IconActionButton';
@@ -223,15 +223,23 @@ export default function WorkflowTemplateEditor() {
   const [editingStep, setEditingStep] = useState<WorkflowStepDefinition | null>(null);
   const [deploymentOpen, setDeploymentOpen] = useState(false);
   const [deploymentEncounterId, setDeploymentEncounterId] = useState<EncounterId | undefined>();
+  const [editorLoading, setEditorLoading] = useState(true);
   const flowInstanceRef = useRef<ReactFlowInstance<Node, Edge> | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
   useEffect(() => {
     if (!resolvedId) return;
-    listWorkflowTemplateVersions(resolvedId)
-      .then((rows) => rows.forEach((row) => workflowRepository.versions().upsert(row)))
-      .catch((err: unknown) => { showError(err); });
+    Promise.all([
+      listWorkflowTemplates(),
+      listWorkflowTemplateVersions(resolvedId),
+    ])
+      .then(([templateRows, versionRows]) => {
+        templateRows.forEach((row) => workflowRepository.templates().upsert(row));
+        versionRows.forEach((row) => workflowRepository.versions().upsert(row));
+      })
+      .catch((err: unknown) => { showError(err); })
+      .finally(() => setEditorLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedId]);
 
@@ -275,6 +283,14 @@ export default function WorkflowTemplateEditor() {
   if (flowSteps.length === 0) edges.push({ id: '__START__-__END__', source: '__START__', target: '__END__', type: 'smoothstep', deletable: false, style: { stroke: '#9aabb9', strokeWidth: 2 } });
   rootSteps.forEach((step) => edges.push({ id: `__START__-${step.code}`, source: '__START__', target: step.code, type: 'smoothstep', deletable: false, style: { stroke: '#16856b', strokeWidth: 2.2 } }));
   leafSteps.forEach((step) => edges.push({ id: `${step.code}-__END__`, source: step.code, target: '__END__', type: 'smoothstep', deletable: false, style: { stroke: '#b44552', strokeWidth: 2.2 } }));
+
+  if (editorLoading) {
+    return (
+      <div style={{ minHeight: 520, display: 'grid', placeItems: 'center' }}>
+        <Spin size="large" tip="Đang tải trình thiết kế quy trình…" />
+      </div>
+    );
+  }
 
   if (!resolvedId || !template) {
     return (
@@ -403,6 +419,10 @@ export default function WorkflowTemplateEditor() {
   const startNewDraft = () => guardedAsync(async () => {
     const version = await createWorkflowTemplateVersion(canonicalTemplateId);
     workflowRepository.versions().upsert(version);
+    workflowRepository.templates().upsert({
+      ...template,
+      versionIds: [...new Set([...template.versionIds, version.id])],
+    });
     message.success('Đã tạo bản chỉnh sửa mới. Quy trình đang dùng không bị ảnh hưởng.');
   });
   const publish = () => guarded(() => {

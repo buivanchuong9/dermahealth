@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Card, Input, Button, Tag, Typography, Alert, List, App as AntApp, Grid } from 'antd';
 import { Plus, Workflow, Lock, History } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
@@ -12,6 +12,7 @@ import { hasRoleAccess } from '../../domain/core/role';
 const { Text, Title, Paragraph } = Typography;
 
 export default function WorkflowTemplates() {
+  const navigate = useNavigate();
   const { message } = AntApp.useApp();
   const showError = useFriendlyError();
   const { role } = useAppState();
@@ -41,6 +42,7 @@ export default function WorkflowTemplates() {
       workflowRepository.templates().upsert(template);
       setName(''); setSpecialty(''); setDescription('');
       message.success('Đã tạo bản nháp quy trình mới.');
+      navigate(`/app/workflows/templates/${template.id}`);
     } catch (err) {
       showError(err);
     } finally {

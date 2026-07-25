@@ -42,6 +42,31 @@ export interface UpdateWorkflowTemplateRequest {
 const optionalString = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value : undefined;
 
+const decode = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+};
+
+const isTemplateDto = (value: unknown): value is WorkflowTemplateDto =>
+  Boolean(
+    value &&
+      typeof value === 'object' &&
+      typeof (value as Record<string, unknown>).id === 'string' &&
+      typeof (value as Record<string, unknown>).name === 'string',
+  );
+
+const isVersionDto = (value: unknown): value is WorkflowTemplateVersionDto =>
+  Boolean(
+    value &&
+      typeof value === 'object' &&
+      typeof (value as Record<string, unknown>).id === 'string' &&
+      typeof (value as Record<string, unknown>).templateId === 'string',
+  );
+
 const mapTemplate = (dto: WorkflowTemplateDto): WorkflowTemplate => ({
   id: dto.id as WorkflowTemplateId,
   name: dto.name,
@@ -58,7 +83,17 @@ const mapVersion = (dto: WorkflowTemplateVersionDto): WorkflowTemplateVersion =>
   templateId: dto.templateId as WorkflowTemplateId,
   version: dto.version,
   status: dto.status,
-  steps: dto.steps ?? [],
+  steps: (dto.steps ?? []).map((step) => ({
+    ...step,
+    description: step.description ?? '',
+    taskType: step.taskType ?? 'clinical',
+    department: step.department ?? '',
+    mandatory: step.mandatory ?? true,
+    estimatedDurationMinutes: step.estimatedDurationMinutes ?? 10,
+    maxWaitingMinutes: step.maxWaitingMinutes ?? 20,
+    skipPermission: step.skipPermission ?? [],
+    prerequisiteStepCodes: step.prerequisiteStepCodes ?? [],
+  })),
   nodePositions: dto.nodePositions,
   createdAt: dto.createdAt,
   publishedAt: optionalString(dto.publishedAt),
@@ -71,8 +106,29 @@ const templatePath = (templateId: string) =>
 export const listWorkflowTemplates = async () =>
   (await http.get<WorkflowTemplateDto[]>('/api/v1/workflow-templates')).map(mapTemplate);
 
-export const createWorkflowTemplate = async (body: CreateWorkflowTemplateRequest) =>
-  mapTemplate(await http.post<WorkflowTemplateDto>('/api/v1/workflow-templates', body));
+export const createWorkflowTemplate = async (body: CreateWorkflowTemplateRequest) => {
+  const raw = decode(
+    await http.post<unknown>('/api/v1/workflow-templates', body),
+  );
+  if (isTemplateDto(raw)) return mapTemplate(raw);
+
+  const rows = await listWorkflowTemplates();
+  const returnedId = typeof raw === 'string' ? raw : undefined;
+  const created =
+    (returnedId ? rows.find((item) => item.id === returnedId) : undefined) ??
+    rows
+      .filter(
+        (item) =>
+          item.name === body.name && item.specialty === body.specialty,
+      )
+      .sort((a, b) => (b.version ?? 0) - (a.version ?? 0))[0];
+  if (!created) {
+    throw new Error(
+      'Backend đã nhận yêu cầu nhưng không trả template vừa tạo. Cần kiểm tra response contract của POST /workflow-templates.',
+    );
+  }
+  return created;
+};
 
 export const recommendWorkflowTemplate = async () => {
   const dto = await http.get<WorkflowTemplateDto | null>('/api/v1/workflow-templates/recommend');
@@ -89,8 +145,23 @@ export const listWorkflowTemplateVersions = async (templateId: string) =>
     await http.get<WorkflowTemplateVersionDto[]>(`${templatePath(templateId)}/versions`)
   ).map(mapVersion);
 
-export const createWorkflowTemplateVersion = async (templateId: string) =>
-  mapVersion(await http.post<WorkflowTemplateVersionDto>(`${templatePath(templateId)}/versions`, {}));
+export const createWorkflowTemplateVersion = async (templateId: string) => {
+  const raw = decode(
+    await http.post<unknown>(`${templatePath(templateId)}/versions`, {}),
+  );
+  if (isVersionDto(raw)) return mapVersion(raw);
+  const versions = await listWorkflowTemplateVersions(templateId);
+  const returnedId = typeof raw === 'string' ? raw : undefined;
+  const created =
+    (returnedId ? versions.find((item) => item.id === returnedId) : undefined) ??
+    versions
+      .filter((item) => item.status === 'draft')
+      .sort((a, b) => b.version - a.version)[0];
+  if (!created) {
+    throw new Error('Backend không trả phiên bản nháp vừa tạo.');
+  }
+  return created;
+};
 
 export const getWorkflowTemplateVersion = async (versionId: string) =>
   mapVersion(
@@ -155,8 +226,16 @@ export const saveWorkflowTemplateVersionNodePositions = (
   positions: Record<string, { x: number; y: number }>,
 ) => http.put<unknown>(`${versionPath(versionId)}/node-positions`, { positions });
 
-export const publishWorkflowTemplateVersion = async (versionId: string, version: number) =>
-  mapVersion(await http.post<WorkflowTemplateVersionDto>(`${versionPath(versionId)}/publish`, { version }));
+export const publishWorkflowTemplateVersion = async (versionId: string, version: number) => {
+  const raw = decode(
+    await http.post<unknown>(`${versionPath(versionId)}/publish`, { version }),
+  );
+  return isVersionDto(raw) ? mapVersion(raw) : getWorkflowTemplateVersion(versionId);
+};
 
-export const archiveWorkflowTemplateVersion = async (versionId: string, version: number) =>
-  mapVersion(await http.post<WorkflowTemplateVersionDto>(`${versionPath(versionId)}/archive`, { version }));
+export const archiveWorkflowTemplateVersion = async (versionId: string, version: number) => {
+  const raw = decode(
+    await http.post<unknown>(`${versionPath(versionId)}/archive`, { version }),
+  );
+  return isVersionDto(raw) ? mapVersion(raw) : getWorkflowTemplateVersion(versionId);
+};
