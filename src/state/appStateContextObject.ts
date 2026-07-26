@@ -7,6 +7,7 @@ export interface AppStateValue {
   currentUserId: UserId;
   currentUser: User;
   role: UserRole;
+  setActiveRole: (role: UserRole) => void;
   allUsers: User[];
   setCurrentUserId: (id: UserId) => void;
   currentPatient: Patient;

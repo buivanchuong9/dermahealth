@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# mkcert-generated local dev TLS cert/key — machine-specific, never shared.
+.certs
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

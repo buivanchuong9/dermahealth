@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, type Node, type Edge, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Card, Button, Tag, Input, Typography, Result, Descriptions } from 'antd';
-import { ArrowLeft, Play, CheckCircle, RotateCcw, XCircle, TriangleAlert, PauseCircle, PlayCircle, Ban, SkipForward, UserPlus, SearchX, ShieldCheck } from 'lucide-react';
+import { Card, Button, Tag, Input, Typography, Result, Descriptions, Modal, Select, InputNumber, Popconfirm } from 'antd';
+import { ArrowLeft, Play, CheckCircle, RotateCcw, XCircle, TriangleAlert, PauseCircle, PlayCircle, Ban, SkipForward, UserPlus, SearchX, ShieldCheck, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useStore } from '../../state/useStore';
+import { useAppState } from '../../state/useAppState';
 import { encounterRepository, patientRepository, workflowRepository } from '../../domain/repositories';
 import {
   getWorkflowInstance,
@@ -23,16 +24,36 @@ import {
   rejectWorkflowTask,
   escalateWorkflowTask,
   skipWorkflowTask,
+  createAdHocWorkflowTask,
+  updateAdHocWorkflowTask,
+  cancelAdHocWorkflowTask,
 } from '../../api/workflowTask';
 import { layoutByPrerequisites } from '../../domain/flowLayout';
 import { TASK_STATUS_LABEL } from '../../domain/core/enums';
-import { ROLE_LABEL } from '../../domain/core/role';
+import { ROLE_LABEL, type UserRole } from '../../domain/core/role';
 import type { WorkflowInstanceId, WorkflowTaskId } from '../../domain/core/ids';
 import type { WorkflowTask } from '../../domain/core/entities';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
 import { ProfessionalEmpty } from '../../components/feedback/ProfessionalEmpty';
 
 const { Text } = Typography;
+
+/** Mirrors the backend's AD_HOC_TASK_ROLES (workflow-policies.ts) — kept in
+ * sync manually; the server re-enforces this regardless of what the UI shows. */
+const AD_HOC_MANAGER_ROLES: UserRole[] = ['doctor', 'nurse', 'medical_administrator'];
+/** Mirrors STAFF_QUEUE_ROLES — sensible assignees for a patient-specific task. */
+const AD_HOC_ASSIGNABLE_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator'];
+/** Mirrors the backend's EDITABLE_AD_HOC_STATUSES — editing/removal is only
+ * offered before the task has actually started. */
+const EDITABLE_AD_HOC_STATUSES: WorkflowTask['status'][] = ['pending', 'blocked', 'ready'];
+
+interface AdHocDraft {
+  name: string;
+  responsibleRole: UserRole;
+  department: string;
+  slaMinutes: number;
+}
+const EMPTY_AD_HOC_DRAFT: AdHocDraft = { name: '', responsibleRole: 'nurse', department: '', slaMinutes: 15 };
 
 const STATUS_COLOR: Record<string, string> = {
   completed: '#238a57', skipped: '#8792a2', cancelled: '#8792a2', pending: '#c6d2de',
@@ -45,13 +66,15 @@ const STATUS_COLOR: Record<string, string> = {
 function TaskFlowNode({ data }: NodeProps) {
   const task = data.task as WorkflowTask;
   const color = STATUS_COLOR[task.status] ?? '#8792a2';
+  const isAdHoc = task.origin === 'ad_hoc';
   return (
-    <div style={{ background: '#fff', border: `2px solid ${color}`, borderRadius: 8, padding: '8px 12px', minWidth: 170, boxShadow: 'var(--shadow-card)' }}>
+    <div style={{ background: '#fff', border: `2px ${isAdHoc ? 'dashed' : 'solid'} ${color}`, borderRadius: 8, padding: '8px 12px', minWidth: 170, boxShadow: 'var(--shadow-card)' }}>
       <Handle type="target" position={Position.Left} style={{ background: color }} />
       <Text strong style={{ fontSize: 12.5, display: 'block' }}>{task.name}</Text>
       <Text type="secondary" style={{ fontSize: 10.5 }}>{ROLE_LABEL[task.responsibleRole]}</Text>
-      <div style={{ marginTop: 4 }}>
+      <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         <Tag color={color} style={{ fontSize: 10, margin: 0 }}>{TASK_STATUS_LABEL[task.status]}</Tag>
+        {isAdHoc && <Tag color="gold" style={{ fontSize: 10, margin: 0 }}>Riêng cho bệnh nhân</Tag>}
       </div>
       <Handle type="source" position={Position.Right} style={{ background: color }} />
     </div>
@@ -65,6 +88,7 @@ export default function WorkflowInstancePage() {
   const navigate = useNavigate();
   const instanceId = id as WorkflowInstanceId;
   const showError = useFriendlyError();
+  const { role } = useAppState();
   const instances = useStore(workflowRepository.instances());
   const tasks = useStore(workflowRepository.tasks());
   const encounters = useStore(encounterRepository);
@@ -73,6 +97,9 @@ export default function WorkflowInstancePage() {
   const [selectedTaskId, setSelectedTaskId] = useState<WorkflowTaskId | null>(null);
   const [identityValid, setIdentityValid] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [adHocModal, setAdHocModal] = useState<{ mode: 'create' | 'edit'; taskId?: WorkflowTaskId } | null>(null);
+  const [adHocDraft, setAdHocDraft] = useState<AdHocDraft>(EMPTY_AD_HOC_DRAFT);
+  const canManageAdHoc = AD_HOC_MANAGER_ROLES.includes(role);
 
   const refreshInstance = () => {
     if (!id) return;
@@ -138,6 +165,26 @@ export default function WorkflowInstancePage() {
   const reason = (taskId: WorkflowTaskId) => reasonDraft[taskId] || 'Lý do mô phỏng (demo)';
   const selectedTask = instanceTasks.find((t) => t.id === selectedTaskId) ?? instanceTasks[0];
 
+  const openAdHocCreate = () => {
+    setAdHocDraft(EMPTY_AD_HOC_DRAFT);
+    setAdHocModal({ mode: 'create' });
+  };
+  const openAdHocEdit = (task: WorkflowTask) => {
+    setAdHocDraft({ name: task.name, responsibleRole: task.responsibleRole, department: task.department, slaMinutes: task.slaMinutes });
+    setAdHocModal({ mode: 'edit', taskId: task.id });
+  };
+  const submitAdHoc = () => {
+    if (!adHocDraft.name.trim() || !adHocDraft.department.trim()) { showError(new Error('Vui lòng nhập tên bước và bộ phận phụ trách.')); return; }
+    const payload = { name: adHocDraft.name.trim(), responsibleRole: adHocDraft.responsibleRole, department: adHocDraft.department.trim(), slaMinutes: adHocDraft.slaMinutes };
+    if (adHocModal?.mode === 'edit' && adHocModal.taskId) {
+      const target = instanceTasks.find((t) => t.id === adHocModal.taskId);
+      runTaskAction(() => updateAdHocWorkflowTask(adHocModal.taskId!, { ...payload, version: target?.version ?? 0 }));
+    } else {
+      runTaskAction(() => createAdHocWorkflowTask(instance.id, payload));
+    }
+    setAdHocModal(null);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
@@ -146,7 +193,8 @@ export default function WorkflowInstancePage() {
           <div style={{ fontSize: 20, fontWeight: 700 }}>Quy trình của {patient?.name ?? 'bệnh nhân'}</div>
           <Text type="secondary">Mã vận hành: <strong>{instance.instanceCode ?? instance.id}</strong></Text>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {instance.status === 'active' && canManageAdHoc && <Button loading={busy} icon={<Plus size={14} />} onClick={openAdHocCreate}>Thêm bước riêng cho bệnh nhân này</Button>}
           {instance.status === 'active' && <Button loading={busy} icon={<PauseCircle size={14} />} onClick={() => runInstanceAction(() => suspendWorkflowInstance(instance.id, { reason: 'Tạm dừng theo yêu cầu', version: instance.version ?? 0 }))}>Tạm dừng</Button>}
           {instance.status === 'suspended' && <Button loading={busy} icon={<PlayCircle size={14} />} onClick={() => runInstanceAction(() => resumeWorkflowInstance(instance.id, instance.version ?? 0))}>Tiếp tục</Button>}
           {(instance.status === 'active' || instance.status === 'suspended') && <Button loading={busy} icon={<Ban size={14} />} onClick={() => runInstanceAction(() => cancelWorkflowInstance(instance.id, { reason: 'Hủy theo yêu cầu', version: instance.version ?? 0 }))}>Hủy quy trình</Button>}
@@ -190,9 +238,12 @@ export default function WorkflowInstancePage() {
         {!selectedTask && <ProfessionalEmpty compact title="Chưa chọn tác vụ" description="Chọn một bước trên sơ đồ để xem thông tin và thao tác." showActions={false} />}
         {selectedTask && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
               <Text strong style={{ fontSize: 14 }}>{selectedTask.name}</Text>
-              <Tag color={STATUS_COLOR[selectedTask.status]}>{TASK_STATUS_LABEL[selectedTask.status]}</Tag>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {selectedTask.origin === 'ad_hoc' && <Tag color="gold">Bước riêng cho bệnh nhân này</Tag>}
+                <Tag color={STATUS_COLOR[selectedTask.status]}>{TASK_STATUS_LABEL[selectedTask.status]}</Tag>
+              </div>
             </div>
             <Text type="secondary" style={{ fontSize: 12.5, display: 'block', marginBottom: 4 }}>{ROLE_LABEL[selectedTask.responsibleRole]} · {selectedTask.department}</Text>
             {selectedTask.dependsOnStepCodes.length > 0 && <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Phụ thuộc: {selectedTask.dependsOnStepCodes.join(', ')}</Text>}
@@ -217,6 +268,14 @@ export default function WorkflowInstancePage() {
               {selectedTask.status === 'in_progress' && (
                 <Button size="small" loading={busy} icon={<XCircle size={13} />} onClick={() => runTaskAction(() => rejectWorkflowTask(selectedTask.id, { reason: reason(selectedTask.id), version: selectedTask.version ?? 0 }))}>Từ chối kết quả</Button>
               )}
+              {canManageAdHoc && selectedTask.origin === 'ad_hoc' && EDITABLE_AD_HOC_STATUSES.includes(selectedTask.status) && (
+                <>
+                  <Button size="small" loading={busy} icon={<Pencil size={13} />} onClick={() => openAdHocEdit(selectedTask)}>Sửa bước</Button>
+                  <Popconfirm title="Xóa bước riêng này?" description="Chỉ ảnh hưởng đến quy trình của bệnh nhân này." okText="Xóa" cancelText="Thôi" onConfirm={() => runTaskAction(() => cancelAdHocWorkflowTask(selectedTask.id, selectedTask.version ?? 0))}>
+                    <Button size="small" danger loading={busy} icon={<Trash2 size={13} />}>Xóa bước này</Button>
+                  </Popconfirm>
+                </>
+              )}
             </div>
             <Input
               size="small"
@@ -227,6 +286,43 @@ export default function WorkflowInstancePage() {
           </div>
         )}
       </Card>
+
+      <Modal
+        title={adHocModal?.mode === 'edit' ? 'Sửa bước riêng cho bệnh nhân này' : 'Thêm bước riêng cho bệnh nhân này'}
+        open={adHocModal !== null}
+        onCancel={() => setAdHocModal(null)}
+        onOk={submitAdHoc}
+        confirmLoading={busy}
+        okText={adHocModal?.mode === 'edit' ? 'Lưu' : 'Thêm bước'}
+        cancelText="Hủy"
+      >
+        <Text type="secondary" style={{ fontSize: 12.5, display: 'block', marginBottom: 14 }}>
+          Bước này chỉ áp dụng cho quy trình của bệnh nhân {patient?.name ?? 'này'} — không thay đổi quy trình mẫu dùng chung cho các bệnh nhân khác.
+        </Text>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <Text style={{ fontSize: 12.5, display: 'block', marginBottom: 4 }}>Tên bước</Text>
+            <Input value={adHocDraft.name} onChange={(e) => setAdHocDraft((p) => ({ ...p, name: e.target.value }))} placeholder="VD: Tư vấn dinh dưỡng bổ sung" />
+          </div>
+          <div>
+            <Text style={{ fontSize: 12.5, display: 'block', marginBottom: 4 }}>Bộ phận phụ trách</Text>
+            <Select
+              value={adHocDraft.responsibleRole}
+              onChange={(value) => setAdHocDraft((p) => ({ ...p, responsibleRole: value }))}
+              options={AD_HOC_ASSIGNABLE_ROLES.map((value) => ({ value, label: ROLE_LABEL[value] }))}
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div>
+            <Text style={{ fontSize: 12.5, display: 'block', marginBottom: 4 }}>Địa điểm / bộ phận</Text>
+            <Input value={adHocDraft.department} onChange={(e) => setAdHocDraft((p) => ({ ...p, department: e.target.value }))} placeholder="VD: Phòng tư vấn dinh dưỡng" />
+          </div>
+          <div>
+            <Text style={{ fontSize: 12.5, display: 'block', marginBottom: 4 }}>Thời gian dự kiến (phút)</Text>
+            <InputNumber min={0} value={adHocDraft.slaMinutes} onChange={(value) => setAdHocDraft((p) => ({ ...p, slaMinutes: value ?? 0 }))} style={{ width: '100%' }} />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -35,11 +35,14 @@ export const getReceptionSummary = (clinicLocationId: string) => {
   return http.get<ReceptionSummary>(`/api/v1/reception/summary?${query}`);
 };
 
-export async function checkIn(payload: CheckInRequest): Promise<QueueTicket> {
+export async function checkIn(
+  payload: CheckInRequest,
+  options?: { authenticated?: boolean },
+): Promise<QueueTicket> {
   const result = await http.post<ApiCheckInResult>(
     "/api/v1/check-ins",
     payload,
-    { auth: false },
+    { auth: options?.authenticated ?? false },
   );
   return mapQueueTicket(result.ticket);
 }

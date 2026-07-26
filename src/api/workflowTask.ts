@@ -30,6 +30,8 @@ interface WorkflowTaskDto {
   patientArrivalStatus?: WorkflowTask['patientArrivalStatus'];
   reworkCount: number;
   version?: number;
+  origin?: WorkflowTask['origin'];
+  createdBy?: unknown;
 }
 
 export interface ReasonedTaskActionRequest {
@@ -66,6 +68,8 @@ const mapTask = (dto: WorkflowTaskDto): WorkflowTask => ({
   patientArrivalStatus: dto.patientArrivalStatus,
   reworkCount: dto.reworkCount,
   version: dto.version,
+  origin: dto.origin,
+  createdBy: optionalString(dto.createdBy) as UserId | undefined,
 });
 
 const taskPath = (taskId: string) => `/api/v1/workflow-tasks/${encodeURIComponent(taskId)}`;
@@ -96,3 +100,27 @@ export const skipWorkflowTask = (taskId: string, body: ReasonedTaskActionRequest
 
 export const reassignWorkflowTask = (taskId: string, body: ReassignTaskRequest) =>
   http.post<unknown>(`${taskPath(taskId)}/reassign`, body);
+
+export interface CreateAdHocTaskRequest {
+  name: string;
+  responsibleRole: UserRole;
+  department: string;
+  slaMinutes: number;
+}
+
+export interface UpdateAdHocTaskRequest {
+  name?: string;
+  responsibleRole?: UserRole;
+  department?: string;
+  slaMinutes?: number;
+  version: number;
+}
+
+export const createAdHocWorkflowTask = async (instanceId: string, body: CreateAdHocTaskRequest) =>
+  mapTask(await http.post<WorkflowTaskDto>(`/api/v1/workflow-instances/${encodeURIComponent(instanceId)}/tasks`, body));
+
+export const updateAdHocWorkflowTask = async (taskId: string, body: UpdateAdHocTaskRequest) =>
+  mapTask(await http.patch<WorkflowTaskDto>(taskPath(taskId), body));
+
+export const cancelAdHocWorkflowTask = (taskId: string, version: number) =>
+  http.post<unknown>(`${taskPath(taskId)}/cancel`, { version });

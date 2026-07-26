@@ -66,11 +66,25 @@ export const ROLE_CAPABILITY_SUMMARY: Partial<Record<UserRole, readonly string[]
   ],
 };
 
-/** Super administrators are an explicit break-glass platform role and pass
- * every role gate. Keeping the override here prevents route, menu and service
- * authorization from drifting apart. */
+/**
+ * Exact role gate. Privileged roles do not implicitly inherit clinical
+ * permissions: every break-glass or cross-role capability must be declared
+ * explicitly at the call site and enforced again by the backend.
+ */
 export function hasRoleAccess(role: UserRole, allowed: readonly UserRole[]): boolean {
-  return role === 'super_administrator' || allowed.includes(role);
+  return allowed.includes(role);
+}
+
+/**
+ * Patient is the self-service baseline membership. Once an account is also
+ * onboarded as staff, the staff membership becomes its operational role.
+ * Preserve backend order between staff memberships until an explicit active
+ * role selector is available.
+ */
+export function resolveOperationalRole(
+  roles: readonly UserRole[],
+): UserRole {
+  return roles.find((role) => role !== 'patient') ?? roles[0] ?? 'patient';
 }
 
 /** Roles that can be granted through staff invitation or membership

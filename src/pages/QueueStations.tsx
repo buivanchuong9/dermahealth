@@ -57,6 +57,7 @@ export default function QueueStations() {
             <Link
               to={`/queue-display/station/${encodeURIComponent(station.serviceStation)}`}
               target="_blank"
+              rel="noopener noreferrer"
             >
               <Card
                 hoverable

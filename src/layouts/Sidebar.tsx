@@ -26,7 +26,7 @@ const NON_PATIENT_ROLES: UserRole[] = [
 
 const NAV_MAIN: NavItem[] = [
   { key: '/app/dashboard', label: 'Tổng quan', icon: Home, roles: 'all' },
-  { key: '/app/appointments', label: 'Lịch hẹn', icon: Calendar, roles: ['patient', 'receptionist'] },
+  { key: '/app/appointments', label: 'Lịch hẹn', icon: Calendar, roles: ['patient', 'receptionist', 'super_administrator'] },
   {
     key: 'group:exam', label: 'Khám bệnh', icon: Stethoscope, roles: ['patient'],
     children: [
@@ -36,8 +36,8 @@ const NAV_MAIN: NavItem[] = [
   },
   { key: '/app/journey', label: 'Tiến trình khám bệnh', icon: MapPinned, roles: NON_PATIENT_ROLES },
   { key: '/app/doctor-review', label: 'Xem xét & Chẩn đoán', icon: Stethoscope, roles: ['doctor'] },
-  { key: '/app/work-queue', label: 'Hàng đợi công việc', icon: ListChecks, roles: ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator'] },
-  { key: '/app/workflows/templates', label: 'Quy trình BPM', icon: Workflow, roles: ['clinical_process_designer', 'medical_administrator'] },
+  { key: '/app/work-queue', label: 'Hàng đợi công việc', icon: ListChecks, roles: ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator', 'super_administrator'] },
+  { key: '/app/workflows/templates', label: 'Quy trình BPM', icon: Workflow, roles: ['clinical_process_designer', 'medical_administrator', 'super_administrator'] },
   {
     key: 'group:treatment', label: 'Điều trị', icon: Activity, roles: ['patient'],
     children: [
@@ -46,14 +46,14 @@ const NAV_MAIN: NavItem[] = [
       { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['patient'] },
     ],
   },
-  { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['care_coordinator', 'customer_care_employee', 'medical_administrator'] },
-  { key: '/app/reception/qr-check-in', label: 'Check-in QR', icon: QrCode, roles: ['receptionist', 'medical_administrator'] },
-  { key: '/app/reception', label: 'Trung tâm lễ tân', icon: User, roles: ['receptionist', 'medical_administrator'] },
-  { key: '/app/clinic-queue', label: 'Điều phối hàng đợi', icon: MonitorPlay, roles: ['receptionist', 'nurse', 'doctor', 'medical_administrator'] },
+  { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['care_coordinator', 'customer_care_employee', 'medical_administrator', 'super_administrator'] },
+  { key: '/app/reception/qr-check-in', label: 'Check-in QR', icon: QrCode, roles: ['receptionist', 'medical_administrator', 'super_administrator'] },
+  { key: '/app/reception', label: 'Trung tâm lễ tân', icon: User, roles: ['receptionist', 'medical_administrator', 'super_administrator'] },
+  { key: '/app/clinic-queue', label: 'Điều phối hàng đợi', icon: MonitorPlay, roles: ['receptionist', 'nurse', 'doctor', 'medical_administrator', 'super_administrator'] },
   { key: '/app/prescriptions', label: 'Đơn thuốc', icon: BarChart2, roles: ['patient'] },
   { key: '/app/reports', label: 'Báo cáo', icon: BarChart2, roles: ['patient'] },
-  { key: '/app/audit', label: 'Nhật ký kiểm toán', icon: ShieldCheck, roles: ['medical_administrator', 'system_administrator'] },
-  { key: '/app/integrations', label: 'Tình trạng tích hợp', icon: Plug, roles: ['system_administrator', 'medical_administrator'] },
+  { key: '/app/audit', label: 'Nhật ký kiểm toán', icon: ShieldCheck, roles: ['medical_administrator', 'system_administrator', 'super_administrator'] },
+  { key: '/app/integrations', label: 'Tình trạng tích hợp', icon: Plug, roles: ['system_administrator', 'medical_administrator', 'super_administrator'] },
   { key: '/app/staff', label: 'Quản lý nhân sự', icon: UserPlus, roles: ['super_administrator', 'medical_administrator'] },
   { key: '/app/practitioner-schedule', label: 'Lịch làm việc bác sĩ', icon: Clock, roles: ['doctor', 'medical_administrator', 'super_administrator'] },
   { key: '/app/owner', label: 'Owner Control Center', icon: KeyRound, roles: ['super_administrator'] },

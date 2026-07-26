@@ -212,6 +212,7 @@ export async function listPractitioners(): Promise<Practitioner[]> {
     id: row.id as User["id"],
     name: row.displayName,
     role: "doctor",
+    roles: ["doctor"],
     specialty:
       row.specialties.find((item) => item.primary)?.name ??
       row.specialties[0]?.name,
