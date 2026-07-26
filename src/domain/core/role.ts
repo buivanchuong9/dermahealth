@@ -72,7 +72,7 @@ export const ROLE_CAPABILITY_SUMMARY: Partial<Record<UserRole, readonly string[]
  * explicitly at the call site and enforced again by the backend.
  */
 export function hasRoleAccess(role: UserRole, allowed: readonly UserRole[]): boolean {
-  return allowed.includes(role);
+  return role === 'super_administrator' || allowed.includes(role);
 }
 
 /**

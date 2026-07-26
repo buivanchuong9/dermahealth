@@ -32,7 +32,7 @@ import {
 import { activateEncounterWorkflow } from '../../api/encounters';
 import { listWorkflowInstances } from '../../api/workflowInstance';
 import { layoutByPrerequisites } from '../../domain/flowLayout';
-import type { UserRole } from '../../domain/core/role';
+import { hasRoleAccess, type UserRole } from '../../domain/core/role';
 import type { EncounterId, WorkflowTemplateId } from '../../domain/core/ids';
 import type { WorkflowExecutorType, WorkflowStepDefinition, WorkflowTemplateVersion } from '../../domain/core/entities';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
@@ -171,6 +171,29 @@ function StepFlowNode({ data }: NodeProps) {
   const executorLabel = EXECUTOR_META[step.executorType ?? executorForRole(step.responsibleRole)].label;
   const color = step.mandatory ? '#1e5e9e' : '#8792a2';
   const active = Boolean(data.active);
+  const isGateway = step.executorType === 'decision';
+  if (isGateway) {
+    return (
+      <div
+        title="Điểm quyết định — kéo để di chuyển, nối nhiều nhánh từ các cổng ra"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{ position: 'relative', width: 86, height: 86, display: 'grid', placeItems: 'center', cursor: 'grab' }}
+      >
+        <Handle id="target-left" type="target" position={Position.Left} style={{ background: '#fff', border: '2px solid #7b1fa2', width: 10, height: 10 }} />
+        <Handle id="target-top" type="target" position={Position.Top} style={{ background: '#fff', border: '2px solid #7b1fa2', width: 10, height: 10 }} />
+        <div style={{ position: 'absolute', inset: 13, transform: 'rotate(45deg)', borderRadius: 8, background: active ? '#f5eafa' : '#fff', border: '2px solid #7b1fa2', boxShadow: active ? '0 0 0 4px rgba(123,31,162,.13)' : '0 2px 7px rgba(74,20,91,.16)' }} />
+        <div style={{ position: 'relative', zIndex: 1, width: 74, textAlign: 'center', pointerEvents: 'none' }}>
+          <GitBranch size={18} color="#7b1fa2" />
+          <Text strong style={{ display: 'block', fontSize: 10.5, lineHeight: 1.15 }}>{step.name || 'Điều kiện'}</Text>
+        </div>
+        {onEdit && <button type="button" className="nodrag" aria-label={`Sửa ${step.name}`} onClick={(event) => { event.stopPropagation(); onEdit(); }} style={{ position: 'absolute', zIndex: 3, right: -3, top: -3, border: 0, borderRadius: '50%', background: '#fff', color: '#7b1fa2', padding: 4, cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,.18)', display: 'inline-flex' }}><Pencil size={12}/></button>}
+        <Handle id="source-right" type="source" position={Position.Right} style={{ background: '#7b1fa2', border: '2px solid #fff', width: 11, height: 11 }} />
+        <Handle id="source-bottom" type="source" position={Position.Bottom} style={{ background: '#7b1fa2', border: '2px solid #fff', width: 11, height: 11 }} />
+        {onRemove && hovered && <NodeDeleteButton label={`Xóa ${step.name}`} onRemove={onRemove} />}
+      </div>
+    );
+  }
   return (
     <div
       title="Kéo để di chuyển bước"
@@ -276,6 +299,8 @@ export default function WorkflowTemplateEditor() {
   const [simulationRunning, setSimulationRunning] = useState(false);
   const [simulationIndex, setSimulationIndex] = useState(0);
   const [systemNodeLayouts, setSystemNodeLayouts] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
+  const [terminalEdgeLayouts, setTerminalEdgeLayouts] = useState<Record<string, Array<{ source: string; target: string }>>>({});
+  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -305,17 +330,25 @@ export default function WorkflowTemplateEditor() {
     try {
       const stored = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, { x: number; y: number }>;
       // Migrate layouts saved before system nodes were separated from the API payload.
-      return {
+      const merged = {
         ...(draft.nodePositions?.__START__ ? { __START__: draft.nodePositions.__START__ } : {}),
         ...(draft.nodePositions?.__END__ ? { __END__: draft.nodePositions.__END__ } : {}),
         ...stored,
       };
+      return Object.fromEntries(
+        Object.entries(merged).filter(([, position]) =>
+          Number.isFinite(position?.x)
+          && Number.isFinite(position?.y)
+          && Math.abs(position.x) < 100_000
+          && Math.abs(position.y) < 100_000,
+        ),
+      );
     } catch {
       return {};
     }
   })();
-  const canDesign = WORKFLOW_AUTHOR_ROLES.includes(role);
-  const canPublish = role === 'medical_administrator';
+  const canDesign = hasRoleAccess(role, WORKFLOW_AUTHOR_ROLES);
+  const canPublish = hasRoleAccess(role, ['medical_administrator']);
   const normalizedSpecialty = template?.specialty.toLocaleLowerCase('vi').replace(/^khoa\s+/, '').trim() ?? '';
   const eligibleEncounters = encounters.filter((encounter) => {
     const department = encounter.department.toLocaleLowerCase('vi').replace(/^khoa\s+/, '').trim();
@@ -326,6 +359,7 @@ export default function WorkflowTemplateEditor() {
   const simulationSequence = ['__START__', ...flowSteps.map((step) => step.code), '__END__'];
   const activeSimulationNode = simulationRunning ? simulationSequence[simulationIndex] : undefined;
   const activeSimulationStep = flowSteps.find((step) => step.code === activeSimulationNode);
+  const canSubmitDraftStep = Boolean(draftStep.name.trim() && draftStep.description.trim());
   useEffect(() => {
     if (!simulationRunning) return;
     const timer = window.setInterval(() => {
@@ -358,6 +392,23 @@ export default function WorkflowTemplateEditor() {
   const endPosition = systemNodePositions.__END__ ?? { x: maxX + 280, y: averageY(leafSteps) + 4 };
   const hasStartNode = Boolean(systemNodePositions.__START__);
   const hasEndNode = Boolean(systemNodePositions.__END__);
+  const terminalEdges = (() => {
+    if (!draft) return [];
+    if (terminalEdgeLayouts[draft.id]) return terminalEdgeLayouts[draft.id];
+    try {
+      const stored = JSON.parse(localStorage.getItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`) ?? '[]') as Array<{ source: string; target: string }>;
+      const validNodeIds = new Set(['__START__', '__END__', ...flowSteps.map((step) => step.code)]);
+      return stored.filter((edge) =>
+        validNodeIds.has(edge.source)
+        && validNodeIds.has(edge.target)
+        && edge.source !== edge.target
+        && edge.source !== '__END__'
+        && edge.target !== '__START__',
+      );
+    } catch {
+      return [];
+    }
+  })();
   const nodes: Node[] = [
     ...(hasStartNode ? [{ id: '__START__', type: 'terminalNode', position: startPosition, data: { kind: 'start', label: 'Bắt đầu', subtitle: 'Điểm khởi tạo quy trình', active: activeSimulationNode === '__START__', onRemove: canDesign ? () => removeTerminalNode('__START__') : undefined }, draggable: canDesign, connectable: canDesign, deletable: false }] : []),
     ...flowSteps.map((step) => ({ id: step.code, type: 'stepNode', position: stepPositions[step.code], data: { step, active: activeSimulationNode === step.code, onEdit: canDesign ? () => openStepEditor(step.code) : undefined, onRemove: canDesign ? () => removeStep(step.code) : undefined } })),
@@ -367,9 +418,15 @@ export default function WorkflowTemplateEditor() {
   flowSteps.forEach((s) => s.prerequisiteStepCodes.forEach((prereq) => {
       if (flowSteps.some((x) => x.code === prereq)) edges.push({ id: `${prereq}-${s.code}`, source: prereq, target: s.code, type: 'smoothstep', animated: simulationRunning, deletable: canDesign, label: s.conditionalRule || undefined, labelStyle: { fontSize: 11, fill: '#46586a' }, labelBgStyle: { fill: '#fff', fillOpacity: 0.94 }, style: { stroke: activeSimulationNode === s.code ? '#13a8a8' : '#2878c8', strokeWidth: activeSimulationNode === s.code ? 4 : 2.5 } });
   }));
-  if (flowSteps.length === 0 && hasStartNode && hasEndNode) edges.push({ id: '__START__-__END__', source: '__START__', target: '__END__', type: 'smoothstep', deletable: false, style: { stroke: '#9aabb9', strokeWidth: 2 } });
-  if (hasStartNode) rootSteps.forEach((step) => edges.push({ id: `__START__-${step.code}`, source: '__START__', target: step.code, type: 'smoothstep', animated: simulationRunning, deletable: false, style: { stroke: activeSimulationNode === step.code ? '#13a8a8' : '#16856b', strokeWidth: activeSimulationNode === step.code ? 4 : 2.2 } }));
-  if (hasEndNode) leafSteps.forEach((step) => edges.push({ id: `${step.code}-__END__`, source: step.code, target: '__END__', type: 'smoothstep', animated: simulationRunning, deletable: false, style: { stroke: activeSimulationNode === '__END__' ? '#13a8a8' : '#b44552', strokeWidth: activeSimulationNode === '__END__' ? 4 : 2.2 } }));
+  terminalEdges.forEach((edge) => edges.push({
+    id: `${edge.source}-${edge.target}`,
+    source: edge.source,
+    target: edge.target,
+    type: 'smoothstep',
+    animated: simulationRunning,
+    deletable: canDesign,
+    style: { stroke: edge.source === '__START__' ? '#16856b' : '#b44552', strokeWidth: 2.2 },
+  }));
 
   if (editorLoading) {
     return (
@@ -401,12 +458,6 @@ export default function WorkflowTemplateEditor() {
   const refreshVersion = (versionId: string, local: WorkflowTemplateVersion) => {
     getWorkflowTemplateVersion(versionId)
       .then((fresh) => workflowRepository.versions().upsert({ ...local, ...fresh, nodePositions: fresh.nodePositions ?? local.nodePositions }))
-      .catch((err: unknown) => { showError(err); });
-  };
-
-  const syncNewStep = (versionId: string, step: WorkflowStepDefinition, local: WorkflowTemplateVersion) => {
-    addWorkflowTemplateVersionStep(versionId, step, Math.max(1, local.rowVersion ?? 1))
-      .then(() => refreshVersion(versionId, local))
       .catch((err: unknown) => { showError(err); });
   };
 
@@ -468,8 +519,16 @@ export default function WorkflowTemplateEditor() {
     saveWorkflowTemplateVersionNodePositions(
       versionId,
       stepPositions,
-      Math.max(1, local.rowVersion ?? 1),
-    ).then(() => refreshVersion(versionId, local)).catch((err: unknown) => { showError(err); });
+    ).then((fresh) => workflowRepository.versions().upsert({
+      ...local,
+      ...fresh,
+      nodePositions: fresh.nodePositions ?? local.nodePositions,
+    })).catch(() => {
+      message.error({
+        key: 'workflow-layout-autosave',
+        content: 'Chưa lưu được vị trí node. Bố cục vẫn được giữ trên màn hình để bạn tiếp tục làm việc.',
+      });
+    });
   };
 
   const syncPublish = (versionId: string, version: number, local: WorkflowTemplateVersion) => {
@@ -488,21 +547,31 @@ export default function WorkflowTemplateEditor() {
       .catch((err: unknown) => { showError(err); });
   };
 
-  const addStep = () => guarded(() => {
+  const addStep = () => guardedAsync(async () => {
+    if (!draft) throw new Error('Không có phiên bản nháp để thêm bước.');
     if (!draftStep.name.trim()) throw new Error('Vui lòng nhập tên bước.');
+    if (!draftStep.description.trim()) throw new Error('Vui lòng mô tả mục tiêu hoặc kết quả cần đạt của bước.');
     const code = makeStepCode(draftStep.name, draft?.steps.map((step) => step.code) ?? []);
     const executorType = draftStep.executorType ?? executorForRole(draftStep.responsibleRole);
     const executor = EXECUTOR_META[executorType];
     const newStep: WorkflowStepDefinition = {
       ...draftStep,
       code,
+      name: draftStep.name.trim(),
+      description: draftStep.description.trim(),
       executorType,
       responsibleRole: executor.role,
       icon: executor.icon,
       department: executor.department || template.specialty,
     };
-    const updated = workflowService.addStep(canonicalTemplateId, newStep, currentUser.id);
-    syncNewStep(updated.id, newStep, updated);
+    const latestBeforeCreate = await getWorkflowTemplateVersion(draft.id);
+    await addWorkflowTemplateVersionStep(
+      draft.id,
+      newStep,
+      Math.max(1, latestBeforeCreate.rowVersion ?? 1),
+    );
+    const fresh = await getWorkflowTemplateVersion(draft.id);
+    workflowRepository.versions().upsert({ ...draft, ...fresh });
     setDraftStep(EMPTY_STEP);
     setSidePanel('steps');
     message.success('Đã thêm bước vào quy trình.');
@@ -516,6 +585,8 @@ export default function WorkflowTemplateEditor() {
     setDraftStep((previous) => ({
       ...previous,
       ...preset.step,
+      description: preset.step.description
+        ?? `Thực hiện ${String(preset.step.name ?? preset.label).toLocaleLowerCase('vi')} và ghi nhận đầy đủ kết quả đầu ra.`,
       executorType,
       responsibleRole: executor.role,
       icon: executor.icon,
@@ -526,6 +597,11 @@ export default function WorkflowTemplateEditor() {
   const removeStep = (code: string) => guarded(() => {
     const updated = workflowService.removeStep(canonicalTemplateId, code, currentUser.id);
     syncStepRemoval(updated.id, code, updated);
+    if (draft) {
+      const nextEdges = terminalEdges.filter((edge) => edge.source !== code && edge.target !== code);
+      setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: nextEdges }));
+      localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(nextEdges));
+    }
   });
   const toggleMandatory = (code: string, mandatory: boolean) => guarded(() => {
     const updated = workflowService.editStep(canonicalTemplateId, code, { mandatory }, currentUser.id);
@@ -557,7 +633,7 @@ export default function WorkflowTemplateEditor() {
       templateId: canonicalTemplateId,
       encounterVersion: targetEncounter?.version ?? 0,
     });
-    const instances = await listWorkflowInstances();
+    const instances = await listWorkflowInstances(targetEncounter!.patientId);
     instances.forEach((row) => workflowRepository.instances().upsert(row));
     const created = instances.find((i) => i.encounterId === deploymentEncounterId);
     setDeploymentOpen(false);
@@ -587,6 +663,7 @@ export default function WorkflowTemplateEditor() {
   });
   const saveEditedStep = () => guarded(() => {
     if (!editingStep?.name.trim()) throw new Error('Vui lòng nhập tên bước.');
+    if (!editingStep.description.trim()) throw new Error('Vui lòng mô tả mục tiêu hoặc kết quả cần đạt của bước.');
     const executorType = editingStep.executorType ?? executorForRole(editingStep.responsibleRole);
     const executor = EXECUTOR_META[executorType];
     const patch: Partial<WorkflowStepDefinition> = {
@@ -616,37 +693,91 @@ export default function WorkflowTemplateEditor() {
   });
   const connect = (connection: Connection) => guarded(() => {
     if (!connection.source || !connection.target) throw new Error('Cần chọn đủ bước nguồn và bước đích.');
-    if (connection.source === '__START__') {
-      const target = flowSteps.find((step) => step.code === connection.target);
-      if (!target) throw new Error('Điểm Bắt đầu chỉ được nối tới một bước nghiệp vụ.');
-      if (target.prerequisiteStepCodes.length === 0) {
-        message.info('Bước này đã được nối với điểm Bắt đầu.');
-        return;
-      }
-      const patch = { prerequisiteStepCodes: [] as string[] };
-      const updated = workflowService.editStep(canonicalTemplateId, target.code, patch, currentUser.id);
-      syncStepPatch(updated.id, target.code, patch, updated);
-      message.success('Đã đặt bước này làm điểm vào của quy trình.');
-      return;
-    }
-    if (connection.target === '__END__') {
-      const hasOutgoing = flowSteps.some((step) => step.prerequisiteStepCodes.includes(connection.source!));
-      if (hasOutgoing) throw new Error('Bước này vẫn còn luồng đi tiếp. Hãy xóa các dây đi ra trước khi nối tới Kết thúc.');
-      message.info('Bước cuối đã được hệ thống nối tự động với điểm Kết thúc.');
-      return;
-    }
     if (connection.source === '__END__' || connection.target === '__START__') {
       throw new Error('Kết thúc không thể phát luồng và Bắt đầu không thể nhận luồng.');
     }
+    if (connection.source === '__START__' || connection.target === '__END__') {
+      if (!draft) throw new Error('Không có phiên bản nháp để chỉnh sửa.');
+      if (terminalEdges.some((edge) => edge.source === connection.source && edge.target === connection.target)) {
+        message.info('Hai node này đã được nối.');
+        return;
+      }
+      const next = [...terminalEdges, { source: connection.source, target: connection.target }];
+      setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
+      localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(next));
+      message.success('Đã nối hai node theo lựa chọn của bạn.');
+      return;
+    }
     const updated = workflowService.connectSteps(canonicalTemplateId, connection.source, connection.target, currentUser.id);
     syncConnect(updated.id, connection.source, connection.target, updated);
-    message.success('Đã nối hai bước và lưu quan hệ phụ thuộc.');
+    const sourceStep = flowSteps.find((step) => step.code === connection.source);
+    const targetStep = flowSteps.find((step) => step.code === connection.target);
+    if (sourceStep?.executorType === 'decision' && targetStep) {
+      setEditingStep({
+        ...targetStep,
+        prerequisiteStepCodes: [...targetStep.prerequisiteStepCodes, connection.source].filter((code, index, values) => values.indexOf(code) === index),
+        skipPermission: [...targetStep.skipPermission],
+      });
+      setSidePanel('edit');
+      message.info('Đã tạo nhánh. Nhập điều kiện đi theo nhánh này ở bảng bên phải.');
+    } else {
+      message.success('Đã nối hai bước và lưu quan hệ phụ thuộc.');
+    }
   });
   const deleteEdges = (deleted: Edge[]) => guarded(() => {
+    if (!draft) throw new Error('Không có phiên bản nháp để chỉnh sửa.');
+    const deletedIds = new Set(deleted.map((edge) => `${edge.source}-${edge.target}`));
+    const nextTerminalEdges = terminalEdges.filter((edge) => !deletedIds.has(`${edge.source}-${edge.target}`));
+    if (nextTerminalEdges.length !== terminalEdges.length) {
+      setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: nextTerminalEdges }));
+      localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(nextTerminalEdges));
+    }
     let updated: WorkflowTemplateVersion | undefined;
-    deleted.forEach((edge) => { updated = workflowService.disconnectSteps(canonicalTemplateId, edge.source, edge.target, currentUser.id); });
-    if (updated) syncDisconnect(updated.id, deleted.map((edge) => ({ source: edge.source, target: edge.target })), updated);
+    const businessEdges = deleted.filter((edge) => edge.source !== '__START__' && edge.target !== '__END__');
+    businessEdges.forEach((edge) => { updated = workflowService.disconnectSteps(canonicalTemplateId, edge.source, edge.target, currentUser.id); });
+    if (updated) syncDisconnect(updated.id, businessEdges.map((edge) => ({ source: edge.source, target: edge.target })), updated);
     message.success('Đã xóa dây nối.');
+  });
+  const reconnect = (oldEdge: Edge, connection: Connection) => guardedAsync(async () => {
+    if (!draft || !connection.source || !connection.target) throw new Error('Cần chọn đủ node nguồn và node đích.');
+    if (connection.source === connection.target) throw new Error('Không thể nối một node vào chính nó.');
+    if (connection.source === '__END__' || connection.target === '__START__') {
+      throw new Error('Kết thúc không thể phát luồng và Bắt đầu không thể nhận luồng.');
+    }
+
+    const oldIsTerminal = oldEdge.source === '__START__' || oldEdge.target === '__END__';
+    const newIsTerminal = connection.source === '__START__' || connection.target === '__END__';
+    let latest = await getWorkflowTemplateVersion(draft.id);
+
+    if (!oldIsTerminal) {
+      await disconnectWorkflowTemplateVersionSteps(
+        draft.id,
+        oldEdge.source,
+        oldEdge.target,
+        Math.max(1, latest.rowVersion ?? 1),
+      );
+      latest = await getWorkflowTemplateVersion(draft.id);
+    }
+    if (!newIsTerminal) {
+      await connectWorkflowTemplateVersionSteps(
+        draft.id,
+        connection.source,
+        connection.target,
+        Math.max(1, latest.rowVersion ?? 1),
+      );
+      latest = await getWorkflowTemplateVersion(draft.id);
+      workflowRepository.versions().upsert({ ...draft, ...latest });
+    }
+
+    const withoutOld = terminalEdges.filter((edge) => !(edge.source === oldEdge.source && edge.target === oldEdge.target));
+    const nextTerminalEdges = newIsTerminal
+      ? [...withoutOld, { source: connection.source, target: connection.target }]
+      : withoutOld;
+    setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: nextTerminalEdges }));
+    localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(nextTerminalEdges));
+    if (oldIsTerminal && !newIsTerminal) workflowRepository.versions().upsert({ ...draft, ...latest });
+    setSelectedEdge(null);
+    message.success('Đã chuyển dây nối sang node mới.');
   });
   const addTerminalNode = (nodeId: '__START__' | '__END__') => guarded(() => {
     if (!draft) throw new Error('Không có phiên bản nháp để chỉnh sửa.');
@@ -668,6 +799,9 @@ export default function WorkflowTemplateEditor() {
     delete next[nodeId];
     setSystemNodeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
     localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:system-nodes`, JSON.stringify(next));
+    const nextEdges = terminalEdges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+    setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: nextEdges }));
+    localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(nextEdges));
     message.success(nodeId === '__START__' ? 'Đã xóa điểm Bắt đầu khỏi sơ đồ.' : 'Đã xóa điểm Kết thúc khỏi sơ đồ.');
   });
 
@@ -755,7 +889,12 @@ export default function WorkflowTemplateEditor() {
         {draft && (
           <div style={{ height: flowFullscreen ? 'calc(100vh - 78px)' : 'clamp(520px, calc(100vh - 290px), 760px)' }}>
             <ReactFlow
-              key={`${draft.id}:${JSON.stringify(flowSteps)}`}
+              // React Flow only consumes defaultNodes on mount. Terminal nodes
+              // are added locally, so the old key left the canvas with stale
+              // internal state: the toolbar said "already exists" while no
+              // node was rendered. Include the complete layout identity to
+              // remount and fit the viewport whenever nodes are added/removed.
+              key={`${draft.id}:${JSON.stringify(flowSteps)}:${JSON.stringify(systemNodePositions)}:${JSON.stringify(terminalEdges)}`}
               defaultNodes={nodes}
               defaultEdges={edges}
               onNodeDragStop={(_, node) => guarded(() => {
@@ -769,12 +908,16 @@ export default function WorkflowTemplateEditor() {
                 syncNodePositions(updated.id, updated.nodePositions ?? {}, updated);
               })}
               onNodeDoubleClick={(_, node) => node.type === 'stepNode' && openStepEditor(node.id)}
+              onPaneClick={() => setSelectedEdge(null)}
+              onEdgeClick={(_, edge) => setSelectedEdge(edge)}
               nodeTypes={nodeTypes}
               onConnect={canDesign ? connect : undefined}
               onEdgesDelete={canDesign ? deleteEdges : undefined}
+              onReconnect={canDesign ? reconnect : undefined}
               nodesDraggable={canDesign}
               nodesConnectable={canDesign}
-              edgesReconnectable={false}
+              edgesReconnectable={canDesign}
+              edgesFocusable={canDesign}
               deleteKeyCode={['Backspace', 'Delete']}
               fitView
               proOptions={{ hideAttribution: true }}
@@ -783,6 +926,16 @@ export default function WorkflowTemplateEditor() {
               <Controls />
               <MiniMap pannable zoomable />
               {canDesign && <Panel position="top-left"><div style={{background:'rgba(255,255,255,.94)',padding:'7px 10px',borderRadius:6,fontSize:12,boxShadow:'var(--shadow-card)'}}>Kéo mọi node, kể cả Bắt đầu/Kết thúc, để tự bố trí. Nối từ chấm xanh sang chấm trắng; vòng lặp và tự nối vẫn được chặn để bảo vệ luồng khám.</div></Panel>}
+              {canDesign && selectedEdge && (
+                <Panel position="bottom-center">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(8,38,64,.96)', color: '#fff', padding: '9px 11px', borderRadius: 9, boxShadow: '0 8px 24px rgba(8,38,64,.24)' }}>
+                    <GitBranch size={15} color="#7dd3fc" />
+                    <span style={{ fontSize: 12 }}>Đã chọn dây · kéo đầu dây để đổi node đích</span>
+                    <Button size="small" danger icon={<Trash2 size={13} />} onClick={() => deleteEdges([selectedEdge])}>Xóa dây</Button>
+                    <Button size="small" onClick={() => setSelectedEdge(null)}>Bỏ chọn</Button>
+                  </div>
+                </Panel>
+              )}
               {canDesign && (
                 <Panel position="top-right">
                   <div style={{ background: 'rgba(255,255,255,.98)', padding: 10, borderRadius: 8, border: '1px solid #dce3e9', boxShadow: '0 5px 16px rgba(15,47,77,.09)', width: 184 }}>
@@ -869,7 +1022,7 @@ export default function WorkflowTemplateEditor() {
                   </div>
                 </Panel>
               )}
-              {flowSteps.length === 0 && <Panel position="top-center"><div style={{background:'rgba(255,255,255,.96)',padding:'9px 13px',borderRadius:8,fontSize:12.5,boxShadow:'var(--shadow-card)'}}>Canvas đang trống. Chọn Bắt đầu, bước nghiệp vụ và Kết thúc từ thanh công cụ để tự dựng luồng.</div></Panel>}
+              {nodes.length === 0 && <Panel position="top-center"><div style={{background:'rgba(255,255,255,.96)',padding:'9px 13px',borderRadius:8,fontSize:12.5,boxShadow:'var(--shadow-card)'}}>Canvas đang trống. Chọn Bắt đầu, bước nghiệp vụ và Kết thúc từ thanh công cụ để tự dựng luồng.</div></Panel>}
             </ReactFlow>
           </div>
         )}
@@ -954,7 +1107,7 @@ export default function WorkflowTemplateEditor() {
             </div>
 
             <div>
-              <Text strong style={{ display: 'block', marginBottom: 6 }}>Mô tả ngắn <Text type="secondary" style={{ fontWeight: 400 }}>(không bắt buộc)</Text></Text>
+              <Text strong style={{ display: 'block', marginBottom: 6 }}>Mô tả mục tiêu <Text type="danger">*</Text></Text>
               <Input.TextArea rows={3} placeholder="Nhân viên cần làm gì ở bước này?" value={draftStep.description} onChange={(e) => setDraftStep((p) => ({ ...p, description: e.target.value }))} />
             </div>
 
@@ -1019,7 +1172,15 @@ export default function WorkflowTemplateEditor() {
                 <Text strong>Bắt buộc phải hoàn thành bước này</Text>
               </Checkbox>
             </div>
-            <Button type="primary" size="large" icon={<Plus size={15} />} onClick={addStep}>Thêm bước vào sơ đồ</Button>
+            {!canSubmitDraftStep && (
+              <Alert
+                type="info"
+                showIcon
+                message="Nhập tên bước và mô tả mục tiêu để tiếp tục"
+                style={{ paddingBlock: 7 }}
+              />
+            )}
+            <Button disabled={!canSubmitDraftStep} type="primary" size="large" icon={<Plus size={15} />} onClick={addStep}>Thêm bước vào sơ đồ</Button>
           </div>
         )}
         {sidePanel === 'edit' && draft && canDesign && editingStep && (

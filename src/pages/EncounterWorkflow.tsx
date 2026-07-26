@@ -16,13 +16,14 @@ export default function EncounterWorkflow() {
   useEffect(() => {
     if (!encounterId) return;
     let active = true;
-    Promise.all([
-      getEncounter(encounterId),
-      listWorkflowInstances(),
-    ])
-      .then(([encounterRow, instances]) => {
-        if (!active) return;
+    getEncounter(encounterId)
+      .then(async (encounterRow) => {
         const mappedEncounter = mapEncounter(encounterRow);
+        const instances = await listWorkflowInstances(mappedEncounter.patientId);
+        return { mappedEncounter, instances };
+      })
+      .then(({ mappedEncounter, instances }) => {
+        if (!active) return;
         const matchingInstance = instances.find(
           (item) => item.encounterId === encounterId,
         );

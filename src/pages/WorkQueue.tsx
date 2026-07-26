@@ -52,11 +52,11 @@ function columnFor(task: WorkflowTask, myUserId: string): ColumnKey | null {
   return null;
 }
 
-function TaskCard({ task, encounterLabel, ghost }: { task: WorkflowTask; encounterLabel: string; ghost?: boolean }) {
+function TaskCard({ task, encounterLabel, ghost, readOnly }: { task: WorkflowTask; encounterLabel: string; ghost?: boolean; readOnly?: boolean }) {
   // Không áp `transform` lên thẻ gốc — DragOverlay là bản ghost bay theo chuột;
   // transform cả thẻ gốc sẽ tạo 2 thẻ cùng di chuyển, thẻ gốc bị overflow cắt.
   // `ghost` = bản copy trong DragOverlay: hiển thị nét, không đăng ký ref trùng id.
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, data: { task }, disabled: ghost });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, data: { task }, disabled: ghost || readOnly });
   const minutesLeft = overdueMinutes(task);
   return (
     <div
@@ -64,16 +64,18 @@ function TaskCard({ task, encounterLabel, ghost }: { task: WorkflowTask; encount
       style={{
         visibility: !ghost && isDragging ? 'hidden' : 'visible',
         background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 8,
-        padding: '10px 12px', marginBottom: 8, cursor: 'grab',
+        padding: '10px 12px', marginBottom: 8, cursor: readOnly ? 'default' : 'grab',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
         <Link to={`/app/workflows/instances/${task.instanceId}`} style={{ fontWeight: 600, fontSize: 13, color: 'var(--medical-blue-700)' }}>{task.name}</Link>
-        <DragHandle
-          attributes={attributes}
-          listeners={listeners}
-          label={`Kéo để chuyển tác vụ "${task.name}" sang cột khác`}
-        />
+        {!readOnly && (
+          <DragHandle
+            attributes={attributes}
+            listeners={listeners}
+            label={`Kéo để chuyển tác vụ "${task.name}" sang cột khác`}
+          />
+        )}
       </div>
       <Text type="secondary" style={{ fontSize: 11.5, display: 'block', margin: '4px 0' }}>{encounterLabel} · {ROLE_LABEL[task.responsibleRole]}</Text>
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -86,8 +88,8 @@ function TaskCard({ task, encounterLabel, ghost }: { task: WorkflowTask; encount
   );
 }
 
-function Column({ col, tasks, encounterLabelFor }: { col: (typeof COLUMNS)[number]; tasks: WorkflowTask[]; encounterLabelFor: (t: WorkflowTask) => string }) {
-  const { setNodeRef, isOver } = useDroppable({ id: col.key });
+function Column({ col, tasks, encounterLabelFor, readOnly }: { col: (typeof COLUMNS)[number]; tasks: WorkflowTask[]; encounterLabelFor: (t: WorkflowTask) => string; readOnly?: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.key, disabled: readOnly });
   return (
     <div
       ref={setNodeRef}
@@ -101,8 +103,8 @@ function Column({ col, tasks, encounterLabelFor }: { col: (typeof COLUMNS)[numbe
         <Text strong style={{ fontSize: 13 }}>{col.title}</Text>
         <Tag>{tasks.length}</Tag>
       </div>
-      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 10 }}>{col.hint}</Text>
-      {tasks.map((t) => <TaskCard key={t.id} task={t} encounterLabel={encounterLabelFor(t)} />)}
+      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 10 }}>{readOnly ? 'Chỉ xem — vai trò của bạn không thao tác trực tiếp tác vụ lâm sàng.' : col.hint}</Text>
+      {tasks.map((t) => <TaskCard key={t.id} task={t} encounterLabel={encounterLabelFor(t)} readOnly={readOnly} />)}
       {tasks.length === 0 && <ProfessionalEmpty compact title="Không có tác vụ" description="Cột này chưa có công việc phù hợp." />}
     </div>
   );
@@ -124,8 +126,13 @@ export default function WorkQueue() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
 
+  // Backend chặn tuyệt đối claim/start/complete/escalate/reassign cho
+  // super_administrator (workflow-policies.ts assertCanActOnTask — không có
+  // bypass, vì thao tác tác vụ lâm sàng không thuộc phạm vi quản trị nền
+  // tảng). Vai trò này chỉ được xem toàn bộ hàng đợi, không thao tác được.
+  const canAct = role !== 'super_administrator';
   const departments = useMemo(() => Array.from(new Set(tasks.map((t) => t.department))), [tasks]);
-  const visibleForRole = tasks.filter((t) => hasRoleAccess(role, ['medical_administrator', 'system_administrator']) || t.responsibleRole === role);
+  const visibleForRole = tasks.filter((t) => hasRoleAccess(role, ['medical_administrator', 'system_administrator', 'super_administrator']) || t.responsibleRole === role);
   const filtered = visibleForRole.filter((t) =>
     (department === 'all' || t.department === department) &&
     (statusFilter === 'all' || t.status === statusFilter) &&
@@ -229,7 +236,7 @@ export default function WorkQueue() {
         <div>
           <Title level={3} style={{ margin: '4px 0 0' }}>Hàng Đợi Công Việc</Title>
         </div>
-        <Button type="primary" icon={<Zap size={15} />} onClick={autoAssign}>Tự động phân công</Button>
+        {canAct && <Button type="primary" icon={<Zap size={15} />} onClick={autoAssign}>Tự động phân công</Button>}
       </div>
 
       <Card size="small">
@@ -243,7 +250,7 @@ export default function WorkQueue() {
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
-          {COLUMNS.map((col) => <Column key={col.key} col={col} tasks={byColumn(col.key)} encounterLabelFor={encounterLabelFor} />)}
+          {COLUMNS.map((col) => <Column key={col.key} col={col} tasks={byColumn(col.key)} encounterLabelFor={encounterLabelFor} readOnly={!canAct} />)}
         </div>
         <DragOverlay>
           {activeTask ? <div style={{ width: dragWidth ?? 260 }}><TaskCard task={activeTask} encounterLabel={encounterLabelFor(activeTask)} ghost /></div> : null}

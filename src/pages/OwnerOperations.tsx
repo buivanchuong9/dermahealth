@@ -56,6 +56,11 @@ import {
   permissionColor,
   permissionLabel,
 } from "../domain/core/permission";
+import {
+  grantRolePermissionLocally,
+  replaceRolePermissions,
+  revokeRolePermissionLocally,
+} from "../state/rolePermissionStore";
 import { ROLE_LABEL, type UserRole } from "../domain/core/role";
 
 const { Title, Text, Paragraph } = Typography;
@@ -166,7 +171,9 @@ export default function OwnerOperations() {
     setMatrixLoading(true);
     setMatrixError(null);
     try {
-      setPermissions(await listOwnerRolePermissions());
+      const rows = await listOwnerRolePermissions();
+      setPermissions(rows);
+      replaceRolePermissions(rows);
     } catch (error) {
       setMatrixError(describeError(error, "Không tải được ma trận quyền."));
     } finally {
@@ -315,6 +322,7 @@ export default function OwnerOperations() {
         setGranting(true);
         try {
           await grantOwnerRolePermission({ role, permissionCode: selectedCode });
+          grantRolePermissionLocally(role, selectedCode);
           setPermissionCode(undefined);
           setPermissionSearch("");
           await loadMatrix();
@@ -334,6 +342,7 @@ export default function OwnerOperations() {
     setRevokingKey(key);
     try {
       await revokeOwnerRolePermission(item.role, item.permissionCode);
+      revokeRolePermissionLocally(item.role, item.permissionCode);
       await loadMatrix();
       void message.success("Đã thu hồi quyền.");
     } catch (error) {

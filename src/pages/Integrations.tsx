@@ -92,8 +92,8 @@ export default function Integrations() {
     return () => window.clearTimeout(timer);
   }, [loadMessages, message, selectedId]);
 
-  if (!hasRoleAccess(role, ['system_administrator', 'medical_administrator'])) {
-    return <AccessDenied featureName="Tình trạng tích hợp" allowedRoles={['system_administrator', 'medical_administrator']} />;
+  if (!hasRoleAccess(role, ['system_administrator', 'medical_administrator', 'super_administrator'])) {
+    return <AccessDenied featureName="Tình trạng tích hợp" allowedRoles={['system_administrator', 'medical_administrator', 'super_administrator']} />;
   }
 
   const retry = async (connectionId: string) => {
