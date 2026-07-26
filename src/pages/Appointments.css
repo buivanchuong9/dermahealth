@@ -1,0 +1,142 @@
+.booking-card .ant-card-head {
+  min-height: 70px;
+}
+
+.booking-card-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.booking-card-title > span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: #1769aa;
+  border-radius: 11px;
+  background: #eaf4ff;
+}
+
+.booking-card-title > div,
+.booking-confirm > div,
+.appointment-progress {
+  display: flex;
+  flex-direction: column;
+}
+
+.booking-fields {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) minmax(190px, 0.7fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.booking-fields label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #526176;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.slot-section {
+  padding: 14px;
+  border: 1px solid #e5ebf2;
+  border-radius: 10px;
+  background: #fafcff;
+}
+
+.slot-grid {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.booking-confirm {
+  padding-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid #edf1f5;
+}
+
+.appointment-row {
+  min-height: 92px;
+  padding: 16px 4px !important;
+}
+
+.appointment-date-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: #1769aa;
+  border-radius: 11px;
+  background: #edf6ff;
+}
+
+.appointment-progress {
+  width: 330px;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.appointment-progress .ant-steps {
+  width: 100%;
+}
+
+.appointment-progress .ant-steps-item-title {
+  font-size: 11px !important;
+}
+
+@media (max-width: 900px) {
+  .booking-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-fields .ant-radio-group {
+    width: 100%;
+    display: flex;
+  }
+
+  .booking-fields .ant-radio-button-wrapper {
+    flex: 1;
+    text-align: center;
+  }
+
+  .appointment-row {
+    align-items: flex-start !important;
+  }
+
+  .appointment-progress {
+    width: 230px;
+  }
+}
+
+@media (max-width: 640px) {
+  .booking-confirm {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .appointment-row {
+    flex-wrap: wrap;
+  }
+
+  .appointment-progress {
+    width: 100%;
+    margin-top: 10px;
+    align-items: stretch;
+  }
+}

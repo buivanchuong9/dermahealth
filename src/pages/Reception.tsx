@@ -1,50 +1,63 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  App,
+  Alert,
   Button,
   Card,
   Col,
-  Input,
   List,
   Row,
-  Space,
   Statistic,
   Tag,
   Typography,
 } from "antd";
-import { KeyRound, ListChecks, Plus, Power, QrCode, Users } from "lucide-react";
+import { CalendarClock, ListChecks, QrCode, Users } from "lucide-react";
 import { useStore } from "../state/useStore";
-import { appointmentRepository, queueRepository } from "../domain/repositories";
+import { appointmentRepository, patientRepository, queueRepository } from "../domain/repositories";
 import {
-  createKioskDevice,
-  deactivateKioskDevice,
   getReceptionSummary,
-  listKioskDevices,
-  rotateKioskDeviceCredentials,
-  type KioskDevice,
   type ReceptionSummary,
 } from "../api/reception";
+import { listAppointments } from "../api/appointments";
+import { listQueueTickets, mergeQueueTicketSnapshot } from "../api/queue";
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 export default function Reception() {
   const appointments = useStore(appointmentRepository);
+  const patients = useStore(patientRepository);
   const tickets = useStore(queueRepository);
-  const { message, modal } = App.useApp();
   const clinicLocationId =
     appointments.find((item) => item.clinicLocationId)?.clinicLocationId ??
     import.meta.env.VITE_CLINIC_LOCATION_ID ??
     "";
   const [summary, setSummary] = useState<ReceptionSummary>();
-  const [devices, setDevices] = useState<KioskDevice[]>([]);
-  const [label, setLabel] = useState("");
-  const [savingDevice, setSavingDevice] = useState(false);
+  const [summaryError, setSummaryError] = useState(false);
 
   useEffect(() => {
     if (clinicLocationId) {
-      getReceptionSummary(clinicLocationId).then(setSummary).catch(() => undefined);
+      getReceptionSummary(clinicLocationId)
+        .then((value) => {
+          setSummary(value);
+          setSummaryError(false);
+        })
+        .catch(() => setSummaryError(true));
     }
-    listKioskDevices().then(setDevices).catch(() => undefined);
+    Promise.allSettled([
+      listAppointments(),
+      listQueueTickets(clinicLocationId || undefined),
+    ]).then(([appointmentResult, queueResult]) => {
+      if (appointmentResult.status === "fulfilled") {
+        appointmentRepository.replaceAll(appointmentResult.value);
+      }
+      if (queueResult.status === "fulfilled") {
+        queueRepository.replaceAll(
+          mergeQueueTicketSnapshot(
+            queueResult.value,
+            queueRepository.getAll(),
+          ),
+        );
+      }
+    });
   }, [clinicLocationId]);
 
   const fallbackSummary = useMemo<ReceptionSummary>(
@@ -56,63 +69,96 @@ export default function Reception() {
     [appointments, tickets],
   );
   const counts = summary ?? fallbackSummary;
-
-  const revealSecret = (device: KioskDevice) => {
-    if (!device.deviceSecret) return;
-    modal.info({
-      title: "Thông tin xác thực kiosk",
-      content: <><Paragraph copyable={{ text: device.id }}>Device ID: {device.id}</Paragraph><Paragraph copyable={{ text: device.deviceSecret }}>Device secret: {device.deviceSecret}</Paragraph></>,
-      okText: "Đã lưu an toàn",
-    });
-  };
-
-  const addDevice = async () => {
-    if (!clinicLocationId || !label.trim()) return;
-    setSavingDevice(true);
-    try {
-      const created = await createKioskDevice({ clinicLocationId, label: label.trim() });
-      setDevices((rows) => [created, ...rows]);
-      setLabel("");
-      revealSecret(created);
-      void message.success("Đã tạo thiết bị kiosk.");
-    } catch (error) {
-      void message.error(error instanceof Error ? error.message : "Không tạo được kiosk.");
-    } finally {
-      setSavingDevice(false);
-    }
-  };
-
-  const updateDevice = async (device: KioskDevice, action: "rotate" | "deactivate") => {
-    try {
-      const updated = action === "rotate"
-        ? await rotateKioskDeviceCredentials(device.id)
-        : await deactivateKioskDevice(device.id);
-      setDevices((rows) => rows.map((item) => item.id === updated.id ? updated : item));
-      if (action === "rotate") revealSecret(updated);
-      void message.success(action === "rotate" ? "Đã xoay khóa thiết bị." : "Đã vô hiệu hóa thiết bị.");
-    } catch (error) {
-      void message.error(error instanceof Error ? error.message : "Không cập nhật được kiosk.");
-    }
-  };
+  const upcomingAppointments = useMemo(
+    () =>
+      appointments
+        .filter(
+          (item) =>
+            item.status === "upcoming" &&
+            (!clinicLocationId || item.clinicLocationId === clinicLocationId) &&
+            !tickets.some(
+              (ticket) =>
+                ticket.status !== "completed" &&
+                (ticket.appointmentId === item.id ||
+                  ticket.patientId === item.patientId),
+            ),
+        )
+        .sort((a, b) => (a.startAt ?? "").localeCompare(b.startAt ?? "")),
+    [appointments, clinicLocationId, tickets],
+  );
 
   return <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
     <Title level={3}>Trung tâm điều phối lễ tân</Title>
+    {summaryError && (
+      <Alert
+        type="warning"
+        showIcon
+        message="Không tải được số liệu tổng hợp từ máy chủ"
+        description="Danh sách bên dưới vẫn dùng dữ liệu lịch hẹn đã đồng bộ gần nhất."
+      />
+    )}
     <Row gutter={[16, 16]}>
       <Col xs={24} md={8}><Card><Statistic title="Lịch hẹn sắp tới" value={counts.upcomingAppointments} /></Card></Col>
       <Col xs={24} md={8}><Card><Statistic title="Đang chờ" value={counts.waitingCount} /></Card></Col>
       <Col xs={24} md={8}><Card><Statistic title="Đang phục vụ" value={counts.inServiceCount} /></Card></Col>
     </Row>
+    <Card
+      title="Danh sách chờ tiếp nhận"
+      extra={<Tag color="blue">{upcomingAppointments.length} lịch sắp tới</Tag>}
+    >
+      <List
+        dataSource={upcomingAppointments}
+        locale={{ emptyText: "Không có lịch hẹn sắp tới tại cơ sở này." }}
+        renderItem={(appointment) => {
+          const patient = patients.find((item) => item.id === appointment.patientId);
+          const hasCheckedIn = tickets.some(
+            (ticket) =>
+              ticket.status !== "completed" &&
+              (ticket.appointmentId === appointment.id ||
+                ticket.patientId === appointment.patientId),
+          );
+          return (
+            <List.Item
+              actions={[
+                <Button
+                  key="detail"
+                  type="link"
+                  href={`/app/appointments/${appointment.id}`}
+                >
+                  Xem lịch hẹn
+                </Button>,
+                <Button
+                  key="check-in"
+                  type={hasCheckedIn ? "default" : "primary"}
+                  disabled={hasCheckedIn}
+                  href={hasCheckedIn ? undefined : "/app/reception/qr-check-in"}
+                  icon={<QrCode size={14} />}
+                >
+                  {hasCheckedIn ? "Đã check-in" : "Tiếp nhận"}
+                </Button>,
+              ]}
+            >
+              <List.Item.Meta
+                avatar={
+                  <div style={{ width: 40, height: 40, borderRadius: 10, display: "grid", placeItems: "center", color: "#1769aa", background: "#edf6ff" }}>
+                    <CalendarClock size={19} />
+                  </div>
+                }
+                title={patient?.name ?? appointment.patientId}
+                description={`${appointment.time} · ${appointment.date} · ${appointment.department}`}
+              />
+              <Tag color={hasCheckedIn ? "success" : "processing"}>
+                {hasCheckedIn ? "Trong hàng đợi khám" : "Chờ check-in"}
+              </Tag>
+            </List.Item>
+          );
+        }}
+      />
+    </Card>
     <Row gutter={[16, 16]}>
       <Col xs={24} md={12}><Card title="Check-in bệnh nhân"><Text>Quét và xác thực QR lịch hẹn tại quầy.</Text><Button type="primary" block icon={<QrCode size={16} />} href="/app/reception/qr-check-in" style={{ marginTop: 16 }}>Mở máy quét QR</Button></Card></Col>
       <Col xs={24} md={12}><Card title="Điều phối hàng đợi"><Text>Gọi số, xác nhận bệnh nhân và bắt đầu phục vụ.</Text><Button block icon={<ListChecks size={16} />} href="/app/reception/queue" style={{ marginTop: 16 }}>Mở hàng đợi</Button></Card></Col>
     </Row>
-    <Card title="Thiết bị kiosk" extra={<Tag>{clinicLocationId || "Chưa xác định cơ sở"}</Tag>}>
-      <Space.Compact style={{ width: "100%", marginBottom: 16 }}>
-        <Input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Tên thiết bị kiosk" />
-        <Button type="primary" icon={<Plus size={15} />} loading={savingDevice} disabled={!clinicLocationId || !label.trim()} onClick={() => void addDevice()}>Tạo thiết bị</Button>
-      </Space.Compact>
-      <List dataSource={devices} locale={{ emptyText: "Chưa có thiết bị kiosk" }} renderItem={(device) => <List.Item actions={device.status === "active" ? [<Button key="rotate" icon={<KeyRound size={14} />} onClick={() => void updateDevice(device, "rotate")}>Xoay khóa</Button>, <Button key="off" danger icon={<Power size={14} />} onClick={() => void updateDevice(device, "deactivate")}>Vô hiệu hóa</Button>] : []}><List.Item.Meta title={device.label} description={`${device.id} · ${device.clinicLocationId}`} /><Tag color={device.status === "active" ? "success" : "default"}>{device.status}</Tag></List.Item>} />
-    </Card>
     <Button icon={<Users size={16} />} href="/app/appointments">Tra cứu lịch hẹn</Button>
   </div>;
 }

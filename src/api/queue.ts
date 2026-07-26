@@ -57,9 +57,37 @@ export const mapQueueTicket = (row: ApiQueueTicket): QueueTicket => ({
   version: row.version,
 });
 
-export async function listQueueTickets(): Promise<QueueTicket[]> {
-  const rows = await http.get<ApiQueueTicket[]>("/api/v1/queue-tickets");
+export async function listQueueTickets(
+  clinicLocationId?: string,
+): Promise<QueueTicket[]> {
+  const query = clinicLocationId
+    ? `?${new URLSearchParams({ clinicLocationId })}`
+    : "";
+  const rows = await http.get<ApiQueueTicket[]>(`/api/v1/queue-tickets${query}`);
   return rows.map(mapQueueTicket);
+}
+
+/**
+ * Queue APIs can be scoped by role/location and may legitimately return an
+ * empty partial snapshot. Keep recent active tickets created in this browser,
+ * while allowing rows returned by the server to override local versions.
+ */
+export function mergeQueueTicketSnapshot(
+  serverRows: QueueTicket[],
+  localRows: QueueTicket[],
+  now = Date.now(),
+): QueueTicket[] {
+  const recentCutoff = now - 12 * 60 * 60 * 1000;
+  const preservedLocalRows = localRows.filter(
+    (item) =>
+      item.status !== "completed" &&
+      new Date(item.issuedAt).getTime() >= recentCutoff,
+  );
+  const merged = new Map(
+    preservedLocalRows.map((item) => [item.id, item] as const),
+  );
+  serverRows.forEach((item) => merged.set(item.id, item));
+  return [...merged.values()];
 }
 
 export async function callNextQueueTicket(payload: {

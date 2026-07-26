@@ -142,7 +142,7 @@ export default function WorkQueue() {
   const otherTasks = filtered.filter((t) => columnFor(t, currentUser.id) === null);
 
   const refreshTasks = () =>
-    listWorkflowTasks().then((rows) => rows.forEach((row) => workflowRepository.tasks().upsert(row))).catch((err: unknown) => { showError(err); });
+    listWorkflowTasks().then((rows) => workflowRepository.tasks().replaceAll(rows)).catch((err: unknown) => { showError(err); });
 
   useEffect(() => {
     refreshTasks();

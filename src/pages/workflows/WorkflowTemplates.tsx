@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Card, Input, Button, Tag, Typography, Alert, List, App as AntApp, Grid } from 'antd';
-import { Plus, Workflow, Lock, History } from 'lucide-react';
+import { Plus, Workflow, Lock, History, ArrowRight } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
 import { workflowRepository } from '../../domain/repositories';
-import { listWorkflowTemplates, createWorkflowTemplate } from '../../api/workflowTemplate';
+import { listWorkflowTemplates, listWorkflowTemplateVersions, createWorkflowTemplate } from '../../api/workflowTemplate';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
-import { hasRoleAccess } from '../../domain/core/role';
+import type { UserRole } from '../../domain/core/role';
 
 const { Text, Title, Paragraph } = Typography;
+const WORKFLOW_AUTHOR_ROLES: readonly UserRole[] = [
+  'clinical_process_designer',
+  'medical_administrator',
+];
 
 export default function WorkflowTemplates() {
   const navigate = useNavigate();
@@ -25,11 +29,19 @@ export default function WorkflowTemplates() {
   const [description, setDescription] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const canDesign = hasRoleAccess(role, ['clinical_process_designer', 'medical_administrator']);
+  const canDesign = WORKFLOW_AUTHOR_ROLES.includes(role);
 
   useEffect(() => {
     listWorkflowTemplates()
-      .then((rows) => rows.forEach((row) => workflowRepository.templates().upsert(row)))
+      .then(async (rows) => {
+        rows.forEach((row) => workflowRepository.templates().upsert(row));
+        const versionGroups = await Promise.all(
+          rows.map((row) => listWorkflowTemplateVersions(row.id)),
+        );
+        versionGroups.flat().forEach((version) =>
+          workflowRepository.versions().upsert(version),
+        );
+      })
       .catch((err: unknown) => { showError(err); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -57,7 +69,13 @@ export default function WorkflowTemplates() {
       </div>
 
       {!canDesign && (
-        <Alert type="warning" showIcon icon={<Lock size={15} />} message="Bạn có thể xem danh sách quy trình, nhưng chỉ Chuyên viên thiết kế quy trình hoặc Quản trị viên y tế mới có thể tạo/chỉnh sửa/xuất bản." />
+        <Alert
+          type="warning"
+          showIcon
+          icon={<Lock size={15} />}
+          message="Tài khoản hiện tại chỉ được xem quy trình"
+          description={`Vai trò “${role}” không được backend cấp quyền biên soạn. Cần membership Chuyên viên thiết kế quy trình hoặc Quản trị viên y tế rồi đăng nhập lại.`}
+        />
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: canDesign && !isStacked ? '1fr 340px' : '1fr', gap: 16, alignItems: 'start' }}>
@@ -68,8 +86,18 @@ export default function WorkflowTemplates() {
               const tVersions = versions.filter((v) => v.templateId === t.id);
               const published = tVersions.find((v) => v.id === t.latestPublishedVersionId);
               return (
-                <List.Item>
-                  <Link to={`/app/workflows/templates/${t.id}`} style={{ width: '100%' }}>
+                <List.Item
+                  actions={[
+                    <Button
+                      key="open"
+                      type="primary"
+                      icon={<ArrowRight size={14} />}
+                      onClick={() => navigate(`/app/workflows/templates/${t.id}`)}
+                    >
+                      Mở sơ đồ
+                    </Button>,
+                  ]}
+                >
                     <div style={{ padding: 12, background: 'var(--surface-subtle)', borderRadius: 8, border: '1px solid var(--border-default)', width: '100%' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: t.description ? 4 : 8 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
@@ -81,7 +109,6 @@ export default function WorkflowTemplates() {
                       {t.description && <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 4 }}>{t.description}</Paragraph>}
                       <Text type="secondary" style={{ fontSize: 11.5 }}><History size={11} style={{ verticalAlign: -1 }} /> {tVersions.length} phiên bản</Text>
                     </div>
-                  </Link>
                 </List.Item>
               );
             }}

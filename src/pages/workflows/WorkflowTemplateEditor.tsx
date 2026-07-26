@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ReactFlow, Background, Controls, Handle, Position, MiniMap, Panel, type Node, type Edge, type NodeProps, type Connection, type ReactFlowInstance } from '@xyflow/react';
+import { ReactFlow, Background, Controls, Handle, Position, MiniMap, Panel, type Node, type Edge, type NodeProps, type Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Grid, Modal, Popconfirm, Drawer, Collapse, Spin } from 'antd';
-import { Plus, Trash2, Archive, ArrowLeft, Lock, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck } from 'lucide-react';
+import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Grid, Modal, Popconfirm, Drawer, Collapse, Spin, Tooltip } from 'antd';
+import { Plus, Trash2, Archive, ArrowLeft, Lock, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck, Play, Check, X } from 'lucide-react';
 import { DragHandle } from '../../components/common/DragHandle';
 import { IconActionButton } from '../../components/common/IconActionButton';
 import { useAppState } from '../../state/useAppState';
@@ -32,13 +32,14 @@ import {
 import { activateEncounterWorkflow } from '../../api/encounters';
 import { listWorkflowInstances } from '../../api/workflowInstance';
 import { layoutByPrerequisites } from '../../domain/flowLayout';
-import { hasRoleAccess, type UserRole } from '../../domain/core/role';
+import type { UserRole } from '../../domain/core/role';
 import type { EncounterId, WorkflowTemplateId } from '../../domain/core/ids';
 import type { WorkflowExecutorType, WorkflowStepDefinition, WorkflowTemplateVersion } from '../../domain/core/entities';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
 import { ProfessionalEmpty } from '../../components/feedback/ProfessionalEmpty';
 
 const { Text } = Typography;
+const WORKFLOW_AUTHOR_ROLES: readonly UserRole[] = ['clinical_process_designer', 'medical_administrator'];
 type StepIcon = NonNullable<WorkflowStepDefinition['icon']>;
 const ICON_META: Record<StepIcon, { label: string; icon: typeof Bot; color: string }> = {
   robot: { label: 'AI / Robot', icon: Bot, color: '#6f42c1' },
@@ -144,30 +145,78 @@ const EMPTY_STEP: WorkflowStepDefinition = {
   mandatory: true, estimatedDurationMinutes: 10, maxWaitingMinutes: 20, skipPermission: [], prerequisiteStepCodes: [],
 };
 
+function NodeDeleteButton({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <button
+      type="button"
+      className="nodrag"
+      aria-label={label}
+      onClick={(event) => { event.stopPropagation(); onRemove(); }}
+      style={{
+        position: 'absolute', top: -7, right: -7, width: 19, height: 19, borderRadius: '50%',
+        border: '1.5px solid #fff', background: '#8f2f34', color: '#fff', padding: 0,
+        display: 'grid', placeItems: 'center', cursor: 'pointer', boxShadow: '0 1px 3px rgba(15,47,77,.35)',
+      }}
+    >
+      <X size={11} strokeWidth={2.5} />
+    </button>
+  );
+}
+
 function StepFlowNode({ data }: NodeProps) {
+  const [hovered, setHovered] = useState(false);
   const step = data.step as WorkflowStepDefinition;
   const onEdit = data.onEdit as (() => void) | undefined;
+  const onRemove = data.onRemove as (() => void) | undefined;
   const executorLabel = EXECUTOR_META[step.executorType ?? executorForRole(step.responsibleRole)].label;
   const color = step.mandatory ? '#1e5e9e' : '#8792a2';
+  const active = Boolean(data.active);
   return (
-    <div style={{ background: '#fff', border: `2px solid ${color}`, borderRadius: 8, padding: '8px 12px', minWidth: 170, boxShadow: 'var(--shadow-card)' }}>
-      <Handle type="target" position={Position.Left} style={{ background: '#fff', border: `3px solid ${color}`, width: 13, height: 13 }} />
+    <div
+      title="Kéo để di chuyển bước"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ position: 'relative', background: active ? '#edf7ff' : '#fff', border: `1.5px solid ${active ? '#13a8a8' : color}`, borderRadius: 8, padding: '8px 12px', minWidth: 170, boxShadow: active ? '0 0 0 4px rgba(19,168,168,.12)' : '0 1px 3px rgba(15,47,77,.1)', cursor: 'grab', transition: 'box-shadow .15s ease' }}
+    >
+      <Handle id="target-left" type="target" position={Position.Left} style={{ background: '#fff', border: `2px solid ${color}`, width: 10, height: 10 }} />
+      <Handle id="target-top" type="target" position={Position.Top} style={{ background: '#fff', border: `2px solid ${color}`, width: 9, height: 9 }} />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><StepIconView step={step} size={26}/><div style={{ minWidth: 0, flex: 1 }}><Text strong style={{ fontSize: 12.5, display: 'block' }}>{step.name || 'Bước chưa đặt tên'}</Text><Text type="secondary" style={{ fontSize: 10.5 }}>{executorLabel}{step.location ? ` · ${step.location}` : ''}</Text></div>{onEdit && <button type="button" className="nodrag" aria-label={`Sửa bước ${step.name}`} onClick={(event) => { event.stopPropagation(); onEdit(); }} style={{ border: 0, background: 'transparent', color: '#607d8b', padding: 3, cursor: 'pointer', display: 'inline-flex' }}><Pencil size={13}/></button>}</div>
       <div style={{ marginTop: 4 }}><Tag color={step.mandatory ? 'blue' : 'default'} style={{ fontSize: 10, margin: 0 }}>{step.mandatory ? 'Bắt buộc' : 'Tuỳ chọn'}</Tag></div>
-      <Handle type="source" position={Position.Right} style={{ background: color, border: '2px solid #fff', width: 13, height: 13 }} />
+      <Handle id="source-right" type="source" position={Position.Right} style={{ background: color, border: '2px solid #fff', width: 10, height: 10 }} />
+      <Handle id="source-bottom" type="source" position={Position.Bottom} style={{ background: color, border: '2px solid #fff', width: 9, height: 9 }} />
+      {onRemove && hovered && <NodeDeleteButton label={`Xóa bước ${step.name}`} onRemove={onRemove} />}
     </div>
   );
 }
 
 function TerminalFlowNode({ data }: NodeProps) {
+  const [hovered, setHovered] = useState(false);
   const isStart = data.kind === 'start';
   const color = isStart ? '#16856b' : '#b44552';
+  const Icon = isStart ? Play : Check;
+  const active = Boolean(data.active);
+  const onRemove = data.onRemove as (() => void) | undefined;
   return (
-    <div style={{ minWidth: 142, padding: '12px 16px', borderRadius: 28, background: '#fff', border: `2px solid ${color}`, boxShadow: 'var(--shadow-card)', textAlign: 'center' }}>
-      {!isStart && <Handle type="target" position={Position.Left} style={{ background: '#fff', border: `3px solid ${color}`, width: 13, height: 13 }} />}
-      <Text strong style={{ display: 'block', color, fontSize: 13 }}>{String(data.label)}</Text>
-      <Text type="secondary" style={{ fontSize: 10.5 }}>{String(data.subtitle)}</Text>
-      {isStart && <Handle type="source" position={Position.Right} style={{ background: color, border: '2px solid #fff', width: 13, height: 13 }} />}
+    <div
+      title={`${String(data.label)} — ${String(data.subtitle)}. Kéo để đặt vị trí.`}
+      aria-label={`${String(data.label)}. ${String(data.subtitle)}`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ position: 'relative', width: 50, height: 50, borderRadius: '50%', background: color, color: '#fff', boxShadow: active ? `0 0 0 4px ${color}24` : '0 1px 4px rgba(15,47,77,.22)', display: 'grid', placeItems: 'center', cursor: 'grab', transition: 'box-shadow .15s ease' }}
+    >
+      {isStart ? (
+        <>
+          <Handle id="start-right" type="source" position={Position.Right} style={{ background: color, border: '2px solid #fff', width: 11, height: 11 }} />
+          <Handle id="start-bottom" type="source" position={Position.Bottom} style={{ background: color, border: '2px solid #fff', width: 11, height: 11 }} />
+        </>
+      ) : (
+        <>
+          <Handle id="end-left" type="target" position={Position.Left} style={{ background: '#fff', border: `2px solid ${color}`, width: 11, height: 11 }} />
+          <Handle id="end-top" type="target" position={Position.Top} style={{ background: '#fff', border: `2px solid ${color}`, width: 11, height: 11 }} />
+        </>
+      )}
+      <Icon size={20} strokeWidth={2} fill={isStart ? 'currentColor' : 'none'} />
+      {onRemove && hovered && <NodeDeleteButton label={`Xóa ${String(data.label)}`} onRemove={onRemove} />}
     </div>
   );
 }
@@ -224,7 +273,9 @@ export default function WorkflowTemplateEditor() {
   const [deploymentOpen, setDeploymentOpen] = useState(false);
   const [deploymentEncounterId, setDeploymentEncounterId] = useState<EncounterId | undefined>();
   const [editorLoading, setEditorLoading] = useState(true);
-  const flowInstanceRef = useRef<ReactFlowInstance<Node, Edge> | null>(null);
+  const [simulationRunning, setSimulationRunning] = useState(false);
+  const [simulationIndex, setSimulationIndex] = useState(0);
+  const [systemNodeLayouts, setSystemNodeLayouts] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -247,8 +298,24 @@ export default function WorkflowTemplateEditor() {
   const templateVersions = versions.filter((v) => v.templateId === canonicalTemplateId).sort((a, b) => a.version - b.version);
   const draft = templateVersions.find((v) => v.status === 'draft');
   const latestPublished = templateVersions.find((v) => v.id === template?.latestPublishedVersionId);
-  const canDesign = hasRoleAccess(role, ['clinical_process_designer', 'medical_administrator']);
-  const canPublish = hasRoleAccess(role, ['medical_administrator']);
+  const systemNodePositions = (() => {
+    if (!draft) return {};
+    if (systemNodeLayouts[draft.id]) return systemNodeLayouts[draft.id];
+    const storageKey = `dermahealth:workflow-layout:${draft.id}:system-nodes`;
+    try {
+      const stored = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, { x: number; y: number }>;
+      // Migrate layouts saved before system nodes were separated from the API payload.
+      return {
+        ...(draft.nodePositions?.__START__ ? { __START__: draft.nodePositions.__START__ } : {}),
+        ...(draft.nodePositions?.__END__ ? { __END__: draft.nodePositions.__END__ } : {}),
+        ...stored,
+      };
+    } catch {
+      return {};
+    }
+  })();
+  const canDesign = WORKFLOW_AUTHOR_ROLES.includes(role);
+  const canPublish = role === 'medical_administrator';
   const normalizedSpecialty = template?.specialty.toLocaleLowerCase('vi').replace(/^khoa\s+/, '').trim() ?? '';
   const eligibleEncounters = encounters.filter((encounter) => {
     const department = encounter.department.toLocaleLowerCase('vi').replace(/^khoa\s+/, '').trim();
@@ -256,6 +323,22 @@ export default function WorkflowTemplateEditor() {
   });
 
   const flowSteps = draft?.steps ?? [];
+  const simulationSequence = ['__START__', ...flowSteps.map((step) => step.code), '__END__'];
+  const activeSimulationNode = simulationRunning ? simulationSequence[simulationIndex] : undefined;
+  const activeSimulationStep = flowSteps.find((step) => step.code === activeSimulationNode);
+  useEffect(() => {
+    if (!simulationRunning) return;
+    const timer = window.setInterval(() => {
+      setSimulationIndex((current) => {
+        if (current >= simulationSequence.length - 1) {
+          setSimulationRunning(false);
+          return 0;
+        }
+        return current + 1;
+      });
+    }, 900);
+    return () => window.clearInterval(timer);
+  }, [simulationRunning, simulationSequence.length]);
   const flowPositions = layoutByPrerequisites(flowSteps.map((s) => ({ code: s.code, prerequisiteCodes: s.prerequisiteStepCodes })));
   const openStepEditor = (code: string) => {
     const step = flowSteps.find((item) => item.code === code);
@@ -271,18 +354,22 @@ export default function WorkflowTemplateEditor() {
   const minX = allPositions.length ? Math.min(...allPositions.map((position) => position.x)) : 240;
   const maxX = allPositions.length ? Math.max(...allPositions.map((position) => position.x)) : 240;
   const averageY = (steps: WorkflowStepDefinition[]) => steps.length ? steps.reduce((sum, step) => sum + (stepPositions[step.code]?.y ?? 0), 0) / steps.length : 0;
+  const startPosition = systemNodePositions.__START__ ?? { x: minX - 230, y: averageY(rootSteps) + 4 };
+  const endPosition = systemNodePositions.__END__ ?? { x: maxX + 280, y: averageY(leafSteps) + 4 };
+  const hasStartNode = Boolean(systemNodePositions.__START__);
+  const hasEndNode = Boolean(systemNodePositions.__END__);
   const nodes: Node[] = [
-    { id: '__START__', type: 'terminalNode', position: { x: minX - 230, y: averageY(rootSteps) + 4 }, data: { kind: 'start', label: 'Bắt đầu', subtitle: 'Tiếp nhận' }, draggable: false, connectable: false, deletable: false },
-    ...flowSteps.map((step) => ({ id: step.code, type: 'stepNode', position: stepPositions[step.code], data: { step, onEdit: canDesign ? () => openStepEditor(step.code) : undefined } })),
-    { id: '__END__', type: 'terminalNode', position: { x: maxX + 280, y: averageY(leafSteps) + 4 }, data: { kind: 'end', label: 'Kết thúc', subtitle: 'Hoàn tất quy trình' }, draggable: false, connectable: false, deletable: false },
+    ...(hasStartNode ? [{ id: '__START__', type: 'terminalNode', position: startPosition, data: { kind: 'start', label: 'Bắt đầu', subtitle: 'Điểm khởi tạo quy trình', active: activeSimulationNode === '__START__', onRemove: canDesign ? () => removeTerminalNode('__START__') : undefined }, draggable: canDesign, connectable: canDesign, deletable: false }] : []),
+    ...flowSteps.map((step) => ({ id: step.code, type: 'stepNode', position: stepPositions[step.code], data: { step, active: activeSimulationNode === step.code, onEdit: canDesign ? () => openStepEditor(step.code) : undefined, onRemove: canDesign ? () => removeStep(step.code) : undefined } })),
+    ...(hasEndNode ? [{ id: '__END__', type: 'terminalNode', position: endPosition, data: { kind: 'end', label: 'Kết thúc', subtitle: 'Điểm hoàn tất quy trình', active: activeSimulationNode === '__END__', onRemove: canDesign ? () => removeTerminalNode('__END__') : undefined }, draggable: canDesign, connectable: canDesign, deletable: false }] : []),
   ];
   const edges: Edge[] = [];
   flowSteps.forEach((s) => s.prerequisiteStepCodes.forEach((prereq) => {
-      if (flowSteps.some((x) => x.code === prereq)) edges.push({ id: `${prereq}-${s.code}`, source: prereq, target: s.code, type: 'smoothstep', animated: true, deletable: canDesign, label: s.conditionalRule || undefined, labelStyle: { fontSize: 11, fill: '#46586a' }, labelBgStyle: { fill: '#fff', fillOpacity: 0.94 }, style: { stroke: '#2878c8', strokeWidth: 2.5 } });
+      if (flowSteps.some((x) => x.code === prereq)) edges.push({ id: `${prereq}-${s.code}`, source: prereq, target: s.code, type: 'smoothstep', animated: simulationRunning, deletable: canDesign, label: s.conditionalRule || undefined, labelStyle: { fontSize: 11, fill: '#46586a' }, labelBgStyle: { fill: '#fff', fillOpacity: 0.94 }, style: { stroke: activeSimulationNode === s.code ? '#13a8a8' : '#2878c8', strokeWidth: activeSimulationNode === s.code ? 4 : 2.5 } });
   }));
-  if (flowSteps.length === 0) edges.push({ id: '__START__-__END__', source: '__START__', target: '__END__', type: 'smoothstep', deletable: false, style: { stroke: '#9aabb9', strokeWidth: 2 } });
-  rootSteps.forEach((step) => edges.push({ id: `__START__-${step.code}`, source: '__START__', target: step.code, type: 'smoothstep', deletable: false, style: { stroke: '#16856b', strokeWidth: 2.2 } }));
-  leafSteps.forEach((step) => edges.push({ id: `${step.code}-__END__`, source: step.code, target: '__END__', type: 'smoothstep', deletable: false, style: { stroke: '#b44552', strokeWidth: 2.2 } }));
+  if (flowSteps.length === 0 && hasStartNode && hasEndNode) edges.push({ id: '__START__-__END__', source: '__START__', target: '__END__', type: 'smoothstep', deletable: false, style: { stroke: '#9aabb9', strokeWidth: 2 } });
+  if (hasStartNode) rootSteps.forEach((step) => edges.push({ id: `__START__-${step.code}`, source: '__START__', target: step.code, type: 'smoothstep', animated: simulationRunning, deletable: false, style: { stroke: activeSimulationNode === step.code ? '#13a8a8' : '#16856b', strokeWidth: activeSimulationNode === step.code ? 4 : 2.2 } }));
+  if (hasEndNode) leafSteps.forEach((step) => edges.push({ id: `${step.code}-__END__`, source: step.code, target: '__END__', type: 'smoothstep', animated: simulationRunning, deletable: false, style: { stroke: activeSimulationNode === '__END__' ? '#13a8a8' : '#b44552', strokeWidth: activeSimulationNode === '__END__' ? 4 : 2.2 } }));
 
   if (editorLoading) {
     return (
@@ -318,43 +405,71 @@ export default function WorkflowTemplateEditor() {
   };
 
   const syncNewStep = (versionId: string, step: WorkflowStepDefinition, local: WorkflowTemplateVersion) => {
-    addWorkflowTemplateVersionStep(versionId, step)
+    addWorkflowTemplateVersionStep(versionId, step, Math.max(1, local.rowVersion ?? 1))
       .then(() => refreshVersion(versionId, local))
       .catch((err: unknown) => { showError(err); });
   };
 
   const syncStepPatch = (versionId: string, code: string, patch: Partial<WorkflowStepDefinition>, local: WorkflowTemplateVersion) => {
-    updateWorkflowTemplateVersionStep(versionId, code, patch)
+    updateWorkflowTemplateVersionStep(versionId, code, patch, Math.max(1, local.rowVersion ?? 1))
       .then(() => refreshVersion(versionId, local))
       .catch((err: unknown) => { showError(err); });
   };
 
   const syncStepRemoval = (versionId: string, code: string, local: WorkflowTemplateVersion) => {
-    deleteWorkflowTemplateVersionStep(versionId, code)
+    deleteWorkflowTemplateVersionStep(versionId, code, Math.max(1, local.rowVersion ?? 1))
       .then(() => refreshVersion(versionId, local))
       .catch((err: unknown) => { showError(err); });
   };
 
   const syncReorder = (versionId: string, orderedCodes: string[], local: WorkflowTemplateVersion) => {
-    reorderWorkflowTemplateVersionSteps(versionId, orderedCodes)
+    reorderWorkflowTemplateVersionSteps(versionId, orderedCodes, Math.max(1, local.rowVersion ?? 1))
       .then(() => refreshVersion(versionId, local))
       .catch((err: unknown) => { showError(err); });
   };
 
   const syncConnect = (versionId: string, sourceCode: string, targetCode: string, local: WorkflowTemplateVersion) => {
-    connectWorkflowTemplateVersionSteps(versionId, sourceCode, targetCode)
+    connectWorkflowTemplateVersionSteps(versionId, sourceCode, targetCode, Math.max(1, local.rowVersion ?? 1))
       .then(() => refreshVersion(versionId, local))
       .catch((err: unknown) => { showError(err); });
   };
 
   const syncDisconnect = (versionId: string, edges: Array<{ source: string; target: string }>, local: WorkflowTemplateVersion) => {
-    Promise.all(edges.map((edge) => disconnectWorkflowTemplateVersionSteps(versionId, edge.source, edge.target)))
-      .then(() => refreshVersion(versionId, local))
+    // Deleting multiple selected edges in parallel would reuse one rowVersion
+    // and make every request after the first a guaranteed stale write.
+    edges.reduce<Promise<WorkflowTemplateVersion>>(async (pending, edge) => {
+      const current = await pending;
+      await disconnectWorkflowTemplateVersionSteps(
+        versionId,
+        edge.source,
+        edge.target,
+        Math.max(1, current.rowVersion ?? 1),
+      );
+      return getWorkflowTemplateVersion(versionId);
+    }, Promise.resolve(local))
+      .then((fresh) => workflowRepository.versions().upsert({
+        ...local,
+        ...fresh,
+        nodePositions: fresh.nodePositions ?? local.nodePositions,
+      }))
       .catch((err: unknown) => { showError(err); });
   };
 
-  const syncNodePositions = (versionId: string, positions: Record<string, { x: number; y: number }>) => {
-    saveWorkflowTemplateVersionNodePositions(versionId, positions).catch((err: unknown) => { showError(err); });
+  const syncNodePositions = (
+    versionId: string,
+    positions: Record<string, { x: number; y: number }>,
+    local: WorkflowTemplateVersion,
+  ) => {
+    const validStepCodes = new Set(local.steps.map((step) => step.code));
+    const stepPositions = Object.fromEntries(
+      Object.entries(positions).filter(([code]) => validStepCodes.has(code)),
+    );
+    if (Object.keys(stepPositions).length === 0) return;
+    saveWorkflowTemplateVersionNodePositions(
+      versionId,
+      stepPositions,
+      Math.max(1, local.rowVersion ?? 1),
+    ).then(() => refreshVersion(versionId, local)).catch((err: unknown) => { showError(err); });
   };
 
   const syncPublish = (versionId: string, version: number, local: WorkflowTemplateVersion) => {
@@ -426,6 +541,9 @@ export default function WorkflowTemplateEditor() {
     message.success('Đã tạo bản chỉnh sửa mới. Quy trình đang dùng không bị ảnh hưởng.');
   });
   const publish = () => guarded(() => {
+    if (!systemNodePositions.__START__ || !systemNodePositions.__END__) {
+      throw new Error('Cần đặt đủ điểm Bắt đầu và Kết thúc trước khi đưa quy trình vào sử dụng.');
+    }
     const published = workflowService.publishVersion(canonicalTemplateId, currentUser.id);
     syncPublish(published.id, published.version, published);
     setDeploymentEncounterId(eligibleEncounters[0]?.id);
@@ -496,29 +614,61 @@ export default function WorkflowTemplateEditor() {
     setSidePanel(null);
     message.success('Đã cập nhật bước trong quy trình.');
   });
-  const saveCurrentNodePositions = () => {
-    const currentNodes = (flowInstanceRef.current?.getNodes() ?? []).filter((node) => node.type === 'stepNode');
-    if (currentNodes.length === 0) return;
-    const updated = workflowService.saveNodePositions(
-      canonicalTemplateId,
-      Object.fromEntries(currentNodes.map((node) => [node.id, { x: node.position.x, y: node.position.y }])),
-      currentUser.id,
-    );
-    syncNodePositions(updated.id, updated.nodePositions ?? {});
-  };
   const connect = (connection: Connection) => guarded(() => {
     if (!connection.source || !connection.target) throw new Error('Cần chọn đủ bước nguồn và bước đích.');
-    saveCurrentNodePositions();
+    if (connection.source === '__START__') {
+      const target = flowSteps.find((step) => step.code === connection.target);
+      if (!target) throw new Error('Điểm Bắt đầu chỉ được nối tới một bước nghiệp vụ.');
+      if (target.prerequisiteStepCodes.length === 0) {
+        message.info('Bước này đã được nối với điểm Bắt đầu.');
+        return;
+      }
+      const patch = { prerequisiteStepCodes: [] as string[] };
+      const updated = workflowService.editStep(canonicalTemplateId, target.code, patch, currentUser.id);
+      syncStepPatch(updated.id, target.code, patch, updated);
+      message.success('Đã đặt bước này làm điểm vào của quy trình.');
+      return;
+    }
+    if (connection.target === '__END__') {
+      const hasOutgoing = flowSteps.some((step) => step.prerequisiteStepCodes.includes(connection.source!));
+      if (hasOutgoing) throw new Error('Bước này vẫn còn luồng đi tiếp. Hãy xóa các dây đi ra trước khi nối tới Kết thúc.');
+      message.info('Bước cuối đã được hệ thống nối tự động với điểm Kết thúc.');
+      return;
+    }
+    if (connection.source === '__END__' || connection.target === '__START__') {
+      throw new Error('Kết thúc không thể phát luồng và Bắt đầu không thể nhận luồng.');
+    }
     const updated = workflowService.connectSteps(canonicalTemplateId, connection.source, connection.target, currentUser.id);
     syncConnect(updated.id, connection.source, connection.target, updated);
     message.success('Đã nối hai bước và lưu quan hệ phụ thuộc.');
   });
   const deleteEdges = (deleted: Edge[]) => guarded(() => {
-    saveCurrentNodePositions();
     let updated: WorkflowTemplateVersion | undefined;
     deleted.forEach((edge) => { updated = workflowService.disconnectSteps(canonicalTemplateId, edge.source, edge.target, currentUser.id); });
     if (updated) syncDisconnect(updated.id, deleted.map((edge) => ({ source: edge.source, target: edge.target })), updated);
     message.success('Đã xóa dây nối.');
+  });
+  const addTerminalNode = (nodeId: '__START__' | '__END__') => guarded(() => {
+    if (!draft) throw new Error('Không có phiên bản nháp để chỉnh sửa.');
+    if (systemNodePositions[nodeId]) {
+      message.info(nodeId === '__START__' ? 'Sơ đồ đã có điểm Bắt đầu.' : 'Sơ đồ đã có điểm Kết thúc.');
+      return;
+    }
+    const position = nodeId === '__START__'
+      ? { x: minX - 230, y: averageY(rootSteps) + 4 }
+      : { x: maxX + 280, y: averageY(leafSteps) + 4 };
+    const next = { ...systemNodePositions, [nodeId]: position };
+    setSystemNodeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
+    localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:system-nodes`, JSON.stringify(next));
+    message.success(nodeId === '__START__' ? 'Đã đặt điểm Bắt đầu lên canvas.' : 'Đã đặt điểm Kết thúc lên canvas.');
+  });
+  const removeTerminalNode = (nodeId: '__START__' | '__END__') => guarded(() => {
+    if (!draft) throw new Error('Không có phiên bản nháp để chỉnh sửa.');
+    const next = { ...systemNodePositions };
+    delete next[nodeId];
+    setSystemNodeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
+    localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:system-nodes`, JSON.stringify(next));
+    message.success(nodeId === '__START__' ? 'Đã xóa điểm Bắt đầu khỏi sơ đồ.' : 'Đã xóa điểm Kết thúc khỏi sơ đồ.');
   });
 
   const handleDragEnd = (e: DragEndEvent) => {
@@ -562,6 +712,20 @@ export default function WorkflowTemplateEditor() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {draft && <Button size="small" icon={<ListChecks size={14} />} onClick={() => setSidePanel('steps')}>Các bước ({draft.steps.length})</Button>}
             {draft && canDesign && <Button size="small" type="primary" icon={<Plus size={14} />} onClick={() => setSidePanel('add')}>Thêm bước</Button>}
+            {draft && draft.steps.length > 0 && (
+              <Button
+                size="small"
+                icon={<Activity size={14} />}
+                disabled={!hasStartNode || !hasEndNode}
+                title={!hasStartNode || !hasEndNode ? 'Cần đặt điểm Bắt đầu và Kết thúc trước khi mô phỏng' : undefined}
+                onClick={() => {
+                  setSimulationIndex(0);
+                  setSimulationRunning((running) => !running);
+                }}
+              >
+                {simulationRunning ? 'Dừng mô phỏng' : 'Mô phỏng luồng'}
+              </Button>
+            )}
             <Button size="small" icon={flowFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />} onClick={() => setFlowFullscreen((value) => !value)}>{flowFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}</Button>
             {draft && canPublish && (
               <Popconfirm
@@ -594,10 +758,15 @@ export default function WorkflowTemplateEditor() {
               key={`${draft.id}:${JSON.stringify(flowSteps)}`}
               defaultNodes={nodes}
               defaultEdges={edges}
-              onInit={(instance) => { flowInstanceRef.current = instance; }}
-              onNodeDragStop={(_, node) => node.type === 'stepNode' && guarded(() => {
+              onNodeDragStop={(_, node) => guarded(() => {
+                if (node.type === 'terminalNode') {
+                  const next = { ...systemNodePositions, [node.id]: { x: node.position.x, y: node.position.y } };
+                  setSystemNodeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
+                  localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:system-nodes`, JSON.stringify(next));
+                  return;
+                }
                 const updated = workflowService.saveNodePositions(canonicalTemplateId, { [node.id]: { x: node.position.x, y: node.position.y } }, currentUser.id);
-                syncNodePositions(updated.id, updated.nodePositions ?? {});
+                syncNodePositions(updated.id, updated.nodePositions ?? {}, updated);
               })}
               onNodeDoubleClick={(_, node) => node.type === 'stepNode' && openStepEditor(node.id)}
               nodeTypes={nodeTypes}
@@ -613,8 +782,94 @@ export default function WorkflowTemplateEditor() {
               <Background gap={16} color="#e9eff4" />
               <Controls />
               <MiniMap pannable zoomable />
-              {canDesign && <Panel position="top-left"><div style={{background:'rgba(255,255,255,.94)',padding:'7px 10px',borderRadius:6,fontSize:12,boxShadow:'var(--shadow-card)'}}>Kéo chấm xanh bên phải → chấm trắng bên trái để nối. Chọn dây rồi nhấn Delete để xóa.</div></Panel>}
-              {flowSteps.length === 0 && <Panel position="top-center"><div style={{background:'rgba(255,255,255,.96)',padding:'9px 13px',borderRadius:8,fontSize:12.5,boxShadow:'var(--shadow-card)'}}>Quy trình đã có điểm bắt đầu và kết thúc. Bấm “Thêm bước” để chèn bước xử lý đầu tiên.</div></Panel>}
+              {canDesign && <Panel position="top-left"><div style={{background:'rgba(255,255,255,.94)',padding:'7px 10px',borderRadius:6,fontSize:12,boxShadow:'var(--shadow-card)'}}>Kéo mọi node, kể cả Bắt đầu/Kết thúc, để tự bố trí. Nối từ chấm xanh sang chấm trắng; vòng lặp và tự nối vẫn được chặn để bảo vệ luồng khám.</div></Panel>}
+              {canDesign && (
+                <Panel position="top-right">
+                  <div style={{ background: 'rgba(255,255,255,.98)', padding: 10, borderRadius: 8, border: '1px solid #dce3e9', boxShadow: '0 5px 16px rgba(15,47,77,.09)', width: 184 }}>
+                    <Text strong style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>Công cụ sơ đồ</Text>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                      {[
+                        { key: 'start', label: 'Đặt điểm Bắt đầu', icon: Play, action: () => addTerminalNode('__START__'), disabled: hasStartNode },
+                        { key: 'end', label: 'Đặt điểm Kết thúc', icon: Check, action: () => addTerminalNode('__END__'), disabled: hasEndNode },
+                        { key: 'edge', label: 'Nối hai bước', icon: GitBranch, action: () => message.info('Kéo từ cổng ra của node nguồn sang cổng vào của node đích.') },
+                      ].map((tool) => {
+                        const ToolIcon = tool.icon;
+                        return (
+                          <Tooltip key={tool.key} title={tool.disabled ? `${tool.label} — đã có trên sơ đồ` : tool.label} placement="left">
+                            <button
+                              type="button"
+                              aria-label={tool.label}
+                              disabled={tool.disabled}
+                              onClick={tool.action}
+                              style={{ width: 48, height: 42, padding: 0, borderRadius: 6, border: '1px solid #d6dde4', background: tool.disabled ? '#f5f6f7' : '#fff', color: tool.disabled ? '#aab2ba' : '#344454', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: tool.disabled ? 'not-allowed' : 'pointer' }}
+                            >
+                              <ToolIcon size={19} strokeWidth={1.8} />
+                            </button>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                    <div style={{ height: 1, background: '#e6ebef', margin: '10px 0' }} />
+                    <Text type="secondary" style={{ display: 'block', fontSize: 10.5, marginBottom: 7, textTransform: 'uppercase', letterSpacing: '.04em' }}>Bước nghiệp vụ</Text>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                      {CLINIC_STEP_PRESETS.slice(0, 6).map((preset) => {
+                        const role = preset.step.responsibleRole ?? 'nurse';
+                        const executorType = preset.step.executorType ?? PRESET_EXECUTOR[preset.value] ?? executorForRole(role);
+                        const executor = EXECUTOR_META[executorType];
+                        const iconMeta = ICON_META[executor.icon];
+                        const PresetIcon = iconMeta.icon;
+                        return (
+                          <Tooltip key={preset.value} title={preset.label} placement="left">
+                            <button
+                              type="button"
+                              aria-label={`Thêm bước ${preset.step.name}`}
+                              onClick={() => {
+                                applyStepPreset(preset.value);
+                                setSidePanel('add');
+                              }}
+                              style={{
+                                width: 50,
+                                height: 48,
+                                padding: 0,
+                                borderRadius: 6,
+                                border: '1px solid #d6dde4',
+                                background: '#fff',
+                                color: '#344454',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <PresetIcon size={22} strokeWidth={1.9} />
+                            </button>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                    <Button size="small" type="link" icon={<Plus size={13} />} onClick={() => setSidePanel('add')} style={{ paddingInline: 0, marginTop: 7, fontSize: 11.5 }}>
+                      Tất cả loại bước
+                    </Button>
+                  </div>
+                </Panel>
+              )}
+              {simulationRunning && (
+                <Panel position="bottom-left">
+                  <div style={{ background: 'rgba(8,38,64,.94)', color: '#fff', width: 300, padding: '11px 13px', borderRadius: 9, boxShadow: '0 10px 30px rgba(8,38,64,.22)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Activity size={16} color="#5eead4" />
+                      <strong style={{ fontSize: 12.5 }}>Token đang chạy</strong>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, opacity: .72 }}>{simulationIndex + 1}/{simulationSequence.length}</span>
+                    </div>
+                    <div style={{ marginTop: 7, fontSize: 13 }}>
+                      {activeSimulationStep?.name ?? (activeSimulationNode === '__START__' ? 'Khởi tạo lượt khám' : 'Hoàn tất quy trình')}
+                    </div>
+                    {activeSimulationStep?.conditionalRule && <div style={{ marginTop: 4, fontSize: 11, color: '#bae6fd' }}>Điều kiện: {activeSimulationStep.conditionalRule}</div>}
+                    {activeSimulationStep?.requiredOutput && <div style={{ marginTop: 3, fontSize: 11, opacity: .78 }}>Dữ liệu đầu ra: {activeSimulationStep.requiredOutput}</div>}
+                  </div>
+                </Panel>
+              )}
+              {flowSteps.length === 0 && <Panel position="top-center"><div style={{background:'rgba(255,255,255,.96)',padding:'9px 13px',borderRadius:8,fontSize:12.5,boxShadow:'var(--shadow-card)'}}>Canvas đang trống. Chọn Bắt đầu, bước nghiệp vụ và Kết thúc từ thanh công cụ để tự dựng luồng.</div></Panel>}
             </ReactFlow>
           </div>
         )}

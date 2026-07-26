@@ -11,14 +11,17 @@ interface WorkflowTemplateDto {
   createdBy?: unknown;
   versionIds?: string[];
   latestPublishedVersionId?: unknown;
-  version: number;
+  version?: number;
+  rowVersion?: number;
 }
 
 interface WorkflowTemplateVersionDto {
   id: string;
   templateId: string;
-  version: number;
-  status: WorkflowTemplateStatus;
+  version?: number;
+  versionNumber?: number;
+  status?: WorkflowTemplateStatus;
+  lifecycleStatus?: WorkflowTemplateStatus;
   steps?: WorkflowStepDefinition[];
   nodePositions?: Record<string, { x: number; y: number }>;
   createdAt: string;
@@ -75,14 +78,14 @@ const mapTemplate = (dto: WorkflowTemplateDto): WorkflowTemplate => ({
   createdBy: optionalString(dto.createdBy) as UserId ?? ('' as UserId),
   versionIds: (dto.versionIds ?? []) as WorkflowTemplateVersionId[],
   latestPublishedVersionId: optionalString(dto.latestPublishedVersionId) as WorkflowTemplateVersionId | undefined,
-  version: dto.version,
+  version: dto.version ?? dto.rowVersion ?? 0,
 });
 
 const mapVersion = (dto: WorkflowTemplateVersionDto): WorkflowTemplateVersion => ({
   id: dto.id as WorkflowTemplateVersionId,
   templateId: dto.templateId as WorkflowTemplateId,
-  version: dto.version,
-  status: dto.status,
+  version: dto.version ?? dto.versionNumber ?? 1,
+  status: dto.status ?? dto.lifecycleStatus ?? 'draft',
   steps: (dto.steps ?? []).map((step) => ({
     ...step,
     description: step.description ?? '',
@@ -97,7 +100,9 @@ const mapVersion = (dto: WorkflowTemplateVersionDto): WorkflowTemplateVersion =>
   nodePositions: dto.nodePositions,
   createdAt: dto.createdAt,
   publishedAt: optionalString(dto.publishedAt),
-  rowVersion: dto.rowVersion,
+  // A draft created by older API versions did not always expose rowVersion.
+  // The command contract starts at 1, never send 0/undefined back to mutations.
+  rowVersion: Math.max(1, dto.rowVersion ?? 1),
 });
 
 const templatePath = (templateId: string) =>
@@ -185,8 +190,15 @@ export const updateWorkflowTemplateVersionSteps = async (
 // Response envelope only echoes a generic "data" placeholder in the spec (no
 // object schema), so the created/updated version is re-fetched afterwards via
 // getWorkflowTemplateVersion rather than trusted from this call's return value.
-export const addWorkflowTemplateVersionStep = (versionId: string, step: WorkflowStepDefinition) =>
-  http.post<unknown>(`/api/v1/workflow-template-versions/${encodeURIComponent(versionId)}/steps`, step);
+export const addWorkflowTemplateVersionStep = (
+  versionId: string,
+  step: WorkflowStepDefinition,
+  rowVersion: number,
+) =>
+  http.post<unknown>(
+    `/api/v1/workflow-template-versions/${encodeURIComponent(versionId)}/steps`,
+    { ...step, rowVersion },
+  );
 
 const versionPath = (versionId: string) =>
   `/api/v1/workflow-template-versions/${encodeURIComponent(versionId)}`;
@@ -195,16 +207,31 @@ export const updateWorkflowTemplateVersionStep = (
   versionId: string,
   code: string,
   patch: Partial<WorkflowStepDefinition>,
-) => http.patch<unknown>(`${versionPath(versionId)}/steps/${encodeURIComponent(code)}`, patch);
+  rowVersion: number,
+) => http.patch<unknown>(
+  `${versionPath(versionId)}/steps/${encodeURIComponent(code)}`,
+  { ...patch, rowVersion },
+);
 
-export const deleteWorkflowTemplateVersionStep = (versionId: string, code: string) =>
-  http.delete<unknown>(`${versionPath(versionId)}/steps/${encodeURIComponent(code)}`);
+export const deleteWorkflowTemplateVersionStep = (
+  versionId: string,
+  code: string,
+  rowVersion: number,
+) =>
+  http.delete<unknown>(
+    `${versionPath(versionId)}/steps/${encodeURIComponent(code)}`,
+    { rowVersion },
+  );
 
 // The spec's example body for this endpoint is an empty object with no field
 // names shown — `orderedCodes` is a best-effort guess based on the mock
 // service's `reorderSteps(templateId, orderedCodes)` signature it replaces.
-export const reorderWorkflowTemplateVersionSteps = (versionId: string, orderedCodes: string[]) =>
-  http.post<unknown>(`${versionPath(versionId)}/steps/reorder`, { orderedCodes });
+export const reorderWorkflowTemplateVersionSteps = (
+  versionId: string,
+  orderedCodes: string[],
+  rowVersion: number,
+) =>
+  http.post<unknown>(`${versionPath(versionId)}/steps/reorder`, { orderedCodes, rowVersion });
 
 // Same caveat as reorder above: field names (`sourceCode`/`targetCode`) are
 // inferred from workflowService.connectSteps/disconnectSteps, not confirmed
@@ -213,18 +240,30 @@ export const connectWorkflowTemplateVersionSteps = (
   versionId: string,
   sourceCode: string,
   targetCode: string,
-) => http.post<unknown>(`${versionPath(versionId)}/edges`, { sourceCode, targetCode });
+  rowVersion: number,
+) => http.post<unknown>(
+  `${versionPath(versionId)}/edges`,
+  { sourceCode, targetCode, rowVersion },
+);
 
 export const disconnectWorkflowTemplateVersionSteps = (
   versionId: string,
   sourceCode: string,
   targetCode: string,
-) => http.delete<unknown>(`${versionPath(versionId)}/edges`, { sourceCode, targetCode });
+  rowVersion: number,
+) => http.delete<unknown>(
+  `${versionPath(versionId)}/edges`,
+  { sourceCode, targetCode, rowVersion },
+);
 
 export const saveWorkflowTemplateVersionNodePositions = (
   versionId: string,
   positions: Record<string, { x: number; y: number }>,
-) => http.put<unknown>(`${versionPath(versionId)}/node-positions`, { positions });
+  rowVersion: number,
+) => http.put<unknown>(
+  `${versionPath(versionId)}/node-positions`,
+  { positions, rowVersion },
+);
 
 export const publishWorkflowTemplateVersion = async (versionId: string, version: number) => {
   const raw = decode(

@@ -1,6 +1,6 @@
 import { http } from './http';
 import { setAccessToken } from './authToken';
-import { ROLE_LABEL, type UserRole } from '../domain/core/role';
+import { ROLE_LABEL, resolveOperationalRole, type UserRole } from '../domain/core/role';
 import type { AuthSession, RegisterRequest } from './types';
 
 // Suffix matches the "auth" group's POST /api/v1/auth/registrations endpoint
@@ -54,7 +54,9 @@ export function inviteStaffAccount(
 // AppStateContext.refreshMe() uses — so permission gating (hasRoleAccess)
 // can key off it right after registration, before the first /me refresh.
 export function getPrimaryRole(session: AuthSession): UserRole {
-  return (session.user.memberships[0]?.role as UserRole | undefined) ?? 'patient';
+  return resolveOperationalRole(
+    session.user.memberships.map((membership) => membership.role),
+  );
 }
 
 export function getPrimaryRoleLabel(session: AuthSession): string {

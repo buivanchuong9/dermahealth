@@ -22,7 +22,7 @@ const STATUS_COLOR: Record<string, string> = { queued: 'default', sent: 'process
 export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () => void }) {
   const { message } = App.useApp();
   const navigate = useNavigate();
-  const { currentUser, allUsers, setCurrentUserId, resetSession } = useAppState();
+  const { currentUser, setActiveRole, resetSession } = useAppState();
   const [accountOpen, setAccountOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -138,35 +138,24 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
           </Text>
         </div>
       </div>
-      <Divider style={{ margin: '12px 0' }} />
-      <Text strong className="top-header__account-label">Chuyển tài khoản và vai trò</Text>
-      <Select
-        value={currentUser.id}
-        onChange={(userId) => {
-          setCurrentUserId(userId);
-          setAccountOpen(false);
-        }}
-        style={{ width: '100%', marginTop: 7 }}
-        optionLabelProp="label"
-        options={allUsers.map((user) => ({
-          value: user.id,
-          label: user.name,
-          searchText: `${user.name} ${ROLE_LABEL[user.role]} ${user.department ?? ''}`,
-          content: (
-            <div className="top-header__account-option">
-              <Avatar size={28} style={{ background: 'var(--medical-blue-100)', color: 'var(--medical-blue-700)', flexShrink: 0 }}>{user.name.trim().slice(-1)}</Avatar>
-              <div style={{ minWidth: 0 }}>
-                <Text className="top-header__account-option-name">{user.name}</Text>
-                <Text type="secondary" className="top-header__account-option-role">{ROLE_LABEL[user.role]}{user.department ? ` · ${user.department}` : ''}</Text>
-              </div>
-            </div>
-          ),
-        }))}
-        optionRender={(option) => option.data.content}
-        showSearch
-        filterOption={(input, option) => (option?.searchText ?? '').toLowerCase().includes(input.toLowerCase())}
-        placeholder="Chọn tài khoản"
-      />
+      {currentUser.roles.length > 1 && (
+        <>
+          <Divider style={{ margin: '12px 0' }} />
+          <Text strong className="top-header__account-label">Vai trò đang hoạt động</Text>
+          <Select
+            value={currentUser.role}
+            onChange={(role) => {
+              setActiveRole(role);
+              setAccountOpen(false);
+            }}
+            style={{ width: '100%', marginTop: 7 }}
+            options={currentUser.roles.map((role) => ({ value: role, label: ROLE_LABEL[role] }))}
+          />
+          <Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginTop: 6 }}>
+            Tài khoản này có {currentUser.roles.length} vai trò. Đổi vai trò để xem menu và trang tương ứng.
+          </Text>
+        </>
+      )}
       <Button
         type="text"
         block

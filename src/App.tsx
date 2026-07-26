@@ -12,10 +12,10 @@ import { GlobalEmpty } from './components/feedback/ProfessionalEmpty';
 import { RoleProtectedRoute } from './components/feedback/AccessDenied';
 import type { UserRole } from './domain/core/role';
 
-const STAFF_QUEUE_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator'];
-const QUEUE_CONTROL_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'medical_administrator'];
-const RECEPTION_ROLES: UserRole[] = ['receptionist', 'medical_administrator'];
-const WORKFLOW_DESIGN_ROLES: UserRole[] = ['clinical_process_designer', 'medical_administrator'];
+const STAFF_QUEUE_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator', 'super_administrator'];
+const QUEUE_CONTROL_ROLES: UserRole[] = ['doctor', 'nurse', 'receptionist', 'medical_administrator', 'super_administrator'];
+const RECEPTION_ROLES: UserRole[] = ['receptionist', 'medical_administrator', 'super_administrator'];
+const WORKFLOW_DESIGN_ROLES: UserRole[] = ['clinical_process_designer', 'medical_administrator', 'super_administrator'];
 const SCHEDULE_MANAGE_ROLES: UserRole[] = ['doctor', 'medical_administrator', 'super_administrator'];
 
 // Phân tách router cấp trang
@@ -79,8 +79,8 @@ export default function App() {
                 >
                   <Route index element={<Navigate to="/app/dashboard" replace />} />
                   <Route path="dashboard" element={<Dashboard />} />
-                  <Route path="appointments" element={<RoleProtectedRoute allowed={['patient', 'receptionist']} featureName="Lịch hẹn"><Appointments /></RoleProtectedRoute>} />
-                  <Route path="appointments/:appointmentId" element={<RoleProtectedRoute allowed={['patient', 'receptionist']} featureName="Chi tiết lịch hẹn"><AppointmentDetail /></RoleProtectedRoute>} />
+                  <Route path="appointments" element={<RoleProtectedRoute allowed={['patient', 'receptionist', 'super_administrator']} featureName="Lịch hẹn"><Appointments /></RoleProtectedRoute>} />
+                  <Route path="appointments/:appointmentId" element={<RoleProtectedRoute allowed={['patient', 'receptionist', 'super_administrator']} featureName="Chi tiết lịch hẹn"><AppointmentDetail /></RoleProtectedRoute>} />
                   <Route path="appointments/:appointmentId/consultation" element={<RoleProtectedRoute allowed={['patient', 'receptionist', 'doctor']} featureName="Chuẩn bị lượt khám"><AppointmentDetail consultation /></RoleProtectedRoute>} />
                   <Route path="ai-analysis" element={<RoleProtectedRoute allowed={['patient']} featureName="Phân tích AI"><AIAnalysis /></RoleProtectedRoute>} />
                   <Route path="doctor-review" element={<RoleProtectedRoute allowed={['doctor']} featureName="Xem xét và chẩn đoán"><DoctorReview /></RoleProtectedRoute>} />
@@ -89,7 +89,7 @@ export default function App() {
                   <Route path="profile" element={<RoleProtectedRoute allowed={['patient']} featureName="Hồ sơ bệnh nhân"><Profile /></RoleProtectedRoute>} />
                   <Route path="prescriptions" element={<RoleProtectedRoute allowed={['patient']} featureName="Đơn thuốc"><Prescriptions /></RoleProtectedRoute>} />
                   <Route path="progress" element={<RoleProtectedRoute allowed={['patient']} featureName="Theo dõi tiến triển"><Progress /></RoleProtectedRoute>} />
-                  <Route path="care" element={<RoleProtectedRoute allowed={['patient', 'care_coordinator', 'customer_care_employee', 'medical_administrator']} featureName="Chăm sóc sau khám"><Care /></RoleProtectedRoute>} />
+                  <Route path="care" element={<RoleProtectedRoute allowed={['patient', 'care_coordinator', 'customer_care_employee', 'medical_administrator', 'super_administrator']} featureName="Chăm sóc sau khám"><Care /></RoleProtectedRoute>} />
                   <Route path="reports" element={<RoleProtectedRoute allowed={['patient']} featureName="Báo cáo"><Reports /></RoleProtectedRoute>} />
                   <Route path="workflows/templates" element={<RoleProtectedRoute allowed={WORKFLOW_DESIGN_ROLES} featureName="Thiết kế quy trình"><WorkflowTemplates /></RoleProtectedRoute>} />
                   <Route path="workflows" element={<RoleProtectedRoute allowed={WORKFLOW_DESIGN_ROLES} featureName="Thiết kế quy trình"><WorkflowTemplates /></RoleProtectedRoute>} />
@@ -101,8 +101,8 @@ export default function App() {
                   <Route path="encounters/:encounterId/workflow" element={<RoleProtectedRoute allowed={STAFF_QUEUE_ROLES} featureName="Quy trình lượt khám"><EncounterWorkflow /></RoleProtectedRoute>} />
                   <Route path="patient-journey/:encounterId" element={<PatientJourneyDetail />} />
                   <Route path="work-queue" element={<RoleProtectedRoute allowed={STAFF_QUEUE_ROLES} featureName="Hàng đợi công việc"><WorkQueue /></RoleProtectedRoute>} />
-                  <Route path="audit" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator']} featureName="Nhật ký kiểm toán"><AuditViewer /></RoleProtectedRoute>} />
-                  <Route path="integrations" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator']} featureName="Tình trạng tích hợp"><Integrations /></RoleProtectedRoute>} />
+                  <Route path="audit" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator', 'super_administrator']} featureName="Nhật ký kiểm toán"><AuditViewer /></RoleProtectedRoute>} />
+                  <Route path="integrations" element={<RoleProtectedRoute allowed={['medical_administrator', 'system_administrator', 'super_administrator']} featureName="Tình trạng tích hợp"><Integrations /></RoleProtectedRoute>} />
                   <Route path="owner" element={<RoleProtectedRoute allowed={['super_administrator']} featureName="Owner Control Center"><OwnerOperations /></RoleProtectedRoute>} />
                   <Route path="staff" element={<RoleProtectedRoute allowed={['super_administrator', 'medical_administrator']} featureName="Quản lý nhân sự"><StaffManagement /></RoleProtectedRoute>} />
                   <Route path="practitioner-schedule" element={<RoleProtectedRoute allowed={SCHEDULE_MANAGE_ROLES} featureName="Lịch làm việc bác sĩ"><PractitionerSchedule /></RoleProtectedRoute>} />

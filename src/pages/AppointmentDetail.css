@@ -1,0 +1,186 @@
+.appointment-detail-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.appointment-back-link {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #607086;
+}
+
+.appointment-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.appointment-detail-header .ant-typography {
+  margin: 0;
+}
+
+.appointment-status-tag {
+  padding: 5px 11px;
+  border-radius: 999px;
+}
+
+.appointment-journey-card .ant-card-body {
+  padding: 20px 28px;
+}
+
+.appointment-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.appointment-info-card .ant-card-body {
+  padding-top: 18px;
+}
+
+.appointment-time-hero {
+  margin-bottom: 20px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid #dceafb;
+  border-radius: 12px;
+  background: #f6faff;
+}
+
+.appointment-time-hero .ant-typography {
+  margin: 0;
+}
+
+.appointment-calendar-icon,
+.checkin-icon,
+.qr-empty-icon {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: #1769aa;
+  border-radius: 12px;
+  background: #e4f1ff;
+}
+
+.appointment-info-card .ant-descriptions-item-label {
+  width: 160px;
+  color: #758296;
+}
+
+.appointment-info-card .ant-descriptions-item-label span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.appointment-actions {
+  margin-top: 14px;
+}
+
+.checkin-card .ant-card-body,
+.queue-ticket-card .ant-card-body {
+  height: calc(100% - 57px);
+  display: flex;
+  flex-direction: column;
+}
+
+.checkin-card .checkin-icon {
+  margin-bottom: 14px;
+}
+
+.checkin-card .ant-typography {
+  margin-top: 0;
+}
+
+.checkin-card .ant-btn {
+  margin-top: auto;
+}
+
+.queue-number {
+  margin: 8px 0 18px;
+  color: #1769aa;
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.queue-stats {
+  margin-bottom: 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.queue-stats > div {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 9px;
+  background: #f4f7fa;
+}
+
+.queue-stats strong {
+  font-size: 18px;
+}
+
+.queue-stats span {
+  color: #7e8b9d;
+  font-size: 11px;
+}
+
+.qr-empty-card .ant-card-body {
+  padding: 18px 22px;
+}
+
+.qr-empty-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.qr-empty-content > div:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+@media (max-width: 860px) {
+  .appointment-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .appointment-journey-card .ant-card-body {
+    padding: 18px;
+    overflow-x: auto;
+  }
+
+  .appointment-journey-card .ant-steps {
+    min-width: 560px;
+  }
+
+  .appointment-info-card .ant-descriptions-item-label {
+    width: 120px;
+  }
+
+  .qr-empty-content {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .qr-empty-content .ant-btn {
+    width: 100%;
+  }
+}

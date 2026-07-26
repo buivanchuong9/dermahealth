@@ -634,6 +634,18 @@ export default function OwnerOperations() {
             </Button>
           </Col>
         </Row>
+        {catalog.some((item) => item.dangerous) && (
+          <Text
+            type="secondary"
+            style={{ display: "block", marginTop: 10, fontSize: 12 }}
+          >
+            {catalog.filter((item) => item.dangerous).length} quyền cực nguy
+            hiểm (ví dụ: thêm Owner, thu hồi toàn bộ phiên, xuất danh bạ hàng
+            loạt) không hiện ở đây — các quyền này không thể cấp thường trực
+            cho một vai trò, mà bắt buộc phải đi qua quy trình "Thao tác nhạy
+            cảm" với 2/4 Owner đồng thuận.
+          </Text>
+        )}
       </Card>
       {matrixError ? (
         <Alert

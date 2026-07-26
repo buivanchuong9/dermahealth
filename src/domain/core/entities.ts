@@ -18,7 +18,11 @@ import type { UserRole } from './role';
 export interface User {
   id: UserId;
   name: string;
+  /** The currently active role for UI gating (nav, RoleProtectedRoute). */
   role: UserRole;
+  /** Every role this account holds membership in — may be more than one;
+   * `role` is whichever of these is currently selected/active. */
+  roles: UserRole[];
   department?: string;
   specialty?: string;
   online?: boolean;
@@ -300,6 +304,10 @@ export interface WorkflowTask {
   patientArrivalStatus?: 'not_arrived' | 'arrived' | 'in_room';
   reworkCount: number;
   version?: number;
+  /** Doctor-authored tasks attached to a single running instance never
+   * mutate the shared WorkflowTemplateVersion — see WorkflowInstancePage. */
+  origin?: 'template' | 'ad_hoc';
+  createdBy?: UserId;
 }
 
 export interface WorkflowInstance {

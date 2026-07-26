@@ -14,12 +14,21 @@ import {
   Tag,
   Typography,
   Alert,
+  Steps,
 } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { Calendar, Clock, Stethoscope } from "lucide-react";
+import {
+  Building2,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  Stethoscope,
+  UserRound,
+  Video,
+} from "lucide-react";
 import { useAppState } from "../state/useAppState";
 import { useStore } from "../state/useStore";
-import { appointmentRepository, userRepository } from "../domain/repositories";
+import { appointmentRepository, queueRepository, userRepository } from "../domain/repositories";
 import type { Appointment } from "../domain/core/entities";
 import {
   createAppointment,
@@ -34,6 +43,7 @@ import {
   rescheduleAppointment,
 } from "../api/appointments";
 import { ApiError } from "../api/http";
+import "./Appointments.css";
 
 const { Title } = Typography;
 
@@ -80,6 +90,9 @@ export default function Appointments() {
   const { message, modal } = App.useApp();
   const { currentPatient } = useAppState();
   const appointments = useStore(appointmentRepository).filter(
+    (item) => item.patientId === currentPatient.id,
+  );
+  const queueTickets = useStore(queueRepository).filter(
     (item) => item.patientId === currentPatient.id,
   );
   const doctors = useStore(userRepository).filter(
@@ -149,6 +162,10 @@ export default function Appointments() {
         };
       }),
     [appointments, rescheduleSlots, rescheduleTarget?.id],
+  );
+  const selectedSlot = useMemo(
+    () => slots.find((item) => item.slotId === slotId),
+    [slotId, slots],
   );
 
   useEffect(() => {
@@ -287,10 +304,17 @@ export default function Appointments() {
           "Bạn đã có một lịch hẹn khác trùng thời gian này. Vui lòng chọn giờ khác.",
         );
       }
-      const created = await createAppointment({ slotId, mode });
+      const created = await createAppointment({
+        slotId,
+        mode,
+        onBehalfOfPatientId: currentPatient.id,
+      });
       appointmentRepository.upsert(created);
       appointmentRepository.replaceAll(await listAppointments());
-      message.success("Đặt lịch thành công và đã lưu vào hệ thống.");
+      message.success(
+        "Đặt lịch thành công. Lễ tân đã nhận được lịch; bệnh nhân sẽ vào hàng đợi sau khi check-in.",
+        5,
+      );
       setSlotId(undefined);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -396,49 +420,64 @@ export default function Appointments() {
   };
 
   return (
-    <Space direction="vertical" size={18} style={{ width: "100%" }}>
-      <Title level={3}>Lịch hẹn</Title>
-      <Card title="Đặt lịch khám">
+    <Space direction="vertical" size={18} style={{ width: "100%" }} className="appointments-page">
+      <div>
+        <Title level={3} style={{ marginBottom: 4 }}>Lịch hẹn</Title>
+        <Typography.Text type="secondary">
+          Đặt lịch, theo dõi check-in và tiến trình vào phòng khám.
+        </Typography.Text>
+      </div>
+      <Card
+        className="booking-card"
+        title={
+          <div className="booking-card-title">
+            <span><Calendar size={19} /></span>
+            <div>
+              <Typography.Text strong>Đặt lịch khám</Typography.Text>
+              <Typography.Text type="secondary">Chọn bác sĩ, ngày và khung giờ phù hợp</Typography.Text>
+            </div>
+          </div>
+        }
+      >
         <Space direction="vertical" size={14} style={{ width: "100%" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(260px, 1.4fr) minmax(190px, 0.8fr) auto",
-              gap: 12,
-              alignItems: "center",
-              maxWidth: 900,
-            }}
-          >
-            <Select
-              placeholder="Chọn bác sĩ"
-              value={selectedDoctorId}
-              onChange={setDoctorId}
-              options={doctors.map((item) => ({
-                value: item.id,
-                label: `${item.name}${item.specialty ? ` — ${item.specialty}` : ""}`,
-              }))}
-              notFoundContent={
-                <Empty description="Chưa có bác sĩ trong hệ thống" />
-              }
-            />
-            <DatePicker
-              value={date}
-              onChange={setDate}
-              disabledDate={(value) => value.isBefore(dayjs(), "day")}
-              style={{ width: "100%" }}
-              placeholder="Chọn ngày khám"
-              format="DD/MM/YYYY"
-            />
-            <Radio.Group
-              value={mode}
-              optionType="button"
-              buttonStyle="solid"
-              onChange={(event) => setMode(event.target.value)}
-              options={[
-                { value: "in_person", label: "Tại phòng khám" },
-                { value: "video", label: "Trực tuyến" },
-              ]}
-            />
+          <div className="booking-fields">
+            <label>
+              <span className="field-label"><UserRound size={14} /> Bác sĩ</span>
+              <Select
+                placeholder="Chọn bác sĩ"
+                value={selectedDoctorId}
+                onChange={setDoctorId}
+                options={doctors.map((item) => ({
+                  value: item.id,
+                  label: `${item.name}${item.specialty ? ` — ${item.specialty}` : ""}`,
+                }))}
+                notFoundContent={<Empty description="Chưa có bác sĩ trong hệ thống" />}
+              />
+            </label>
+            <label>
+              <span className="field-label"><Calendar size={14} /> Ngày khám</span>
+              <DatePicker
+                value={date}
+                onChange={setDate}
+                disabledDate={(value) => value.isBefore(dayjs(), "day")}
+                style={{ width: "100%" }}
+                placeholder="Chọn ngày khám"
+                format="DD/MM/YYYY"
+              />
+            </label>
+            <label>
+              <span className="field-label"><Building2 size={14} /> Hình thức</span>
+              <Radio.Group
+                value={mode}
+                optionType="button"
+                buttonStyle="solid"
+                onChange={(event) => setMode(event.target.value)}
+                options={[
+                  { value: "in_person", label: "Tại phòng khám" },
+                  { value: "video", label: "Trực tuyến" },
+                ]}
+              />
+            </label>
           </div>
           {availabilityError && (
             <Alert
@@ -458,7 +497,9 @@ export default function Appointments() {
               </Typography.Text>
             </Space>
           ) : date && slotOptions.length ? (
-            <Space wrap size={[8, 8]}>
+            <div className="slot-section">
+              <Typography.Text strong>Giờ khám còn trống</Typography.Text>
+              <div className="slot-grid">
               {slotOptions.map((option) => (
                 <Button
                   key={option.value}
@@ -466,10 +507,11 @@ export default function Appointments() {
                   type={slotId === option.value ? "primary" : "default"}
                   onClick={() => setSlotId(option.value)}
                 >
-                  {option.label}
+                  <Clock size={14} /> {option.label}
                 </Button>
               ))}
-            </Space>
+              </div>
+            </div>
           ) : date ? (
             <Alert
               type="info"
@@ -500,17 +542,37 @@ export default function Appointments() {
               Chọn ngày để xem các khung giờ còn trống.
             </Typography.Text>
           )}
-          <Button
-            type="primary"
-            disabled={!slotId}
-            loading={bookingLoading}
-            onClick={() => void submit()}
-          >
-            Xác nhận đặt lịch
-          </Button>
+          <div className="booking-confirm">
+            <div>
+              <Typography.Text strong>
+                {selectedSlot
+                  ? `${dayjs(selectedSlot.startsAt).format("HH:mm")} · ${dayjs(selectedSlot.startsAt).format("DD/MM/YYYY")}`
+                  : "Chưa chọn giờ khám"}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {selectedSlot
+                  ? `${doctor?.name ?? "Bác sĩ"} · ${mode === "video" ? "Trực tuyến" : "Tại phòng khám"}`
+                  : "Chọn một khung giờ khả dụng để tiếp tục"}
+              </Typography.Text>
+            </div>
+            <Button
+              type="primary"
+              size="large"
+              icon={<CheckCircle2 size={16} />}
+              disabled={!slotId}
+              loading={bookingLoading}
+              onClick={() => void submit()}
+            >
+              Xác nhận đặt lịch
+            </Button>
+          </div>
         </Space>
       </Card>
-      <Card title="Lịch hẹn từ hệ thống">
+      <Card
+        className="appointment-list-card"
+        title="Lịch hẹn của bệnh nhân"
+        extra={<Typography.Text type="secondary">{appointments.length} lịch hẹn</Typography.Text>}
+      >
         <List
           dataSource={[...appointments].sort((a, b) =>
             `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`),
@@ -518,6 +580,7 @@ export default function Appointments() {
           locale={{ emptyText: "Chưa có lịch hẹn" }}
           renderItem={(item) => (
             <List.Item
+              className="appointment-row"
               actions={
                 item.status === "upcoming"
                   ? [
@@ -546,19 +609,43 @@ export default function Appointments() {
               }
             >
               <List.Item.Meta
-                avatar={<Calendar size={20} />}
-                title={`${item.date} ${item.time}`}
+                avatar={<div className="appointment-date-icon"><Calendar size={19} /></div>}
+                title={<span>{item.time} · {item.date}</span>}
                 description={
-                  <Space>
+                  <Space wrap>
                     <Stethoscope size={14} />
                     {doctors.find((entry) => entry.id === item.doctorId)
                       ?.name ?? item.doctorId}
-                    <Clock size={14} />
-                    {item.department}
+                    <span>· {item.department}</span>
+                    {item.mode === "video" ? <Video size={14} /> : <Building2 size={14} />}
+                    {item.mode === "video" ? "Trực tuyến" : "Tại phòng khám"}
                   </Space>
                 }
               />
-              <Tag>{item.status}</Tag>
+              <div className="appointment-progress">
+                <Steps
+                  size="small"
+                  responsive={false}
+                  current={
+                    queueTickets.some((ticket) =>
+                      ticket.appointmentId === item.id &&
+                      ["in_service", "completed"].includes(ticket.status)
+                    )
+                      ? 2
+                      : queueTickets.some((ticket) => ticket.appointmentId === item.id)
+                        ? 1
+                        : 0
+                  }
+                  items={[
+                    { title: "Đã đặt" },
+                    { title: "Check-in" },
+                    { title: "Đang khám" },
+                  ]}
+                />
+                <Tag color={item.status === "upcoming" ? "blue" : "default"}>
+                  {item.status === "upcoming" ? "Sắp tới" : item.status}
+                </Tag>
+              </div>
             </List.Item>
           )}
         />
