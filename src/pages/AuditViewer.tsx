@@ -28,8 +28,8 @@ export default function AuditViewer() {
   const sorted = [...events].sort((a, b) => (b.at || '').localeCompare(a.at || ''));
   const filtered = sorted.filter((e) => (module === 'all' || e.sourceModule === module) && (severity === 'all' || e.severity === severity));
 
-  if (!hasRoleAccess(role, ['medical_administrator', 'system_administrator'])) {
-    return <AccessDenied featureName="Nhật ký kiểm toán" allowedRoles={['medical_administrator', 'system_administrator']} />;
+  if (!hasRoleAccess(role, ['medical_administrator', 'system_administrator', 'super_administrator'])) {
+    return <AccessDenied featureName="Nhật ký kiểm toán" allowedRoles={['medical_administrator', 'system_administrator', 'super_administrator']} />;
   }
 
   return (

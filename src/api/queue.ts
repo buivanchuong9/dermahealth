@@ -1,6 +1,5 @@
 import type { QueueTicket } from "../domain/core/entities";
 import { http } from "./http";
-import { getAccessToken } from "./authToken";
 
 export interface ApiQueueTicket {
   id: string;
@@ -132,33 +131,34 @@ export const listQueueStations = (clinicLocationId: string) => {
   return http.get<QueueStationSnapshot[]>(`/api/v1/queue-stations?${query}`);
 };
 
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ??
-  "";
-
 export function subscribeQueueStream(
   onSnapshot: (tickets: QueueTicket[]) => void,
 ): () => void {
-  const token = getAccessToken();
-  const url = `${API_BASE_URL}/api/v1/queue/stream${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-  const source = new EventSource(url, {
-    withCredentials: true,
-  });
-  const handleSnapshot = (event: MessageEvent<string>) => {
+  // Native EventSource cannot send an Authorization header. Passing the
+  // access token in the URL leaked it into browser history, reverse-proxy
+  // logs and DevTools, and also failed strict query validation on the API.
+  // Poll through the authenticated HTTP client until the backend exposes a
+  // short-lived, one-time SSE subscription ticket.
+  let active = true;
+  let inFlight = false;
+  const refresh = async () => {
+    if (!active || inFlight) return;
+    inFlight = true;
     try {
-      const payload = JSON.parse(event.data) as
-        | ApiQueueTicket[]
-        | { data?: ApiQueueTicket[]; tickets?: ApiQueueTicket[] };
-      const rows = Array.isArray(payload)
-        ? payload
-        : (payload.tickets ?? payload.data ?? []);
-      onSnapshot(rows.map(mapQueueTicket));
+      onSnapshot(await listQueueTickets());
     } catch {
-      // Bỏ qua heartbeat hoặc snapshot không phải JSON.
+      // Boot already loads a snapshot. A transient refresh failure must not
+      // clear the queue or interrupt unrelated clinical work.
+    } finally {
+      inFlight = false;
     }
   };
-  source.addEventListener("queue.snapshot", handleSnapshot as EventListener);
-  return () => source.close();
+  void refresh();
+  const timer = window.setInterval(() => void refresh(), 5_000);
+  return () => {
+    active = false;
+    window.clearInterval(timer);
+  };
 }
 
 // API cũ trả về chuỗi; giữ client riêng để tương thích trong giai đoạn chuyển đổi.

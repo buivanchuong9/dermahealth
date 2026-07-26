@@ -63,8 +63,12 @@ const mapInstance = (dto: WorkflowInstanceDto): WorkflowInstance => ({
 const instancePath = (instanceId: string) =>
   `/api/v1/workflow-instances/${encodeURIComponent(instanceId)}`;
 
-export const listWorkflowInstances = async () =>
-  (await http.get<WorkflowInstanceDto[]>('/api/v1/workflow-instances')).map(mapInstance);
+export const listWorkflowInstances = async (patientId: string) =>
+  (
+    await http.get<WorkflowInstanceDto[]>(
+      `/api/v1/workflow-instances?patientId=${encodeURIComponent(patientId)}`,
+    )
+  ).map(mapInstance);
 
 export const getWorkflowInstance = async (instanceId: string) =>
   mapInstance(await http.get<WorkflowInstanceDto>(instancePath(instanceId)));

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, Pill, Activity, Calendar, FileText, Trash2, Upload, FileSignature, History, ShieldAlert, Lock, Home,
+  Plus, Activity, FileText, Trash2, Upload, FileSignature, History, ShieldAlert, Lock, Home, ExternalLink, FileHeart,
 } from 'lucide-react';
 import { DragHandle } from '../components/common/DragHandle';
 import { IconActionButton } from '../components/common/IconActionButton';
@@ -38,20 +38,30 @@ import type { EncounterId } from '../domain/core/ids';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 import { LifetimeMedicalRecord } from '../components/medical-record/LifetimeMedicalRecord';
+import { listWorkflowInstances } from '../api/workflowInstance';
+import {
+  acceptWorkflowTask,
+  cancelAdHocWorkflowTask,
+  completeWorkflowTask,
+  createAdHocWorkflowTask,
+  listWorkflowTasks,
+  startWorkflowTask,
+} from '../api/workflowTask';
+import { ROLE_LABEL } from '../domain/core/role';
+import type { WorkflowTask } from '../domain/core/entities';
 
 const { Title, Text, Paragraph } = Typography;
 
-interface PlanTask { id: number; col: string; title: string; type: string; date: string; desc: string; priority: 'high' | 'medium' | 'low' }
-
-const INIT: PlanTask[] = [
-  { id: 1, col: 'todo', title: 'Bôi kem Tretinoin 0.05%', type: 'Thuốc', date: 'Hôm nay', desc: 'Thoa lớp mỏng vùng mụn viêm trước khi ngủ. Tránh vùng mắt và môi.', priority: 'high' },
-  { id: 2, col: 'todo', title: 'Chụp ảnh AI báo cáo tuần 3', type: 'AI', date: 'Ngày mai', desc: 'Upload hình ảnh vùng má phải và trán để AI theo dõi tiến độ phục hồi.', priority: 'medium' },
-  { id: 3, col: 'in_progress', title: 'Theo dõi phản ứng thuốc', type: 'Theo dõi', date: 'Tuần này', desc: 'Quan sát xem vùng da có phản ứng đỏ, ngứa quá mức sau khi dùng thuốc.', priority: 'medium' },
-  { id: 4, col: 'in_progress', title: 'Uống Omega-3 hàng ngày', type: 'Thuốc', date: '14 ngày', desc: 'Uống 1 viên sau bữa sáng. Hỗ trợ giảm viêm từ bên trong.', priority: 'low' },
-  { id: 5, col: 'done', title: 'Khám với Bs. Nguyễn Thị An', type: 'Lịch hẹn', date: '01/10/2023', desc: 'Khám định kỳ tháng 10. Đã điều chỉnh liều Tretinoin.', priority: 'high' },
-  { id: 6, col: 'done', title: 'Uống kháng sinh Doxycycline', type: 'Thuốc', date: '25/09–02/10', desc: '7 ngày theo đơn. Đã hoàn thành đủ liệu trình.', priority: 'high' },
-  { id: 7, col: 'done', title: 'Xét nghiệm máu tổng quát', type: 'Xét nghiệm', date: '28/09/2023', desc: 'Kết quả bình thường. Không có dấu hiệu nhiễm khuẩn.', priority: 'medium' },
-];
+interface PlanTask {
+  id: string;
+  col: string;
+  title: string;
+  type: string;
+  date: string;
+  desc: string;
+  priority: 'high' | 'medium' | 'low';
+  source: WorkflowTask;
+}
 
 const COLS = [
   { id: 'todo', label: 'Cần thực hiện' },
@@ -59,11 +69,11 @@ const COLS = [
   { id: 'done', label: 'Đã hoàn thành' },
 ];
 
-const TYPE_ICON: Record<string, typeof Pill> = { Thuốc: Pill, AI: Activity, 'Lịch hẹn': Calendar };
+const TYPE_ICON: Record<string, typeof Activity> = { 'Bước bổ sung': Plus };
 const PRIO_COLOR: Record<string, string> = { high: 'red', medium: 'gold', low: 'default' };
 const PRIO_LABEL: Record<string, string> = { high: 'Quan trọng', medium: 'Trung bình', low: 'Bình thường' };
 
-function PlanCard({ task, onDelete, ghost, registerNode }: { task: PlanTask; onDelete: () => void; ghost?: boolean; registerNode?: (node: HTMLDivElement | null) => void }) {
+function PlanCard({ task, onDelete, canDelete, ghost, registerNode }: { task: PlanTask; onDelete: () => void; canDelete: boolean; ghost?: boolean; registerNode?: (node: HTMLDivElement | null) => void }) {
   // Lưu ý: KHÔNG áp `transform` lên thẻ gốc — DragOverlay đã là bản ghost bay
   // theo chuột; nếu transform cả thẻ gốc sẽ có 2 thẻ cùng di chuyển và thẻ gốc
   // bị mép cột (overflow) cắt cụt. `ghost` = bản copy trong DragOverlay: hiển
@@ -95,7 +105,7 @@ function PlanCard({ task, onDelete, ghost, registerNode }: { task: PlanTask; onD
         </Tag>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <DragHandle attributes={attributes} listeners={listeners} label={`Kéo để di chuyển bước "${task.title}" sang cột khác`} />
-          <IconActionButton icon={<Trash2 size={14} />} label="Xóa" danger onClick={onDelete} />
+          {canDelete && <IconActionButton icon={<Trash2 size={14} />} label="Xóa bước riêng" danger onClick={onDelete} />}
         </div>
       </div>
       <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>{task.title}</Text>
@@ -126,7 +136,7 @@ const COL_STYLES: Record<string, { bg: string; border: string; bgOver: string }>
   },
 };
 
-function PlanColumn({ colId, label, tasks, onDelete, registerCardNode }: { colId: string; label: string; tasks: PlanTask[]; onDelete: (id: number) => void; registerCardNode: (id: number, node: HTMLDivElement | null) => void }) {
+function PlanColumn({ colId, label, tasks, onDelete, canManage, registerCardNode }: { colId: string; label: string; tasks: PlanTask[]; onDelete: (task: PlanTask) => void; canManage: boolean; registerCardNode: (id: string, node: HTMLDivElement | null) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: colId });
   const styles = COL_STYLES[colId] || { bg: 'var(--surface-subtle)', border: 'var(--border-default)', bgOver: 'var(--surface-selected)' };
   return (
@@ -147,7 +157,7 @@ function PlanColumn({ colId, label, tasks, onDelete, registerCardNode }: { colId
         <Text strong style={{ fontSize: 13 }}>{label}</Text>
         <Tag>{tasks.length}</Tag>
       </div>
-      {tasks.map((t) => <PlanCard key={t.id} task={t} onDelete={() => onDelete(t.id)} registerNode={(node) => registerCardNode(t.id, node)} />)}
+      {tasks.map((t) => <PlanCard key={t.id} task={t} onDelete={() => onDelete(t)} canDelete={canManage && t.source.origin === 'ad_hoc' && ['pending', 'blocked', 'ready'].includes(t.source.status)} registerNode={(node) => registerCardNode(t.id, node)} />)}
       {tasks.length === 0 && <Text type="secondary" style={{ fontSize: 12 }}>Thả thẻ vào đây</Text>}
     </div>
   );
@@ -420,30 +430,99 @@ function EMRWorkspace() {
 
 function TreatmentPlanKanban() {
   const { message } = AntApp.useApp();
-  const [tasks, setTasks] = useState<PlanTask[]>(INIT);
+  const navigate = useNavigate();
+  const { currentPatient, role } = useAppState();
+  const instances = useStore(workflowRepository.instances());
+  const workflowTasks = useStore(workflowRepository.tasks());
   const [modal, setModal] = useState(false);
   const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [activeId, setActiveId] = useState<number | null>(null);
+  const [department, setDepartment] = useState('Khám bệnh');
+  const [responsibleRole, setResponsibleRole] = useState<UserRole>('doctor');
+  const [slaMinutes, setSlaMinutes] = useState(30);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
-  const cardNodes = useRef(new Map<number, HTMLDivElement>());
+  const [loading, setLoading] = useState(true);
+  const cardNodes = useRef(new Map<string, HTMLDivElement>());
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
+  const canManage = hasRoleAccess(role, ['doctor', 'medical_administrator']);
 
-  const add = () => {
-    if (!title.trim()) return;
-    setTasks((p) => [...p, { id: Date.now(), col: 'todo', title, type: 'Theo dõi', date: 'Hôm nay', desc, priority: 'medium' }]);
-    setTitle(''); setDesc(''); setModal(false);
+  const instance = instances
+    .filter((row) => row.patientId === currentPatient.id)
+    .sort((a, b) => b.activatedAt.localeCompare(a.activatedAt))[0];
+
+  const toColumn = (status: WorkflowTask['status']) => {
+    if (['completed', 'skipped', 'cancelled'].includes(status)) return 'done';
+    if (['assigned', 'accepted', 'in_progress', 'waiting_for_patient', 'waiting_for_result', 'waiting_for_approval'].includes(status)) return 'in_progress';
+    return 'todo';
   };
-  const del = (id: number) => setTasks((p) => p.filter((t) => t.id !== id));
-  const move = (id: number, col: string) => setTasks((p) => p.map((t) => (t.id === id ? { ...t, col } : t)));
-  const registerCardNode = (id: number, node: HTMLDivElement | null) => {
+  const tasks: PlanTask[] = workflowTasks
+    .filter((task) => task.instanceId === instance?.id)
+    .map((task) => ({
+      id: task.id,
+      col: toColumn(task.status),
+      title: task.name,
+      type: task.origin === 'ad_hoc' ? 'Bước bổ sung' : 'Bước BPM',
+      date: task.completedAt
+        ? new Date(task.completedAt).toLocaleDateString('vi-VN')
+        : `SLA ${task.slaMinutes} phút`,
+      desc: `${ROLE_LABEL[task.responsibleRole]} · ${task.department}${task.clinicalWarning ? ` · ${task.clinicalWarning}` : ''}`,
+      priority: task.priority === 'high' ? 'high' : task.priority === 'medium' ? 'medium' : 'low',
+      source: task,
+    }));
+
+  const refresh = async () => {
+    const [freshInstances, freshTasks] = await Promise.all([listWorkflowInstances(currentPatient.id), listWorkflowTasks()]);
+    freshInstances.forEach((row) => workflowRepository.instances().upsert(row));
+    freshTasks.forEach((row) => workflowRepository.tasks().upsert(row));
+  };
+
+  useEffect(() => {
+    refresh()
+      .catch((error: unknown) => message.error(error instanceof Error ? error.message : 'Không tải được kế hoạch điều trị.'))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPatient.id]);
+
+  const add = async () => {
+    if (!instance || !title.trim() || !department.trim()) return;
+    setLoading(true);
+    try {
+      await createAdHocWorkflowTask(instance.id, {
+        name: title.trim(),
+        responsibleRole,
+        department: department.trim(),
+        slaMinutes,
+      });
+      await refresh();
+      setTitle('');
+      setModal(false);
+      message.success('Đã thêm bước riêng vào quy trình của bệnh nhân này.');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Không thể thêm bước.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  const del = async (task: PlanTask) => {
+    setLoading(true);
+    try {
+      await cancelAdHocWorkflowTask(task.id, task.source.version ?? 0);
+      await refresh();
+      message.success('Đã xóa bước riêng khỏi kế hoạch bệnh nhân.');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Không thể xóa bước.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  const registerCardNode = (id: string, node: HTMLDivElement | null) => {
     if (node) cardNodes.current.set(id, node);
     else cardNodes.current.delete(id);
   };
 
   const handleDragStart = (e: DragStartEvent) => {
-    const id = Number(e.active.id);
+    const id = String(e.active.id);
     setActiveId(id);
     // Ghost trong DragOverlay không nằm trong cột nên không tự co giãn theo
     // bề rộng cột — đo bề rộng thẻ gốc lúc bắt đầu kéo để ghost to đúng bằng
@@ -454,46 +533,94 @@ function TreatmentPlanKanban() {
     setActiveId(null);
     setDragWidth(null);
     const target = e.over?.id as string | undefined;
-    const id = Number(e.active.id);
+    const id = String(e.active.id);
     const task = tasks.find((t) => t.id === id);
     if (!target || !task || task.col === target) return;
     const col = COLS.find((c) => c.id === target)!;
+    const action =
+      target === 'in_progress' && task.source.status === 'ready'
+        ? () => acceptWorkflowTask(task.id, task.source.version ?? 0)
+        : target === 'in_progress' && ['accepted', 'assigned'].includes(task.source.status)
+          ? () => startWorkflowTask(task.id, task.source.version ?? 0)
+          : target === 'done' && task.source.status === 'in_progress'
+            ? () => completeWorkflowTask(task.id, task.source.version ?? 0)
+            : null;
+    if (!action) {
+      message.warning('Bước này chưa đủ điều kiện chuyển trạng thái. Hãy mở quy trình để xem bước phụ thuộc.');
+      return;
+    }
     setPendingDrop({
       title: 'Xác nhận chuyển bước điều trị',
       question: `Chuyển bước "${task.title}" sang "${col.label}"?`,
       confirmLabel: 'Xác nhận',
-      run: () => {
-        move(id, target);
-        message.success('Đã cập nhật trạng thái bước điều trị.');
-        setPendingDrop(null);
+      run: async () => {
+        setLoading(true);
+        try {
+          await action();
+          await refresh();
+          message.success('Đã cập nhật trạng thái trên quy trình BPM.');
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái.');
+        } finally {
+          setLoading(false);
+          setPendingDrop(null);
+        }
       },
     });
   };
   const activeTask = tasks.find((t) => t.id === activeId);
 
+  if (!loading && !instance) {
+    return (
+      <ProfessionalEmpty
+        title="Chưa có quy trình điều trị đang áp dụng"
+        description="Kế hoạch điều trị sẽ tự động lấy các bước từ BPM sau khi bác sĩ duyệt kế hoạch và kích hoạt quy trình cho lượt khám."
+        primaryLabel={canManage ? 'Mở quy trình BPM' : undefined}
+        primaryHref={canManage ? '/app/workflows/templates' : undefined}
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Alert
+        type="info"
+        showIcon
+        message="Kế hoạch này đồng bộ trực tiếp với quy trình BPM của lượt khám"
+        description="Bước bổ sung của bác sĩ chỉ áp dụng cho bệnh nhân này; mẫu BPM gốc và các bệnh nhân khác không bị thay đổi."
+        action={instance && <Button size="small" icon={<ExternalLink size={13} />} onClick={() => navigate(`/app/workflows/instances/${instance.id}`)}>Mở toàn bộ quy trình</Button>}
+      />
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Button type="primary" icon={<Plus size={15} />} onClick={() => setModal(true)}>Thêm bước mới</Button>
+        {canManage && instance?.status === 'active' && <Button loading={loading} type="primary" icon={<Plus size={15} />} onClick={() => setModal(true)}>Thêm bước riêng</Button>}
       </div>
       
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
           {COLS.map((col) => (
-            <PlanColumn key={col.id} colId={col.id} label={col.label} tasks={tasks.filter((t) => t.col === col.id)} onDelete={del} registerCardNode={registerCardNode} />
+            <PlanColumn key={col.id} colId={col.id} label={col.label} tasks={tasks.filter((t) => t.col === col.id)} onDelete={del} canManage={canManage} registerCardNode={registerCardNode} />
           ))}
         </div>
-        <DragOverlay>{activeTask ? <div style={{ width: dragWidth ?? 260, boxSizing: 'border-box' }}><PlanCard task={activeTask} onDelete={() => {}} ghost /></div> : null}</DragOverlay>
+        <DragOverlay>{activeTask ? <div style={{ width: dragWidth ?? 260, boxSizing: 'border-box' }}><PlanCard task={activeTask} onDelete={() => {}} canDelete={false} ghost /></div> : null}</DragOverlay>
       </DndContext>
 
-      <Modal title="Thêm Bước Điều Trị Mới" open={modal} onCancel={() => setModal(false)} onOk={add} okText="Thêm bước" cancelText="Hủy">
+      <Modal title="Thêm bước riêng cho bệnh nhân" open={modal} confirmLoading={loading} onCancel={() => setModal(false)} onOk={add} okText="Thêm vào quy trình" cancelText="Hủy">
         <div style={{ marginBottom: 12 }}>
           <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tên bước *</Text>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="VD: Uống thuốc kháng viêm..." />
         </div>
-        <div>
-          <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Ghi chú</Text>
-          <Input.TextArea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Chi tiết thêm..." />
+        <Row gutter={12}>
+          <Col span={12}>
+            <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Người thực hiện</Text>
+            <Select style={{ width: '100%' }} value={responsibleRole} onChange={setResponsibleRole} options={(['doctor', 'nurse', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator'] as UserRole[]).map((value) => ({ value, label: ROLE_LABEL[value] }))} />
+          </Col>
+          <Col span={12}>
+            <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>SLA (phút)</Text>
+            <Input type="number" min={1} value={slaMinutes} onChange={(e) => setSlaMinutes(Math.max(1, Number(e.target.value) || 1))} />
+          </Col>
+        </Row>
+        <div style={{ marginTop: 12 }}>
+          <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Bộ phận phụ trách *</Text>
+          <Input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="VD: Khám bệnh" />
         </div>
       </Modal>
 
@@ -504,14 +631,21 @@ function TreatmentPlanKanban() {
 
 export default function Records() {
   const [activeTab, setActiveTab] = useState('lifetime');
+  const navigate = useNavigate();
+  const { currentPatient } = useAppState();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div>
-        <Title level={3} style={{ margin: '4px 0 0' }}>Hồ sơ sức khỏe</Title>
-        <Text type="secondary">
-          Theo dõi lịch sử khám chữa bệnh xuyên suốt và kế hoạch điều trị hiện tại.
-        </Text>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Hồ sơ sức khỏe</Title>
+          <Text type="secondary">
+            Theo dõi lịch sử khám chữa bệnh xuyên suốt và kế hoạch điều trị hiện tại.
+          </Text>
+        </div>
+        <Button icon={<FileHeart size={15} />} onClick={() => navigate(`/app/patients/${currentPatient.id}/clinical-workspace`)}>
+          Mở hồ sơ lâm sàng 360°
+        </Button>
       </div>
       <TabPanel
         activeKey={activeTab}

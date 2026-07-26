@@ -34,6 +34,8 @@ import {
   subscribeQueueStream,
 } from "../api/queue";
 import { resolveOperationalRole, type UserRole } from "../domain/core/role";
+import { listOwnerRolePermissions } from "../api/ownerOperations";
+import { replaceRolePermissions } from "./rolePermissionStore";
 
 const activeRoleStorageKey = (userId: string) =>
   `dermahealth:v1:auth:activeRole:${userId}`;
@@ -67,6 +69,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     await refreshSession();
     const me = await getMe();
     const roles = [...new Set(me.memberships.map((item) => item.role))];
+    if (roles.includes("super_administrator")) {
+      void listOwnerRolePermissions()
+        .then(replaceRolePermissions)
+        .catch(() => undefined);
+    }
     setCurrentUser((previous) => ({
       id: me.id as UserId,
       name: me.displayName,
@@ -87,6 +94,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       await refreshSession().catch(() => undefined);
       const me = await getMe();
       const roles = [...new Set(me.memberships.map((item) => item.role))];
+      if (roles.includes("super_administrator")) {
+        void listOwnerRolePermissions()
+          .then(replaceRolePermissions)
+          .catch(() => undefined);
+      }
       const user: User = {
         id: me.id as UserId,
         name: me.displayName,
@@ -104,7 +116,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         await Promise.allSettled([
           listPractitioners(),
           listAppointments(),
-          me.memberships.some((membership) => membership.role === "patient")
+          // A UAT Owner can deliberately hold every role, including
+          // `patient`. Treating "has patient role" as "is a patient-only
+          // account" makes that Owner call /patients/me and the whole app
+          // boots with an empty patient repository. Only a genuinely
+          // patient-only principal should use the self endpoint; mixed-role
+          // staff accounts must use the organization-scoped patient list.
+          roles.length === 1 && roles[0] === "patient"
             ? getCurrentPatient().then((patient) => [patient])
             : listPatients(),
           listEncounters(),

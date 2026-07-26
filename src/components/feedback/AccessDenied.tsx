@@ -3,6 +3,7 @@ import { Button, Card, Space, Typography } from 'antd';
 import { ArrowLeft, Home } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
 import { hasRoleAccess, ROLE_LABEL, type UserRole } from '../../domain/core/role';
+import { hasEffectivePermission, supportsModulePermissions, useRolePermissionSnapshot } from '../../state/rolePermissionStore';
 
 const { Title, Text } = Typography;
 const noAccessImage = `${import.meta.env.BASE_URL}no%20access.png`;
@@ -32,8 +33,23 @@ export function AccessDenied({ featureName, allowedRoles }: { featureName?: stri
   );
 }
 
-export function RoleProtectedRoute({ allowed, featureName, children }: { allowed: UserRole[]; featureName: string; children: ReactNode }) {
-  const { role } = useAppState();
-  if (!hasRoleAccess(role, allowed)) return <AccessDenied featureName={featureName} allowedRoles={allowed} />;
+export function RoleProtectedRoute({ allowed, permissions = [], featureName, children }: { allowed: UserRole[]; permissions?: string[]; featureName: string; children: ReactNode }) {
+  const { role, currentUser } = useAppState();
+  const permissionSnapshot = useRolePermissionSnapshot();
+  const isOwner = currentUser.roles.includes('super_administrator');
+  const canEnforceModulePermission =
+    permissionSnapshot.loaded &&
+    supportsModulePermissions(permissionSnapshot.rows);
+  const permitted =
+    isOwner
+      ? true
+      : canEnforceModulePermission && permissions.length > 0
+      ? hasEffectivePermission(
+          permissionSnapshot.rows,
+          currentUser.roles,
+          permissions,
+        )
+      : hasRoleAccess(role, allowed);
+  if (!permitted) return <AccessDenied featureName={featureName} allowedRoles={allowed} />;
   return children;
 }

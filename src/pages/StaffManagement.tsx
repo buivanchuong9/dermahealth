@@ -19,6 +19,8 @@ import {
 } from "antd";
 import {
   Copy,
+  RefreshCw,
+  Send,
   UserPlus,
 } from "lucide-react";
 import { ApiError } from "../api/http";
@@ -54,11 +56,28 @@ const ROLE_OPTIONS = INVITABLE_ROLES.map((value) => ({
 }));
 
 const INVITATION_STATUS_LABEL: Record<string, string> = {
+  sending: "Đang tạo lời mời",
   pending: "Đang chờ",
+  failed: "Tạo thất bại",
   accepted: "Đã kích hoạt",
   revoked: "Đã thu hồi",
   expired: "Đã hết hạn",
 };
+
+type InvitationRow = Omit<PendingStaffInvitation, "status"> & {
+  status: PendingStaffInvitation["status"] | "sending" | "failed";
+  clientOnly?: boolean;
+  activationUrl?: string;
+  errorMessage?: string;
+};
+
+type OnboardingStage =
+  | "idle"
+  | "verifying"
+  | "scoping"
+  | "applying"
+  | "done"
+  | "error";
 
 const describeError = (error: unknown, fallback: string) => {
   if (error instanceof ApiError) {
@@ -160,10 +179,12 @@ export default function StaffManagement() {
     organizationName: string;
   } | null>(null);
 
-  const [invitations, setInvitations] = useState<PendingStaffInvitation[]>([]);
+  const [invitations, setInvitations] = useState<InvitationRow[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(true);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [onboardingStage, setOnboardingStage] =
+    useState<OnboardingStage>("idle");
 
   const loadCatalog = useCallback(async () => {
     setCatalogLoading(true);
@@ -195,7 +216,15 @@ export default function StaffManagement() {
     setInvitationsLoading(true);
     setInvitationsError(null);
     try {
-      setInvitations(await listInvitedUsers(organizationId));
+      const persisted = await listInvitedUsers(organizationId);
+      setInvitations((current) => [
+        ...current.filter(
+          (item) =>
+            item.clientOnly &&
+            !persisted.some((saved) => saved.id === item.id),
+        ),
+        ...persisted,
+      ]);
     } catch (error) {
       setInvitationsError(describeError(error, "Không tải được danh sách lời mời."));
     } finally {
@@ -216,9 +245,26 @@ export default function StaffManagement() {
 
   const submitInvite = async () => {
     const values = await inviteForm.validateFields();
+    const normalizedEmail = String(values.email).trim().toLowerCase();
+    const attemptId = `attempt:${crypto.randomUUID()}`;
+    const attempt = {
+      id: attemptId,
+      email: normalizedEmail,
+      displayName: values.displayName,
+      role: values.role as UserRole,
+      organizationId: values.organizationId,
+      clinicLocationId: values.clinicLocationId || null,
+      departmentId: values.departmentId || null,
+      invitedBy: actorUserId ?? "",
+      status: "sending",
+      expiresAt: "",
+      createdAt: new Date().toISOString(),
+      clientOnly: true,
+    } as InvitationRow;
+    setInvitations((current) => [attempt, ...current]);
+    setOnboardingStage("verifying");
     setInviting(true);
     try {
-      const normalizedEmail = String(values.email).trim().toLowerCase();
       const matches = await listUsers({ search: normalizedEmail, limit: 10 });
       const existing = matches.find(
         (user) => user.email.trim().toLowerCase() === normalizedEmail,
@@ -239,6 +285,10 @@ export default function StaffManagement() {
               (values.departmentId || undefined),
         );
         if (duplicate) {
+          setInvitations((current) =>
+            current.filter((item) => item.id !== attemptId),
+          );
+          setOnboardingStage("done");
           void message.info(
             `${existing.displayName} đã có vai trò và phạm vi này.`,
           );
@@ -264,7 +314,14 @@ export default function StaffManagement() {
             onCancel: () => resolve(false),
           });
         });
-        if (!confirmed) return;
+        if (!confirmed) {
+          setInvitations((current) =>
+            current.filter((item) => item.id !== attemptId),
+          );
+          setOnboardingStage("idle");
+          return;
+        }
+        setOnboardingStage("scoping");
         await assignUserRole(existing.id, {
           role: values.role,
           organizationId: values.organizationId,
@@ -295,6 +352,10 @@ export default function StaffManagement() {
               (organization) => organization.id === values.organizationId,
             )?.name ?? "Tổ chức đã chọn",
         });
+        setInvitations((current) =>
+          current.filter((item) => item.id !== attemptId),
+        );
+        setOnboardingStage("done");
         inviteForm.resetFields([
           "email",
           "displayName",
@@ -307,6 +368,8 @@ export default function StaffManagement() {
         );
         return;
       }
+      setOnboardingStage("scoping");
+      setOnboardingStage("applying");
       const result = await inviteStaffAccount({
         email: normalizedEmail,
         displayName: values.displayName,
@@ -316,14 +379,58 @@ export default function StaffManagement() {
         departmentId: values.departmentId || undefined,
       });
       setInviteResult(result);
+      setInvitations((current) => [
+        {
+          ...attempt,
+          id: result.invitationId,
+          status: "pending",
+          expiresAt: result.expiresAt,
+          activationUrl: result.activationUrl,
+          clientOnly: true,
+        },
+        ...current.filter(
+          (item) =>
+            item.id !== attemptId && item.id !== result.invitationId,
+        ),
+      ]);
+      setOnboardingStage("done");
       inviteForm.resetFields(["email", "displayName", "role", "clinicLocationId", "departmentId"]);
       void message.success("Đã tạo lời mời.");
       void loadInvitations(values.organizationId);
     } catch (error) {
-      void message.error(describeError(error, "Không tạo được lời mời."));
+      const errorMessage = describeError(error, "Không tạo được lời mời.");
+      setInvitations((current) =>
+        current.map((item) =>
+          item.id === attemptId
+            ? {
+                ...item,
+                status: "failed",
+                errorMessage,
+              } as InvitationRow
+            : item,
+        ),
+      );
+      setOnboardingStage("error");
+      void message.error(errorMessage);
     } finally {
       setInviting(false);
     }
+  };
+
+  const retryInvitation = (item: InvitationRow) => {
+    inviteForm.setFieldsValue({
+      email: item.email,
+      displayName: item.displayName,
+      role: item.role,
+      organizationId: item.organizationId,
+      clinicLocationId: item.clinicLocationId || undefined,
+      departmentId: item.departmentId || undefined,
+    });
+    setInvitations((current) =>
+      current.filter((row) => row.id !== item.id),
+    );
+    setOnboardingStage("idle");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const copyActivationUrl = async (url: string) => {
@@ -335,7 +442,7 @@ export default function StaffManagement() {
     }
   };
 
-  const doRevoke = async (invitation: PendingStaffInvitation) => {
+  const doRevoke = async (invitation: InvitationRow) => {
     setRevokingId(invitation.id);
     try {
       await revokeInvitation(invitation.id);
@@ -347,6 +454,21 @@ export default function StaffManagement() {
       setRevokingId(null);
     }
   };
+
+  const pendingInvitationCount = invitations.filter(
+    (item) => item.status === "pending",
+  ).length;
+  const failedInvitationCount = invitations.filter(
+    (item) => item.status === "failed",
+  ).length;
+  const onboardingCurrent = {
+    idle: 0,
+    verifying: 1,
+    scoping: 2,
+    applying: 3,
+    done: 3,
+    error: 0,
+  }[onboardingStage];
 
   const inviteTab = (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
@@ -422,7 +544,18 @@ export default function StaffManagement() {
         </Form>
       </Card>
 
-      <Card size="small" title="Lời mời đang chờ kích hoạt">
+      <Card
+        size="small"
+        title="Lời mời kích hoạt"
+        extra={
+          <Space size={8}>
+            <Tag color="processing">{pendingInvitationCount} đang chờ</Tag>
+            {failedInvitationCount > 0 && (
+              <Tag color="error">{failedInvitationCount} thất bại</Tag>
+            )}
+          </Space>
+        }
+      >
         {invitationsError ? (
           <Alert
             type="error"
@@ -454,30 +587,99 @@ export default function StaffManagement() {
                 render: (value: UserRole) => ROLE_LABEL[value] ?? value,
               },
               {
-                title: "Trạng thái",
-                dataIndex: "status",
-                render: (value: string) => (
-                  <Tag color={value === "pending" ? "processing" : "default"}>
-                    {INVITATION_STATUS_LABEL[value] ?? value}
-                  </Tag>
+                title: "Phạm vi",
+                render: (_, item: InvitationRow) => (
+                  <Space direction="vertical" size={0}>
+                    <Text>
+                      {organizations.find(
+                        (organization) =>
+                          organization.id === item.organizationId,
+                      )?.name ?? "Tổ chức"}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {clinicLocations.find(
+                        (location) =>
+                          location.id === item.clinicLocationId,
+                      )?.name ?? "Toàn tổ chức"}
+                      {" · "}
+                      {departments.find(
+                        (department) =>
+                          department.id === item.departmentId,
+                      )?.name ?? "Không giới hạn phòng ban"}
+                    </Text>
+                  </Space>
                 ),
               },
+              {
+                title: "Kết quả",
+                dataIndex: "status",
+                render: (value: string, item: InvitationRow) => (
+                  <Space direction="vertical" size={2}>
+                    <Tag
+                      icon={value === "sending" ? <Send size={12} /> : undefined}
+                      color={
+                        value === "pending"
+                          ? "processing"
+                          : value === "failed"
+                            ? "error"
+                            : "default"
+                      }
+                    >
+                      {INVITATION_STATUS_LABEL[value] ?? value}
+                    </Tag>
+                    {value === "pending" && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Cần gửi liên kết kích hoạt thủ công
+                      </Text>
+                    )}
+                    {item.errorMessage && (
+                      <Text type="danger" style={{ fontSize: 12 }}>
+                        {item.errorMessage}
+                      </Text>
+                    )}
+                  </Space>
+                ),
+              },
+              { title: "Tạo lúc", dataIndex: "createdAt", render: displayTime },
               { title: "Hết hạn", dataIndex: "expiresAt", render: displayTime },
               {
-                title: "",
-                render: (_, item: PendingStaffInvitation) =>
-                  item.status === "pending" && (
-                    <Popconfirm
-                      title="Thu hồi lời mời này?"
-                      okText="Thu hồi"
-                      cancelText="Hủy"
-                      onConfirm={() => void doRevoke(item)}
-                    >
-                      <Button danger size="small" loading={revokingId === item.id}>
-                        Thu hồi
+                title: "Thao tác",
+                render: (_, item: InvitationRow) => (
+                  <Space wrap>
+                    {item.activationUrl && (
+                      <Button
+                        size="small"
+                        icon={<Copy size={13} />}
+                        onClick={() =>
+                          void copyActivationUrl(item.activationUrl!)
+                        }
+                      >
+                        Sao chép link
                       </Button>
-                    </Popconfirm>
-                  ),
+                    )}
+                    {item.status === "failed" && (
+                      <Button
+                        size="small"
+                        icon={<RefreshCw size={13} />}
+                        onClick={() => retryInvitation(item)}
+                      >
+                        Thử lại
+                      </Button>
+                    )}
+                    {item.status === "pending" && (
+                      <Popconfirm
+                        title="Thu hồi lời mời này?"
+                        okText="Thu hồi"
+                        cancelText="Hủy"
+                        onConfirm={() => void doRevoke(item)}
+                      >
+                        <Button danger size="small" loading={revokingId === item.id}>
+                          Thu hồi
+                        </Button>
+                      </Popconfirm>
+                    )}
+                  </Space>
+                ),
               },
             ]}
           />
@@ -550,10 +752,21 @@ export default function StaffManagement() {
           trước khi quyền được áp dụng.
         </Text>
       </div>
-      <Card size="small">
+      <Card
+        size="small"
+        className={`staff-onboarding staff-onboarding--${onboardingStage}`}
+      >
         <Steps
           responsive
-          current={-1}
+          current={onboardingCurrent}
+          status={
+            onboardingStage === "error"
+              ? "error"
+              : onboardingStage === "done"
+                ? "finish"
+                : "process"
+          }
+          progressDot
           items={[
             {
               title: "Có tài khoản",

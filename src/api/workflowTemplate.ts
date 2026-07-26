@@ -210,7 +210,7 @@ export const updateWorkflowTemplateVersionStep = (
   rowVersion: number,
 ) => http.patch<unknown>(
   `${versionPath(versionId)}/steps/${encodeURIComponent(code)}`,
-  { ...patch, rowVersion },
+  { patch, rowVersion },
 );
 
 export const deleteWorkflowTemplateVersionStep = (
@@ -219,8 +219,7 @@ export const deleteWorkflowTemplateVersionStep = (
   rowVersion: number,
 ) =>
   http.delete<unknown>(
-    `${versionPath(versionId)}/steps/${encodeURIComponent(code)}`,
-    { rowVersion },
+    `${versionPath(versionId)}/steps/${encodeURIComponent(code)}?rowVersion=${encodeURIComponent(String(rowVersion))}`,
   );
 
 // The spec's example body for this endpoint is an empty object with no field
@@ -259,11 +258,10 @@ export const disconnectWorkflowTemplateVersionSteps = (
 export const saveWorkflowTemplateVersionNodePositions = (
   versionId: string,
   positions: Record<string, { x: number; y: number }>,
-  rowVersion: number,
-) => http.put<unknown>(
+) => http.put<WorkflowTemplateVersionDto>(
   `${versionPath(versionId)}/node-positions`,
-  { positions, rowVersion },
-);
+  { positions },
+).then(mapVersion);
 
 export const publishWorkflowTemplateVersion = async (versionId: string, version: number) => {
   const raw = decode(

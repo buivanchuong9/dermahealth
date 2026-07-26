@@ -9,59 +9,71 @@ import {
 import { AppLogo } from '../components/brand';
 import { useAppState } from '../state/useAppState';
 import { hasRoleAccess, type UserRole } from '../domain/core/role';
+import { hasEffectivePermission, supportsModulePermissions, useRolePermissionSnapshot } from '../state/rolePermissionStore';
 
 const { Sider } = Layout;
 const { Text } = Typography;
 
-interface NavItem { key: string; label: string; icon: typeof Home; roles: UserRole[] | 'all'; children?: NavItem[] }
-
-// Every non-patient role — used for items that used to be visible to 'all'
-// but are now nested under a patient-only submenu, so staff roles still get
-// their own flat entry instead of losing the link entirely.
-const NON_PATIENT_ROLES: UserRole[] = [
-  'doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician',
-  'pharmacist', 'care_coordinator', 'customer_care_employee',
-  'medical_administrator', 'system_administrator', 'clinical_process_designer',
-];
+interface NavItem {
+  key: string;
+  label: string;
+  icon: typeof Home;
+  roles: UserRole[] | 'all';
+  permissions?: string[];
+  children?: NavItem[];
+}
 
 const NAV_MAIN: NavItem[] = [
-  { key: '/app/dashboard', label: 'Tổng quan', icon: Home, roles: 'all' },
-  { key: '/app/appointments', label: 'Lịch hẹn', icon: Calendar, roles: ['patient', 'receptionist', 'super_administrator'] },
+  { key: '/app/dashboard', label: 'Tổng quan', icon: Home, roles: 'all', permissions: ['module.dashboard.view'] },
+  { key: '/app/appointments', label: 'Lịch hẹn', icon: Calendar, roles: ['patient', 'receptionist', 'super_administrator'], permissions: ['module.appointments.access'] },
   {
-    key: 'group:exam', label: 'Khám bệnh', icon: Stethoscope, roles: ['patient'],
+    key: 'group:exam', label: 'Khám bệnh', icon: Stethoscope, roles: 'all',
     children: [
-      { key: '/app/journey', label: 'Tiến trình khám bệnh', icon: MapPinned, roles: ['patient'] },
-      { key: '/app/ai-analysis', label: 'Phân tích da bằng AI', icon: Cpu, roles: ['patient'] },
+      { key: '/app/journey', label: 'Tiến trình khám bệnh', icon: MapPinned, roles: 'all', permissions: ['module.journey.access'] },
+      { key: '/app/ai-analysis', label: 'Phân tích da bằng AI', icon: Cpu, roles: ['patient'], permissions: ['module.ai_analysis.access'] },
+      { key: '/app/doctor-review', label: 'Xem xét & Chẩn đoán', icon: Stethoscope, roles: ['doctor'], permissions: ['module.doctor_review.access'] },
     ],
   },
-  { key: '/app/journey', label: 'Tiến trình khám bệnh', icon: MapPinned, roles: NON_PATIENT_ROLES },
-  { key: '/app/doctor-review', label: 'Xem xét & Chẩn đoán', icon: Stethoscope, roles: ['doctor'] },
-  { key: '/app/work-queue', label: 'Hàng đợi công việc', icon: ListChecks, roles: ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator', 'super_administrator'] },
-  { key: '/app/workflows/templates', label: 'Quy trình BPM', icon: Workflow, roles: ['clinical_process_designer', 'medical_administrator', 'super_administrator'] },
   {
-    key: 'group:treatment', label: 'Điều trị', icon: Activity, roles: ['patient'],
+    key: 'group:treatment', label: 'Điều trị', icon: Activity, roles: 'all',
     children: [
-      { key: '/app/records', label: 'Bệnh án trọn đời', icon: Activity, roles: ['patient'] },
-      { key: '/app/progress', label: 'Theo dõi tiến triển', icon: TrendingUp, roles: ['patient'] },
-      { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['patient'] },
+      { key: '/app/records', label: 'Bệnh án trọn đời', icon: Activity, roles: ['patient'], permissions: ['module.records.access'] },
+      { key: '/app/progress', label: 'Theo dõi tiến triển', icon: TrendingUp, roles: ['patient'], permissions: ['module.progress.access'] },
+      { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['patient', 'care_coordinator', 'customer_care_employee', 'medical_administrator', 'super_administrator'], permissions: ['module.care.access'] },
+      { key: '/app/prescriptions', label: 'Đơn thuốc', icon: BarChart2, roles: ['patient'], permissions: ['module.prescriptions.access'] },
+      { key: '/app/reports', label: 'Báo cáo', icon: BarChart2, roles: ['patient'], permissions: ['module.reports.access'] },
     ],
   },
-  { key: '/app/care', label: 'Chăm sóc sau khám', icon: Heart, roles: ['care_coordinator', 'customer_care_employee', 'medical_administrator', 'super_administrator'] },
-  { key: '/app/reception/qr-check-in', label: 'Check-in QR', icon: QrCode, roles: ['receptionist', 'medical_administrator', 'super_administrator'] },
-  { key: '/app/reception', label: 'Trung tâm lễ tân', icon: User, roles: ['receptionist', 'medical_administrator', 'super_administrator'] },
-  { key: '/app/clinic-queue', label: 'Điều phối hàng đợi', icon: MonitorPlay, roles: ['receptionist', 'nurse', 'doctor', 'medical_administrator', 'super_administrator'] },
-  { key: '/app/prescriptions', label: 'Đơn thuốc', icon: BarChart2, roles: ['patient'] },
-  { key: '/app/reports', label: 'Báo cáo', icon: BarChart2, roles: ['patient'] },
-  { key: '/app/audit', label: 'Nhật ký kiểm toán', icon: ShieldCheck, roles: ['medical_administrator', 'system_administrator', 'super_administrator'] },
-  { key: '/app/integrations', label: 'Tình trạng tích hợp', icon: Plug, roles: ['system_administrator', 'medical_administrator', 'super_administrator'] },
-  { key: '/app/staff', label: 'Quản lý nhân sự', icon: UserPlus, roles: ['super_administrator', 'medical_administrator'] },
-  { key: '/app/practitioner-schedule', label: 'Lịch làm việc bác sĩ', icon: Clock, roles: ['doctor', 'medical_administrator', 'super_administrator'] },
-  { key: '/app/owner', label: 'Owner Control Center', icon: KeyRound, roles: ['super_administrator'] },
+  {
+    key: 'group:workflow', label: 'Quy trình', icon: Workflow, roles: 'all',
+    children: [
+      { key: '/app/work-queue', label: 'Hàng đợi công việc', icon: ListChecks, roles: ['doctor', 'nurse', 'receptionist', 'lab_technician', 'imaging_technician', 'pharmacist', 'care_coordinator', 'medical_administrator'], permissions: ['module.work_queue.access'] },
+      { key: '/app/workflows/templates', label: 'Thiết kế quy trình BPM', icon: Workflow, roles: ['clinical_process_designer', 'medical_administrator'], permissions: ['module.workflow_design.access'] },
+    ],
+  },
+  {
+    key: 'group:operations', label: 'Vận hành phòng khám', icon: MonitorPlay, roles: 'all',
+    children: [
+      { key: '/app/reception/qr-check-in', label: 'Check-in QR', icon: QrCode, roles: ['receptionist', 'medical_administrator', 'super_administrator'], permissions: ['module.checkin.access'] },
+      { key: '/app/reception', label: 'Trung tâm lễ tân', icon: User, roles: ['receptionist', 'medical_administrator', 'super_administrator'], permissions: ['module.reception.access'] },
+      { key: '/app/clinic-queue', label: 'Điều phối hàng đợi', icon: MonitorPlay, roles: ['receptionist', 'nurse', 'doctor', 'medical_administrator', 'super_administrator'], permissions: ['module.queue.access'] },
+      { key: '/app/practitioner-schedule', label: 'Lịch làm việc bác sĩ', icon: Clock, roles: ['doctor', 'medical_administrator', 'super_administrator'], permissions: ['module.practitioner_schedule.access'] },
+    ],
+  },
+  {
+    key: 'group:administration', label: 'Quản trị hệ thống', icon: KeyRound, roles: 'all',
+    children: [
+      { key: '/app/audit', label: 'Nhật ký kiểm toán', icon: ShieldCheck, roles: ['medical_administrator', 'system_administrator', 'super_administrator'], permissions: ['module.audit.access'] },
+      { key: '/app/integrations', label: 'Tình trạng tích hợp', icon: Plug, roles: ['system_administrator', 'medical_administrator', 'super_administrator'], permissions: ['module.integrations.access'] },
+      { key: '/app/staff', label: 'Quản lý nhân sự', icon: UserPlus, roles: ['super_administrator', 'medical_administrator'], permissions: ['module.staff.access'] },
+      { key: '/app/owner', label: 'Owner Control Center', icon: KeyRound, roles: ['super_administrator'], permissions: ['module.owner.access'] },
+    ],
+  },
 ];
 
 const NAV_BOTTOM: NavItem[] = [
-  { key: '/app/support', label: 'Hỗ trợ', icon: MessageCircle, roles: 'all' },
-  { key: '/app/settings', label: 'Cài đặt', icon: Settings, roles: 'all' },
+  { key: '/app/support', label: 'Hỗ trợ', icon: MessageCircle, roles: 'all', permissions: ['module.support.access'] },
+  { key: '/app/settings', label: 'Cài đặt', icon: Settings, roles: 'all', permissions: ['module.settings.access'] },
 ];
 
 function iconEl(Icon: typeof Home) {
@@ -79,8 +91,22 @@ function iconEl(Icon: typeof Home) {
 export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const nav = useNavigate();
   const location = useLocation();
-  const { role } = useAppState();
-  const visible = (i: NavItem) => i.roles === 'all' || hasRoleAccess(role, i.roles);
+  const { role, currentUser } = useAppState();
+  const permissionSnapshot = useRolePermissionSnapshot();
+  const visible = (i: NavItem) => {
+    if (currentUser.roles.includes('super_administrator')) return true;
+    const canEnforceModulePermission =
+      permissionSnapshot.loaded &&
+      supportsModulePermissions(permissionSnapshot.rows);
+    if (canEnforceModulePermission && i.permissions?.length) {
+      return hasEffectivePermission(
+        permissionSnapshot.rows,
+        currentUser.roles,
+        i.permissions,
+      );
+    }
+    return i.roles === 'all' || hasRoleAccess(role, i.roles);
+  };
   const items = NAV_MAIN
     .filter(visible)
     .map((i) => (i.children ? { ...i, children: i.children.filter(visible) } : i))
@@ -151,7 +177,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           theme="dark"
           mode="inline"
           selectedKeys={[location.pathname]}
-          items={toMenuItems(NAV_BOTTOM.filter((i) => i.roles === 'all' || hasRoleAccess(role, i.roles)))}
+          items={toMenuItems(NAV_BOTTOM.filter(visible))}
           onClick={({ key }) => goTo(key)}
           style={{ background: 'transparent' }}
         />
