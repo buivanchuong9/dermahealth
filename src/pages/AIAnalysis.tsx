@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
-  Row, Col, Card, Steps, Upload, Button, Segmented, InputNumber, Input, Checkbox, Progress, Result, Tag,
-  Alert, Typography, List, Space, Select, Skeleton,
+  Row, Col, Card, Upload, Button, Input, Checkbox, Progress, Result, Tag,
+  Alert, Typography, List, Space, Select,
 } from 'antd';
 import {
   Upload as UploadIcon,
@@ -10,23 +10,22 @@ import {
   CheckCircle2,
   Phone,
   FlaskConical,
-  Focus,
-  Image as ImageIcon,
-  MapPin,
-  ShieldCheck,
-  SunMedium,
   TriangleAlert,
 } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { aiAssessmentService, SYMPTOM_OPTIONS, type IntakeDraft, type SymptomKey } from '../domain/services/aiAssessmentService';
-import type { AIPreliminaryAssessment, ClinicalRedFlag, ConfidenceBand } from '../domain/core/entities';
-import type { EncounterId } from '../domain/core/ids';
+import type { AIPreliminaryAssessment, ClinicalRedFlag } from '../domain/core/entities';
 import { analyzeDermatologyImage, type ImageQualityReport } from '../domain/imageQuality';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { createEncounter, getActiveEncounter } from '../api/encounters';
 import { submitEncounterIntake } from '../api/aiAssessment';
-import { uploadFile } from '../api/uploads';
-import { getPatientConsents } from '../api/clinical';
+import {
+  analyzeSkinCase,
+  reviewSkinCase,
+  type SkinAnalysisCaseResult,
+  type SkinCaseReviewDecision,
+} from '../api/skinAnalysis';
+import { ClinicalImageViewer } from '../components/image-viewer/ClinicalImageViewer';
 import { aiAssessmentRepository, encounterRepository } from '../domain/repositories';
 
 const { Title, Text, Paragraph } = Typography;
@@ -36,19 +35,11 @@ type Step = 'upload' | 'scan' | 'result' | 'emergency';
 const EMPTY_INTAKE: IntakeDraft = { chiefComplaint: '', severity: null, durationDays: null, symptoms: [], history: [], currentMedication: [] };
 
 const STEPS_TXT = [
-  'Tiền xử lý và tăng cường hình ảnh',
-  'Trích xuất đặc trưng vùng da tổn thương',
-  'Đối chiếu với mô hình AI lâm sàng (1.5M ca)',
-  'Tổng hợp kết quả và tạo báo cáo',
+  'Kiểm tra ảnh đầu vào',
+  'Gửi ảnh đến model phân tích',
+  'Đánh giá dấu hiệu cần khám sớm',
+  'Chuẩn bị kết quả',
 ];
-
-const BAND_META: Record<ConfidenceBand, { label: string; color: string }> = {
-  high: { label: 'Khả năng cao', color: 'red' },
-  moderate: { label: 'Khả năng trung bình', color: 'gold' },
-  low: { label: 'Khả năng thấp', color: 'default' },
-};
-
-const STEP_INDEX: Record<Step, number> = { upload: 0, scan: 1, result: 2, emergency: 2 };
 
 const BODY_REGIONS = [
   { value: 'face', label: 'Mặt' },
@@ -61,48 +52,119 @@ const BODY_REGIONS = [
   { value: 'other', label: 'Vùng khác' },
 ];
 
+const DURATION_OPTIONS = [
+  { value: 1, label: 'Hôm nay' },
+  { value: 3, label: '2–3 ngày' },
+  { value: 7, label: '4–7 ngày' },
+  { value: 14, label: '1–2 tuần' },
+  { value: 30, label: 'Trên 2 tuần' },
+];
+
+function inferSeverity(symptoms: SymptomKey[]): number {
+  if (symptoms.includes('fever') || symptoms.includes('bleeding')) return 5;
+  if (symptoms.includes('rapid_spreading')) return 4;
+  if (symptoms.includes('pain') || symptoms.includes('pus')) return 3;
+  if (symptoms.includes('itching') || symptoms.includes('scaling')) return 2;
+  return 1;
+}
+
+type TriageLevel = SkinAnalysisCaseResult['triage']['level'];
+
+const TRIAGE_GUIDANCE: Record<TriageLevel, {
+  title: string;
+  description: string;
+  actions: string[];
+  button: string;
+  danger?: boolean;
+}> = {
+  emergency: {
+    title: 'Đến cơ sở cấp cứu ngay',
+    description: 'Không chờ tư vấn online và không tự điều trị tại nhà.',
+    actions: [
+      'Đến khoa cấp cứu hoặc cơ sở y tế gần nhất.',
+      'Mang theo danh sách thuốc đang dùng và thời điểm triệu chứng bắt đầu.',
+    ],
+    button: 'Tìm cơ sở khám ngay',
+    danger: true,
+  },
+  urgent: {
+    title: 'Trao đổi với bác sĩ trong hôm nay',
+    description: 'Có thể bắt đầu bằng tư vấn online; bác sĩ sẽ quyết định có cần khám trực tiếp hay không.',
+    actions: [
+      'Đặt lịch gần nhất và gửi kèm bộ ảnh này cho bác sĩ.',
+      'Đi khám trực tiếp ngay nếu sốt, đau tăng, chảy máu hoặc tổn thương lan nhanh.',
+    ],
+    button: 'Đặt lịch bác sĩ',
+  },
+  soon: {
+    title: 'Nên được bác sĩ đánh giá trong 24–48 giờ',
+    description: 'Tư vấn online phù hợp để sàng lọc ban đầu nếu chưa thể đến cơ sở y tế.',
+    actions: [
+      'Giữ vùng da sạch, tránh gãi và không tự bôi thuốc mới.',
+      'Chụp lại cùng góc, cùng ánh sáng nếu tổn thương thay đổi.',
+    ],
+    button: 'Đặt lịch tư vấn',
+  },
+  routine: {
+    title: 'Có thể theo dõi tại nhà',
+    description: 'Hiện chưa ghi nhận dấu hiệu cần khám khẩn từ dữ liệu đã cung cấp.',
+    actions: [
+      'Theo dõi kích thước, màu sắc và triệu chứng mỗi ngày.',
+      'Đặt lịch nếu không cải thiện, tái phát hoặc xuất hiện dấu hiệu bất thường.',
+    ],
+    button: 'Đặt lịch nếu cần',
+  },
+};
+
 export default function AIAnalysis() {
-  const { currentPatient } = useAppState();
+  const { currentPatient, role } = useAppState();
+  const clinicalMode = role === 'doctor' || role === 'nurse';
+  const doctorMode = role === 'doctor';
   const [step, setStep] = useState<Step>('upload');
   const [pct, setPct] = useState(0);
   const [stepIdx, setStepIdx] = useState(0);
   const [intake, setIntake] = useState<IntakeDraft>(EMPTY_INTAKE);
-  const [errors, setErrors] = useState<string[]>([]);
+  const [validationVisible, setValidationVisible] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [emergency, setEmergency] = useState<ClinicalRedFlag | null>(null);
   const [assessment, setAssessment] = useState<AIPreliminaryAssessment | null>(null);
-  const [encounterId, setEncounterId] = useState<EncounterId | null>(null);
+  const [skinAnalysis, setSkinAnalysis] = useState<SkinAnalysisCaseResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageReport, setImageReport] = useState<ImageQualityReport | null>(null);
   const [imageChecking, setImageChecking] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string>();
+  const [overviewFile, setOverviewFile] = useState<File | null>(null);
+  const [alternateFile, setAlternateFile] = useState<File | null>(null);
+  const [overviewPreviewUrl, setOverviewPreviewUrl] = useState<string>();
+  const [alternatePreviewUrl, setAlternatePreviewUrl] = useState<string>();
+  const [reviewDecision, setReviewDecision] = useState<SkinCaseReviewDecision>();
+  const [reviewDiagnosis, setReviewDiagnosis] = useState('');
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewResult, setReviewResult] = useState<{ type: 'success' | 'error'; message: string }>();
   const [bodyRegion, setBodyRegion] = useState<string>();
-  const [viewType, setViewType] = useState<'overview' | 'closeup'>('closeup');
-  const [qualityWarningAccepted, setQualityWarningAccepted] = useState(false);
-  const [aiAcknowledged, setAiAcknowledged] = useState(false);
-  const [consentState, setConsentState] = useState<'loading' | 'granted' | 'missing' | 'error'>('loading');
-
-  useEffect(() => {
-    let active = true;
-    getPatientConsents(currentPatient.id)
-      .then((consents) => {
-        if (!active) return;
-        const consent = consents.find((item) => item.type === 'data_processing');
-        setConsentState(consent?.granted ? 'granted' : 'missing');
-      })
-      .catch(() => {
-        if (active) setConsentState('error');
-      });
-    return () => {
-      active = false;
-    };
-  }, [currentPatient.id]);
+  const triageGuidance = skinAnalysis
+    ? TRIAGE_GUIDANCE[skinAnalysis.triage.level]
+    : null;
 
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
+  useEffect(() => () => {
+    if (overviewPreviewUrl) URL.revokeObjectURL(overviewPreviewUrl);
+  }, [overviewPreviewUrl]);
+  useEffect(() => () => {
+    if (alternatePreviewUrl) URL.revokeObjectURL(alternatePreviewUrl);
+  }, [alternatePreviewUrl]);
 
   const toggleSymptoms = (values: SymptomKey[]) => setIntake((p) => ({ ...p, symptoms: values }));
+
+  const validationErrors = [
+    ...(!bodyRegion ? ['Vui lòng chọn vùng cơ thể được chụp.'] : []),
+    ...(!imageReport?.uploadFile ? ['Vui lòng chọn ảnh đạt kiểm tra chất lượng.'] : []),
+    ...(intake.durationDays === null ? ['Vui lòng chọn thời gian xuất hiện.'] : []),
+  ];
 
   const runScanAnimation = (onDone: () => void) => {
     setStep('scan'); setPct(0); setStepIdx(0);
@@ -115,24 +177,18 @@ export default function AIAnalysis() {
   };
 
   const startAnalysis = async () => {
-    const errs = [
-      ...aiAssessmentService.validateIntake(intake),
-      ...(!bodyRegion ? ['Vui lòng chọn vùng cơ thể được chụp.'] : []),
-      ...(!imageReport?.uploadFile ? ['Vui lòng chọn ảnh đạt kiểm tra chất lượng.'] : []),
-      ...(imageReport?.status === 'review' && !qualityWarningAccepted
-        ? ['Vui lòng xác nhận đã xem cảnh báo chất lượng ảnh.']
-        : []),
-      ...(consentState !== 'granted'
-        ? ['Cần đồng ý xử lý dữ liệu y tế cá nhân trước khi gửi ảnh.']
-        : []),
-      ...(!aiAcknowledged
-        ? ['Vui lòng xác nhận đã hiểu AI chỉ đưa ra đánh giá sơ bộ.']
-        : []),
-    ];
-    if (errs.length) { setErrors(errs); return; }
-    setErrors([]);
+    setValidationVisible(true);
+    if (validationErrors.length) return;
+    setValidationVisible(false);
+    setSubmitError(null);
 
-    const redFlag = aiAssessmentService.evaluateRedFlag(intake);
+    const regionLabel = BODY_REGIONS.find((item) => item.value === bodyRegion)?.label ?? 'vùng da';
+    const normalizedIntake: IntakeDraft = {
+      ...intake,
+      chiefComplaint: intake.chiefComplaint.trim() || `Tổn thương da tại ${regionLabel}`,
+      severity: inferSeverity(intake.symptoms),
+    };
+    const redFlag = aiAssessmentService.evaluateRedFlag(normalizedIntake);
     if (redFlag.urgency === 'emergency') {
       setEmergency(redFlag);
       setStep('emergency');
@@ -140,18 +196,7 @@ export default function AIAnalysis() {
     }
 
     setSubmitting(true);
-    let uploadedFileId: string | undefined;
-    if (imageReport?.uploadFile) {
-      try {
-        uploadedFileId = (await uploadFile(imageReport.uploadFile)).fileId;
-      } catch (error) {
-        setSubmitting(false);
-        setErrors([
-          error instanceof Error ? error.message : 'Không tải được ảnh lên hệ thống.',
-        ]);
-        return;
-      }
-    }
+    setSkinAnalysis(null);
     let encounter;
     try {
       encounter = await getActiveEncounter();
@@ -165,59 +210,114 @@ export default function AIAnalysis() {
         });
       } catch (error) {
         setSubmitting(false);
-        setErrors([
+        setSubmitError(
           error instanceof Error
             ? error.message
             : 'Không thể tạo lượt khám để gửi đánh giá AI.',
-        ]);
+        );
         return;
       }
     }
-    setEncounterId(encounter.id as EncounterId);
+    const skinAnalysisPromise = imageReport?.uploadFile && bodyRegion
+      ? analyzeSkinCase({
+          closeup: imageReport.uploadFile,
+          overview: overviewFile ?? undefined,
+          alternate: alternateFile ?? undefined,
+          bodyRegion,
+          durationDays: normalizedIntake.durationDays ?? undefined,
+          symptoms: normalizedIntake.symptoms,
+          patientId: currentPatient.id,
+        })
+      : Promise.resolve(null);
+    const analysisPromise = Promise.all([
+      skinAnalysisPromise,
+      submitEncounterIntake(encounter.id, {
+        chiefComplaint: normalizedIntake.chiefComplaint,
+        severity: normalizedIntake.severity ?? 1,
+        durationDays: normalizedIntake.durationDays ?? 1,
+        symptoms: normalizedIntake.symptoms,
+        history: normalizedIntake.history,
+        currentMedication: normalizedIntake.currentMedication,
+        images: [],
+      }),
+    ]).then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
 
     runScanAnimation(() => {
-      void submitEncounterIntake(encounter.id, {
-        chiefComplaint: intake.chiefComplaint.trim(),
-        severity: intake.severity ?? 0,
-        durationDays: intake.durationDays ?? 0,
-        symptoms: intake.symptoms,
-        history: intake.history,
-        currentMedication: intake.currentMedication,
-        images: uploadedFileId ? [uploadedFileId] : [],
-      })
-        .then(({ intake: savedIntake, assessment: result }) => {
+      void analysisPromise
+        .then((outcome) => {
+          if (!outcome.ok) {
+            setSubmitError(
+              outcome.error instanceof Error
+                ? outcome.error.message
+                : 'Server không thể phân tích ảnh.',
+            );
+            setSubmitting(false);
+            setStep('upload');
+            return;
+          }
+
+          const [imageResult, { intake: savedIntake, assessment: result }] = outcome.value;
+          setSkinAnalysis(imageResult);
           encounterRepository.intakes().upsert(savedIntake);
           aiAssessmentRepository.upsert(result);
           setAssessment(result);
           setSubmitting(false);
           setStep('result');
-        })
-        .catch((error: unknown) => {
-          setErrors([
-            error instanceof Error
-              ? error.message
-              : 'Không thể gửi dữ liệu đánh giá AI.',
-          ]);
-          setSubmitting(false);
-          setStep('upload');
         });
     });
   };
 
+  const submitDoctorReview = async () => {
+    if (!skinAnalysis || !reviewDecision) return;
+    if (reviewDecision === 'different_diagnosis' && !reviewDiagnosis.trim()) {
+      setReviewResult({ type: 'error', message: 'Vui lòng nhập chẩn đoán bác sĩ xác định.' });
+      return;
+    }
+    setReviewSubmitting(true);
+    setReviewResult(undefined);
+    try {
+      const response = await reviewSkinCase(skinAnalysis.caseId, {
+        decision: reviewDecision,
+        diagnosis: reviewDiagnosis.trim() || undefined,
+        note: reviewNote.trim() || undefined,
+      });
+      setReviewResult({
+        type: 'success',
+        message: typeof response === 'string' && response.trim() ? response : 'Đã lưu đánh giá của bác sĩ.',
+      });
+    } catch (error) {
+      setReviewResult({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Không thể lưu đánh giá của bác sĩ.',
+      });
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
   const resetAll = () => {
     setIntake(EMPTY_INTAKE);
-    setErrors([]);
+    setValidationVisible(false);
+    setSubmitError(null);
     setEmergency(null);
     setAssessment(null);
-    setEncounterId(null);
+    setSkinAnalysis(null);
     setSubmitting(false);
     setImageFile(null);
     setImageReport(null);
     setPreviewUrl(undefined);
+    setOverviewFile(null);
+    setAlternateFile(null);
+    setOverviewPreviewUrl(undefined);
+    setAlternatePreviewUrl(undefined);
+    setReviewDecision(undefined);
+    setReviewDiagnosis('');
+    setReviewNote('');
+    setReviewResult(undefined);
     setBodyRegion(undefined);
-    setViewType('closeup');
-    setQualityWarningAccepted(false);
-    setAiAcknowledged(false);
     setStep('upload');
   };
 
@@ -225,67 +325,48 @@ export default function AIAnalysis() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Title level={3} style={{ margin: '4px 0 0' }}>Sàng Lọc Da Liễu Có Hỗ Trợ AI</Title>
-          <Text type="secondary">Kiểm tra chất lượng ảnh trước khi gửi để bác sĩ có dữ liệu đáng tin cậy hơn.</Text>
+          <Title level={3} style={{ margin: '4px 0 0' }}>
+            {clinicalMode ? 'AI hỗ trợ đánh giá tổn thương da' : 'Kiểm tra tổn thương da'}
+          </Title>
+          <Text type="secondary">
+            {clinicalMode
+              ? 'Kết hợp ảnh, triệu chứng và dấu hiệu cảnh báo để hỗ trợ phân luồng; không thay thế chẩn đoán lâm sàng.'
+              : 'Chụp ảnh và trả lời vài câu hỏi đơn giản để biết khi nào nên đi khám.'}
+          </Text>
         </div>
-        <Tag color="blue" style={{ padding: '4px 10px' }}>AI hỗ trợ lâm sàng · Không thay thế bác sĩ</Tag>
+        {step === 'result' ? (
+          <Space wrap>
+            <Button onClick={resetAll}>Phân tích ca khác</Button>
+            <Button type="primary" href="/app/appointments">Đặt lịch khám</Button>
+          </Space>
+        ) : (
+          <Tag color="blue" style={{ padding: '4px 10px' }}>
+            {clinicalMode ? 'Chế độ nhân viên y tế' : 'Kết quả cần bác sĩ xác nhận'}
+          </Tag>
+        )}
       </div>
-
-      <Card size="small">
-        <Steps
-          size="small"
-          current={STEP_INDEX[step]}
-          status={step === 'emergency' ? 'error' : undefined}
-          items={[{ title: 'Tải lên & khai báo' }, { title: 'Đang phân tích' }, { title: step === 'emergency' ? 'Cảnh báo khẩn cấp' : 'Kết quả' }]}
-        />
-      </Card>
 
       {step === 'upload' && (
         <Row gutter={[16, 16]}>
           <Col xs={24} md={14}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Card size="small" title="1. Xác định ảnh đang chụp">
-                <Row gutter={[12, 12]}>
-                  <Col xs={24} sm={12}>
-                    <Text strong style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>
-                      Vùng cơ thể *
-                    </Text>
-                    <Select
-                      value={bodyRegion}
-                      onChange={(value) => {
-                        setBodyRegion(value);
-                        setImageFile(null);
-                        setImageReport(null);
-                        setQualityWarningAccepted(false);
-                      }}
-                      options={BODY_REGIONS}
-                      placeholder="Chọn vùng da"
-                      style={{ width: '100%' }}
-                    />
-                  </Col>
-                  <Col xs={24} sm={12}>
-                    <Text strong style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>
-                      Loại ảnh *
-                    </Text>
-                    <Segmented
-                      block
-                      value={viewType}
-                      onChange={(value) => {
-                        setViewType(value as 'overview' | 'closeup');
-                        setImageFile(null);
-                        setImageReport(null);
-                        setQualityWarningAccepted(false);
-                      }}
-                      options={[
-                        { label: 'Toàn vùng', value: 'overview' },
-                        { label: 'Cận tổn thương', value: 'closeup' },
-                      ]}
-                    />
-                  </Col>
-                </Row>
-              </Card>
+            <Card size="small" title="Ảnh vùng da">
+              <Text strong style={{ display: 'block', fontSize: 13, marginBottom: 6 }}>
+                Ảnh chụp ở đâu? *
+              </Text>
+              <Select
+                value={bodyRegion}
+                onChange={(value) => {
+                  setBodyRegion(value);
+                  setImageFile(null);
+                  setImageReport(null);
+                  setPreviewUrl(undefined);
+                }}
+                options={BODY_REGIONS}
+                placeholder="Chọn vùng cơ thể"
+                style={{ width: '100%', marginBottom: 12 }}
+              />
 
-              <Card size="small" title="2. Chọn ảnh và kiểm tra chất lượng">
+              {!previewUrl ? (
                 <Upload.Dragger
                   accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                   disabled={!bodyRegion || imageChecking}
@@ -294,13 +375,10 @@ export default function AIAnalysis() {
                   fileList={imageFile ? [{ uid: imageFile.name, name: imageFile.name, status: 'done', size: imageFile.size, type: imageFile.type }] : []}
                   beforeUpload={async (file) => {
                     if (!bodyRegion) {
-                      setErrors(['Vui lòng chọn vùng cơ thể trước khi tải ảnh.']);
                       return Upload.LIST_IGNORE;
                     }
                     setImageChecking(true);
-                    setErrors([]);
-                    setQualityWarningAccepted(false);
-                    const report = await analyzeDermatologyImage(file, { bodyRegion, viewType });
+                    const report = await analyzeDermatologyImage(file, { bodyRegion, viewType: 'closeup' });
                     setImageReport(report);
                     if (report.status === 'blocked') {
                       setImageFile(null);
@@ -316,7 +394,6 @@ export default function AIAnalysis() {
                     setImageFile(null);
                     setImageReport(null);
                     setPreviewUrl(undefined);
-                    setQualityWarningAccepted(false);
                     return true;
                   }}
                   style={{ background: 'var(--surface-card)' }}
@@ -327,150 +404,157 @@ export default function AIAnalysis() {
                       : <Camera size={32} color="var(--medical-blue-600)" />}
                   </p>
                   <p style={{ fontWeight: 600, fontSize: 16 }}>
-                    {imageChecking ? 'Đang kiểm tra ảnh…' : 'Kéo thả hoặc nhấp để chọn ảnh'}
+                    {imageChecking ? 'Đang kiểm tra ảnh…' : 'Chụp hoặc chọn ảnh'}
                   </p>
                   <p style={{ color: 'var(--text-secondary)' }}>
-                    {bodyRegion ? 'JPG, PNG · Tối đa 5MB' : 'Chọn vùng cơ thể ở bước 1 để tiếp tục'}
+                    {bodyRegion ? 'Chụp rõ toàn bộ vùng tổn thương, đủ sáng' : 'Chọn vùng cơ thể trước'}
                   </p>
                   <Button icon={<UploadIcon size={15} />} disabled={!bodyRegion || imageChecking}>
                     Chọn ảnh
                   </Button>
                 </Upload.Dragger>
-
-                {imageReport && (
-                  <div style={{ marginTop: 14 }}>
-                    <Alert
-                      type={imageReport.status === 'pass' ? 'success' : imageReport.status === 'review' ? 'warning' : 'error'}
-                      showIcon
-                      message={
-                        imageReport.status === 'pass'
-                          ? `Ảnh đạt kiểm tra chất lượng · ${imageReport.score}/100`
-                          : imageReport.status === 'review'
-                            ? `Ảnh có thể sử dụng nhưng cần kiểm tra · ${imageReport.score}/100`
-                            : 'Ảnh chưa đạt, vui lòng chụp lại'
-                      }
-                      description={
-                        <div>
-                          {imageReport.metrics && (
-                            <Space size={[6, 6]} wrap style={{ margin: '8px 0' }}>
-                              <Tag>{imageReport.metrics.width}×{imageReport.metrics.height}px</Tag>
-                              <Tag>Độ sáng {imageReport.metrics.brightness}/255</Tag>
-                              <Tag>Độ nét {imageReport.metrics.sharpness}</Tag>
-                            </Space>
-                          )}
-                          {imageReport.issues.map((item) => (
-                            <div key={`${item.code}-${item.severity}`} style={{ marginTop: 6 }}>
-                              <Text strong>{item.message}</Text>
-                              <Text type="secondary" style={{ display: 'block' }}>{item.guidance}</Text>
-                            </div>
-                          ))}
-                          {imageReport.privacy.metadataRemoved && (
-                            <Text type="success" style={{ display: 'block', marginTop: 8 }}>
-                              <ShieldCheck size={14} style={{ verticalAlign: -2 }} /> Đã tạo bản tải lên không chứa metadata vị trí/thiết bị.
-                            </Text>
-                          )}
-                        </div>
-                      }
-                    />
-                    {imageReport.status === 'review' && (
-                      <Checkbox
-                        checked={qualityWarningAccepted}
-                        onChange={(event) => setQualityWarningAccepted(event.target.checked)}
-                        style={{ marginTop: 10 }}
-                      >
-                        Tôi đã phóng to kiểm tra và vẫn muốn dùng ảnh này
-                      </Checkbox>
-                    )}
-                  </div>
-                )}
-              </Card>
-
-              {previewUrl && (
-                <Card size="small" title="Ảnh sẽ gửi cho hệ thống" styles={{ body: { padding: 10 } }}>
+              ) : (
+                <div>
                   <img
                     src={previewUrl}
-                    alt="Ảnh da liễu đang chờ gửi"
-                    style={{ width: '100%', maxHeight: 420, objectFit: 'contain', borderRadius: 8, background: 'var(--surface-subtle)' }}
+                    alt="Ảnh vùng da đã chọn"
+                    style={{ width: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 8, background: 'var(--surface-subtle)' }}
                   />
-                </Card>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 10 }}>
+                    <Text type={imageReport?.status === 'review' ? 'warning' : 'success'}>
+                      {imageReport?.status === 'review' ? 'Ảnh hơi khó quan sát nhưng vẫn có thể phân tích.' : 'Ảnh đã sẵn sàng.'}
+                    </Text>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setImageFile(null);
+                        setImageReport(null);
+                        setPreviewUrl(undefined);
+                      }}
+                    >
+                      Đổi ảnh
+                    </Button>
+                  </div>
+                </div>
               )}
-            </div>
+              <Row gutter={10} style={{ marginTop: 12 }}>
+                {([
+                  {
+                    role: 'overview' as const,
+                    label: 'Ảnh toàn vùng',
+                    hint: 'Giúp thấy phạm vi',
+                    file: overviewFile,
+                    preview: overviewPreviewUrl,
+                    setFile: setOverviewFile,
+                    setPreview: setOverviewPreviewUrl,
+                  },
+                  {
+                    role: 'alternate' as const,
+                    label: 'Ảnh góc khác',
+                    hint: 'Giúp đối chiếu',
+                    file: alternateFile,
+                    preview: alternatePreviewUrl,
+                    setFile: setAlternateFile,
+                    setPreview: setAlternatePreviewUrl,
+                  },
+                ]).map((slot) => (
+                  <Col span={12} key={slot.role}>
+                    <Upload
+                      accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                      showUploadList={false}
+                      beforeUpload={(file) => {
+                        slot.setFile(file);
+                        slot.setPreview(URL.createObjectURL(file));
+                        return false;
+                      }}
+                    >
+                      <Button block icon={<Camera size={14} />}>
+                        {slot.file ? `Đổi ${slot.label.toLowerCase()}` : slot.label}
+                      </Button>
+                    </Upload>
+                    <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: 4 }}>
+                      {slot.preview ? 'Đã chọn' : `${slot.hint} · không bắt buộc`}
+                    </Text>
+                  </Col>
+                ))}
+              </Row>
+              {imageReport?.status === 'blocked' && (
+                <Alert
+                  type="error"
+                  showIcon
+                  message="Ảnh quá tối, quá mờ hoặc quá nhỏ"
+                  description="Vui lòng chụp lại ở nơi đủ sáng và giữ máy ổn định."
+                  style={{ marginTop: 12 }}
+                />
+              )}
+            </Card>
           </Col>
 
           <Col xs={24} md={10}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Card size="small" title="Để có kết quả tốt nhất">
-                <List
-                  size="small"
-                  dataSource={[
-                    { icon: <SunMedium size={16} />, title: 'Ánh sáng trắng, tản đều', desc: 'Không dùng flash sát da hoặc bộ lọc làm đẹp' },
-                    { icon: <MapPin size={16} />, title: viewType === 'closeup' ? 'Cách vùng da khoảng 10–15cm' : 'Bao trọn vùng cơ thể liên quan', desc: 'Không crop mất ranh giới tổn thương' },
-                    { icon: <Focus size={16} />, title: 'Chạm lấy nét vào vùng da', desc: 'Giữ điện thoại ổn định và lau sạch ống kính' },
-                    { icon: <ImageIcon size={16} />, title: 'Không sửa màu ảnh', desc: 'Không dùng filter, tăng trắng hoặc ảnh chụp lại từ màn hình' },
-                  ]}
-                  renderItem={(item) => (
-                    <List.Item>
-                      <List.Item.Meta avatar={item.icon} title={item.title} description={item.desc} />
-                    </List.Item>
-                  )}
-                />
-              </Card>
-
               <Card size="small" title={<span><FlaskConical size={15} /> Thông tin triệu chứng</span>}>
-                <Paragraph type="secondary" style={{ fontSize: 12 }}>Bắt buộc — giúp AI đưa ra đánh giá chính xác hơn và phát hiện dấu hiệu cần khám gấp.</Paragraph>
+                <Paragraph type="secondary" style={{ fontSize: 12 }}>
+                  Chọn những gì bạn quan sát được. Hệ thống tự đánh giá mức cần khám, bạn không phải tự chấm mức độ.
+                </Paragraph>
 
                 <div style={{ marginBottom: 14 }}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Lý do khám / mô tả chính *</Text>
-                  <Input value={intake.chiefComplaint} onChange={(e) => setIntake((p) => ({ ...p, chiefComplaint: e.target.value }))} placeholder="VD: Mụn viêm lan rộng vùng má và trán" />
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Xuất hiện bao lâu? *</Text>
+                  <Select
+                    style={{ width: '100%' }}
+                    placeholder="Chọn khoảng thời gian"
+                    value={intake.durationDays}
+                    options={DURATION_OPTIONS}
+                    onChange={(value) => setIntake((p) => ({ ...p, durationDays: value }))}
+                  />
                 </div>
 
                 <div style={{ marginBottom: 14 }}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Mức độ nghiêm trọng *</Text>
-                  <Segmented block value={intake.severity ?? undefined} onChange={(v) => setIntake((p) => ({ ...p, severity: v as number }))} options={[1, 2, 3, 4, 5]} />
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Bạn thấy dấu hiệu nào?</Text>
+                  <Checkbox.Group
+                    value={intake.symptoms}
+                    onChange={(v) => toggleSymptoms(v as SymptomKey[])}
+                    options={SYMPTOM_OPTIONS.map((o) => ({ value: o.key, label: o.label }))}
+                  />
                 </div>
 
-                <div style={{ marginBottom: 14 }}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Số ngày xuất hiện *</Text>
-                  <InputNumber style={{ width: '100%' }} min={0} placeholder="VD: 3" value={intake.durationDays} onChange={(v) => setIntake((p) => ({ ...p, durationDays: v }))} />
+                <div style={{ marginBottom: validationVisible && validationErrors.length ? 14 : 0 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Mô tả thêm (không bắt buộc)</Text>
+                  <Input
+                    value={intake.chiefComplaint}
+                    onChange={(e) => setIntake((p) => ({ ...p, chiefComplaint: e.target.value }))}
+                    placeholder="VD: mới đổi sữa tắm, ngứa nhiều về đêm…"
+                  />
                 </div>
 
-                <div style={{ marginBottom: errors.length ? 14 : 0 }}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Triệu chứng đi kèm (nếu có)</Text>
-                  <Checkbox.Group value={intake.symptoms} onChange={(v) => toggleSymptoms(v as SymptomKey[])} options={SYMPTOM_OPTIONS.map((o) => ({ value: o.key, label: o.label }))} />
-                </div>
-
-                {errors.length > 0 && (
-                  <div style={{ marginBottom: 14 }}><FriendlyErrorInline title="Thông tin chưa đầy đủ" error={errors.join(' · ')} onClose={() => setErrors([])} /></div>
+                {validationVisible && validationErrors.length > 0 && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    closable
+                    onClose={() => setValidationVisible(false)}
+                    message="Thông tin chưa đầy đủ"
+                    description={
+                      <ul style={{ margin: 0, paddingLeft: 18 }}>
+                        {validationErrors.map((message) => <li key={message}>{message}</li>)}
+                      </ul>
+                    }
+                    style={{ marginBottom: 14 }}
+                  />
                 )}
 
-                <Skeleton active loading={consentState === 'loading'} paragraph={{ rows: 1 }}>
-                  {consentState === 'granted' ? (
-                    <Alert
-                      type="success"
-                      showIcon
-                      icon={<ShieldCheck size={16} />}
-                      message="Đã có đồng ý xử lý dữ liệu y tế"
-                      style={{ marginBottom: 12 }}
+                {submitError && (
+                  <div style={{ marginBottom: 14 }}>
+                    <FriendlyErrorInline
+                      title="Không thể gửi đánh giá AI"
+                      error={submitError}
+                      onClose={() => setSubmitError(null)}
                     />
-                  ) : (
-                    <Alert
-                      type="error"
-                      showIcon
-                      message={consentState === 'error' ? 'Không kiểm tra được trạng thái đồng ý' : 'Chưa có đồng ý xử lý dữ liệu y tế'}
-                      description="Ảnh da là dữ liệu y tế nhạy cảm. Hệ thống sẽ không gửi ảnh khi chưa có đồng ý hợp lệ."
-                      action={<Button size="small" href="/app/settings">Mở quyền riêng tư</Button>}
-                      style={{ marginBottom: 12 }}
-                    />
-                  )}
-                </Skeleton>
+                  </div>
+                )}
 
-                <Checkbox
-                  checked={aiAcknowledged}
-                  onChange={(event) => setAiAcknowledged(event.target.checked)}
-                  style={{ marginBottom: 12 }}
-                >
-                  Tôi hiểu AI chỉ sàng lọc sơ bộ; bác sĩ mới là người chẩn đoán cuối cùng
-                </Checkbox>
+                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 12 }}>
+                  AI chỉ sàng lọc sơ bộ; bác sĩ là người chẩn đoán cuối cùng.
+                </Text>
 
                 <Button
                   type="primary"
@@ -533,87 +617,198 @@ export default function AIAnalysis() {
         </Card>
       )}
 
-      {step === 'result' && assessment && assessment.status === 'insufficient_data' && (
-        <Card>
-          <Result
-            status="warning"
-            title="Chưa đủ dữ liệu để đánh giá"
-            subTitle="AI không thể đưa ra đánh giá đáng tin cậy với thông tin hiện tại thay vì đoán mò. Vui lòng bổ sung thêm:"
-            extra={<Button type="primary" icon={<FlaskConical size={15} />} onClick={() => setStep('upload')}>Bổ sung thông tin</Button>}
-          >
-            <List size="small" style={{ maxWidth: 420, margin: '0 auto' }} dataSource={assessment.missingDataHints} renderItem={(h) => <List.Item>{h}</List.Item>} />
-          </Result>
-        </Card>
-      )}
-
-      {step === 'result' && assessment && assessment.status === 'completed' && (
+      {step === 'result' && assessment && skinAnalysis && (
         <Row gutter={16}>
-          <Col xs={24} sm={12} md={8}>
-            <Card size="small" styles={{ body: { padding: 0 } }}>
-              <div style={{ width: '100%', aspectRatio: '1', background: 'var(--surface-subtle)', borderBottom: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                {previewUrl
-                  ? <img src={previewUrl} alt="Ảnh đầu vào đã kiểm tra" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                  : <ImageIcon size={48} color="var(--text-muted)" />}
-              </div>
-              <div style={{ padding: 16 }}>
-                <Text strong style={{ display: 'block' }}>Ảnh đầu vào đã kiểm tra</Text>
-                <Text type="secondary" style={{ fontSize: 12.5 }}>
-                  {imageReport ? `Chất lượng ${imageReport.score}/100 · ${BODY_REGIONS.find((item) => item.value === bodyRegion)?.label}` : 'Ảnh đã gửi cùng khai báo triệu chứng'}
-                </Text>
-                {encounterId && <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>Lượt khám: {encounterId}</Text>}
-                <Space style={{ marginTop: 12 }}>
-                  <Button size="small" onClick={resetAll}>Phân tích lại</Button>
-                  <Button size="small" icon={<UploadIcon size={15} />}>Tải xuống</Button>
-                </Space>
-              </div>
-            </Card>
-          </Col>
+          <Col span={24}>
+            <div className="ai-result-grid">
+                <Alert
+                  type={skinAnalysis.triage.level === 'emergency' ? 'error' : 'warning'}
+                  showIcon
+                  message={
+                    skinAnalysis.triage.level === 'emergency'
+                      ? 'Cần được đánh giá ngay'
+                      : skinAnalysis.triage.level === 'routine'
+                        ? 'Chưa ghi nhận dấu hiệu cần khám khẩn'
+                        : 'Khuyến nghị khám sớm'
+                  }
+                  description={skinAnalysis.triage.reasons.join('; ') || 'Tiếp tục theo dõi và đặt lịch nếu tổn thương thay đổi.'}
+                  className="ai-result-triage"
+                />
 
-          <Col xs={24} md={16}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {assessment.redFlag.urgency === 'urgent' && (
-                <Alert type="warning" showIcon message="Khuyến nghị khám sớm" description={`${assessment.redFlag.reasons.join('; ')} — nên đặt lịch trong 24–48 giờ.`} />
+              <Card
+                title={skinAnalysis.labelsConfigured
+                  ? (clinicalMode ? 'Top 3 chẩn đoán phân biệt từ model' : 'Top 3 khả năng phù hợp')
+                  : 'Trạng thái model'}
+                extra={clinicalMode ? <Tag color="processing">{skinAnalysis.modelVersion}</Tag> : undefined}
+                size="small"
+                className="ai-result-summary"
+              >
+                {!skinAnalysis.labelsConfigured ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="Model chưa có bộ nhãn bệnh đã xác minh"
+                    description="Hệ thống đã ẩn tên lớp để tránh trả sai tên bệnh."
+                  />
+                ) : skinAnalysis.aggregate.predictions.length > 0 ? (
+                  <>
+                    <Alert
+                      type={skinAnalysis.aggregate.abstained ? 'warning' : 'info'}
+                      showIcon
+                      message={skinAnalysis.aggregate.abstained
+                        ? 'Độ tin cậy chưa đủ để AI kết luận'
+                        : 'Ba khả năng gần nhất từ model'}
+                      description={skinAnalysis.aggregate.abstained
+                        ? (clinicalMode
+                            ? skinAnalysis.aggregate.abstainReasons.join('; ')
+                            : 'Các kết quả dưới đây chỉ để tham khảo và cần bác sĩ xác nhận.')
+                        : 'Model score thể hiện mức phù hợp với ảnh, không phải xác suất chẩn đoán chính xác.'}
+                      style={{ marginBottom: 16 }}
+                    />
+                    {[...skinAnalysis.aggregate.predictions]
+                      .sort((a, b) => b.probability - a.probability)
+                      .slice(0, 3)
+                      .map((prediction, index) => {
+                        const score = Math.round(prediction.probability * 100);
+                        return (
+                          <div
+                            key={prediction.classIndex}
+                            style={{
+                              padding: '12px 14px',
+                              marginBottom: 10,
+                              border: `1px solid ${index === 0 ? 'var(--medical-blue-200)' : 'var(--border-default)'}`,
+                              background: index === 0 ? 'var(--surface-selected)' : 'var(--surface-card)',
+                              borderRadius: 8,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                              <Tag color={index === 0 ? 'blue' : 'default'} style={{ margin: 0 }}>#{index + 1}</Tag>
+                              <Text strong style={{ flex: 1, fontSize: index === 0 ? 15 : 14 }}>{prediction.label}</Text>
+                              <Text strong={index === 0}>{score}%</Text>
+                            </div>
+                            <Progress
+                              percent={score}
+                              showInfo={false}
+                              size="small"
+                              strokeColor={index === 0 ? 'var(--medical-blue-600)' : 'var(--medical-blue-300)'}
+                            />
+                            {index === 0 && (
+                              <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: 5 }}>
+                                Khả năng model xếp gần nhất
+                              </Text>
+                            )}
+                          </div>
+                        );
+                      })}
+                    {clinicalMode && (
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        Model: {skinAnalysis.model} · Đồng thuận {Math.round(skinAnalysis.aggregate.agreement * 100)}%
+                        {skinAnalysis.aggregate.conflictingImages.length > 0
+                          ? ` · Mâu thuẫn: ${skinAnalysis.aggregate.conflictingImages.join(', ')}`
+                          : ''}
+                      </Text>
+                    )}
+                  </>
+                ) : (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="Model không trả về khả năng phù hợp"
+                    description="Bác sĩ cần đánh giá trực tiếp từ ảnh và triệu chứng."
+                  />
+                )}
+              </Card>
+
+              <div className="ai-result-viewer">
+                <ClinicalImageViewer images={skinAnalysis.images} clinicalMode={clinicalMode} />
+              </div>
+
+              {doctorMode && (
+                <Card title="Kết luận của bác sĩ" size="small" className="ai-result-side">
+                  <Text strong style={{ display: 'block', marginBottom: 6 }}>Quyết định *</Text>
+                  <Select
+                    value={reviewDecision}
+                    onChange={(value) => {
+                      setReviewDecision(value);
+                      setReviewResult(undefined);
+                    }}
+                    placeholder="Chọn kết luận sau khi xem ảnh"
+                    style={{ width: '100%', marginBottom: 12 }}
+                    options={[
+                      { value: 'accepted', label: 'Đồng ý với gợi ý của AI' },
+                      { value: 'rejected', label: 'Không đồng ý với gợi ý của AI' },
+                      { value: 'different_diagnosis', label: 'Xác định chẩn đoán khác' },
+                      { value: 'image_unsuitable', label: 'Ảnh không phù hợp để đánh giá' },
+                    ]}
+                  />
+                  {reviewDecision === 'different_diagnosis' && (
+                    <>
+                      <Text strong style={{ display: 'block', marginBottom: 6 }}>Chẩn đoán của bác sĩ *</Text>
+                      <Input
+                        value={reviewDiagnosis}
+                        onChange={(event) => setReviewDiagnosis(event.target.value)}
+                        maxLength={300}
+                        placeholder="Nhập chẩn đoán đã xác định"
+                        style={{ marginBottom: 12 }}
+                      />
+                    </>
+                  )}
+                  <Text strong style={{ display: 'block', marginBottom: 6 }}>Ghi chú</Text>
+                  <Input.TextArea
+                    value={reviewNote}
+                    onChange={(event) => setReviewNote(event.target.value)}
+                    maxLength={2000}
+                    autoSize={{ minRows: 2, maxRows: 5 }}
+                    placeholder="Cơ sở nhận định hoặc yêu cầu chụp lại…"
+                    style={{ marginBottom: 12 }}
+                  />
+                  {reviewResult && (
+                    <Alert
+                      type={reviewResult.type}
+                      showIcon
+                      message={reviewResult.message}
+                      style={{ marginBottom: 12 }}
+                    />
+                  )}
+                  <Button
+                    type="primary"
+                    block
+                    loading={reviewSubmitting}
+                    disabled={!reviewDecision || reviewResult?.type === 'success'}
+                    onClick={() => void submitDoctorReview()}
+                  >
+                    Lưu kết luận bác sĩ
+                  </Button>
+                </Card>
               )}
 
-              <Card title="Top 3 Ứng Viên Chẩn Đoán (AI Preliminary Assessment)" extra={<Tag color="warning">Đang chờ bác sĩ xác nhận</Tag>} size="small">
-                {assessment.candidateConditions.map((c) => {
-                  const band = BAND_META[c.confidenceBand];
-                  return (
-                    <div key={c.code} style={{ marginBottom: 18 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <Text strong>{c.name}</Text>
-                        <Tag color={band.color}>{band.label}</Tag>
-                      </div>
-                      <Progress percent={c.confidenceScore} showInfo={false} strokeColor={band.color === 'red' ? 'var(--danger)' : band.color === 'gold' ? 'var(--warning)' : 'var(--text-muted)'} size="small" />
-                      <Paragraph type="secondary" style={{ fontSize: 12.5, margin: '6px 0' }}>{c.rationale}</Paragraph>
-                      <Space size={[4, 4]} wrap>
-                        {c.supportingEvidence.map((e) => <Tag key={e} color="blue">{e}</Tag>)}
-                        {c.conflictingEvidence.map((e) => <Tag key={e} color="red">{e}</Tag>)}
-                      </Space>
-                    </div>
-                  );
-                })}
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', borderTop: '1px solid var(--border-default)', paddingTop: 10 }}>
-                  Mô hình: {assessment.modelVersion} · {new Date(assessment.generatedAt).toLocaleString('vi-VN')} · Mã dữ liệu: {assessment.inputSnapshotId}
-                </Text>
-                <Text type="secondary" style={{ fontSize: 11, fontStyle: 'italic', display: 'block', marginTop: 6 }}>
-                  Đây là hỗ trợ ra quyết định của AI, không phải chẩn đoán xác định. Bác sĩ là người đưa ra quyết định lâm sàng cuối cùng.
-                </Text>
-              </Card>
-
-              <Card title="Đề Xuất Tiếp Theo" size="small">
-                <Paragraph style={{ fontSize: 13 }}>
-                  Đây là kết quả hỗ trợ từ AI, chưa phải chẩn đoán chính thức. Bác sĩ sẽ xem xét thông tin này cùng với hồ sơ của bạn trong lần khám tới.
-                </Paragraph>
-                {assessment.suggestedSpecialty && <Tag color="blue" style={{ marginBottom: 8 }}>Chuyên khoa: {assessment.suggestedSpecialty}</Tag>}
-                <List
-                  size="small"
-                  dataSource={assessment.suggestedNextActions}
-                  locale={{ emptyText: assessment.redFlag.urgency === 'urgent' ? 'Khuyến nghị đặt lịch khám trong 24–48 giờ.' : 'Khuyến nghị đặt lịch khám để được bác sĩ tư vấn.' }}
-                  renderItem={(action) => <List.Item>{action}</List.Item>}
-                />
-                <Button type="primary" block href="/app/appointments">Đặt lịch khám ngay</Button>
-              </Card>
+              {triageGuidance && (
+                <Card title="Hành động tiếp theo" size="small" className="ai-result-side">
+                  <Title level={5} style={{ margin: '0 0 6px' }}>{triageGuidance.title}</Title>
+                  <Paragraph style={{ fontSize: 13, marginBottom: 8 }}>
+                    {triageGuidance.description}
+                  </Paragraph>
+                  <List
+                    size="small"
+                    dataSource={triageGuidance.actions}
+                    renderItem={(action) => <List.Item>{action}</List.Item>}
+                  />
+                  {!clinicalMode && (
+                    <Button
+                      type="primary"
+                      danger={triageGuidance.danger}
+                      block
+                      href="/app/appointments"
+                      style={{ marginTop: 12 }}
+                    >
+                      {triageGuidance.button}
+                    </Button>
+                  )}
+                  <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: 10 }}>
+                    Top 3 và vùng màu chỉ hỗ trợ sàng lọc; không dùng để tự chọn thuốc hoặc tự điều trị.
+                  </Text>
+                </Card>
+              )}
             </div>
           </Col>
         </Row>
