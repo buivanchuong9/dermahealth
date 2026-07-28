@@ -26,6 +26,11 @@ interface WorkflowTaskDto {
   createdAt: string;
   startedAt?: unknown;
   completedAt?: unknown;
+  relatedOrderId?: unknown;
+  blockedReason?: unknown;
+  evidenceOfCompletion?: unknown;
+  abnormalResultFlaggedAt?: unknown;
+  abnormalResultEscalatedTo?: unknown;
   clinicalWarning?: unknown;
   patientArrivalStatus?: WorkflowTask['patientArrivalStatus'];
   reworkCount: number;
@@ -64,6 +69,11 @@ const mapTask = (dto: WorkflowTaskDto): WorkflowTask => ({
   createdAt: dto.createdAt,
   startedAt: optionalString(dto.startedAt),
   completedAt: optionalString(dto.completedAt),
+  relatedOrderId: optionalString(dto.relatedOrderId),
+  blockedReason: optionalString(dto.blockedReason) ?? optionalString(dto.clinicalWarning),
+  evidenceOfCompletion: optionalString(dto.evidenceOfCompletion),
+  abnormalResultFlaggedAt: optionalString(dto.abnormalResultFlaggedAt),
+  abnormalResultEscalatedTo: optionalString(dto.abnormalResultEscalatedTo) as UserId | undefined,
   clinicalWarning: optionalString(dto.clinicalWarning),
   patientArrivalStatus: dto.patientArrivalStatus,
   reworkCount: dto.reworkCount,

@@ -6,6 +6,8 @@ import type {
   EncounterId,
   MedicalRecordId,
   MedicationId,
+  MedicationOrderEventId,
+  MedicationOrderId,
   PrescriptionId,
   UserId,
   WorkflowTaskId,
@@ -17,6 +19,8 @@ import type {
   MedicalRecord,
   MedicalRecordAddendum,
   Medication,
+  MedicationOrder,
+  MedicationOrderEvent,
   Prescription,
 } from '../domain/core/entities';
 import type { MedicalRecordStatus } from '../domain/core/enums';
@@ -56,8 +60,34 @@ interface PrescriptionDto {
   id: string;
   encounterId: string;
   doctorId: string;
-  medications: Medication[];
+  medications: Array<Omit<Medication, 'id'> & { id?: string }>;
+  orders?: MedicationOrderDto[];
   issuedAt: string;
+}
+
+interface MedicationOrderEventDto {
+  id: string;
+  orderId: string;
+  type: MedicationOrderEvent['type'];
+  actorId: string;
+  notes?: unknown;
+  occurredAt: string;
+}
+
+interface MedicationOrderDto {
+  id: string;
+  prescriptionId: string;
+  encounterId: string;
+  medicationName: string;
+  dose: string;
+  route?: unknown;
+  frequency?: unknown;
+  durationDays: number;
+  instructions?: unknown;
+  prescribedBy: string;
+  prescribedAt: string;
+  createdAt: string;
+  events?: MedicationOrderEventDto[];
 }
 
 // The spec shows no field names for this request (bare `{}` example with no
@@ -126,8 +156,39 @@ const mapPrescription = (dto: PrescriptionDto): Prescription => ({
   id: dto.id as PrescriptionId,
   encounterId: dto.encounterId as EncounterId,
   doctorId: dto.doctorId as UserId,
-  medications: dto.medications.map((m) => ({ ...m, id: m.id as MedicationId })),
+  medications: dto.medications.map((m, index) => ({
+    ...m,
+    id: (m.id ?? `${dto.id}:medication:${index}`) as MedicationId,
+  })),
+  medicationOrders: (dto.orders ?? []).map(mapMedicationOrder),
   issuedAt: dto.issuedAt,
+});
+
+const mapMedicationOrderEvent = (
+  dto: MedicationOrderEventDto,
+): MedicationOrderEvent => ({
+  id: dto.id as MedicationOrderEventId,
+  orderId: dto.orderId as MedicationOrderId,
+  type: dto.type,
+  actorId: dto.actorId as UserId,
+  notes: optionalString(dto.notes),
+  occurredAt: dto.occurredAt,
+});
+
+const mapMedicationOrder = (dto: MedicationOrderDto): MedicationOrder => ({
+  id: dto.id as MedicationOrderId,
+  prescriptionId: dto.prescriptionId as PrescriptionId,
+  encounterId: dto.encounterId as EncounterId,
+  medicationName: dto.medicationName,
+  dose: dto.dose,
+  route: optionalString(dto.route),
+  frequency: optionalString(dto.frequency),
+  durationDays: dto.durationDays,
+  instructions: optionalString(dto.instructions),
+  prescribedBy: dto.prescribedBy as UserId,
+  prescribedAt: dto.prescribedAt,
+  createdAt: dto.createdAt,
+  events: (dto.events ?? []).map(mapMedicationOrderEvent),
 });
 
 const encounterPath = (encounterId: string) =>
@@ -143,6 +204,54 @@ export const createEncounterPrescription = async (
 
 export const getEncounterPrescriptions = async (encounterId: string) =>
   (await http.get<PrescriptionDto[]>(`${encounterPath(encounterId)}/prescriptions`)).map(mapPrescription);
+
+export interface RecordMedicationEventRequest {
+  notes?: string;
+}
+
+const medicationOrderPath = (orderId: string) =>
+  `/api/v1/medication-orders/${encodeURIComponent(orderId)}`;
+
+export const dispenseMedicationOrder = async (
+  orderId: string,
+  body: RecordMedicationEventRequest = {},
+) =>
+  mapMedicationOrderEvent(
+    await http.post<MedicationOrderEventDto>(`${medicationOrderPath(orderId)}/dispense`, body),
+  );
+
+export const administerMedicationOrder = async (
+  orderId: string,
+  body: RecordMedicationEventRequest = {},
+) =>
+  mapMedicationOrderEvent(
+    await http.post<MedicationOrderEventDto>(
+      `${medicationOrderPath(orderId)}/administer`,
+      body,
+    ),
+  );
+
+export const confirmMedicationOrderAdherence = async (
+  orderId: string,
+  body: RecordMedicationEventRequest = {},
+) =>
+  mapMedicationOrderEvent(
+    await http.post<MedicationOrderEventDto>(
+      `${medicationOrderPath(orderId)}/adherence-confirmations`,
+      body,
+    ),
+  );
+
+export const addMedicationOrderAdherenceNote = async (
+  orderId: string,
+  body: RecordMedicationEventRequest,
+) =>
+  mapMedicationOrderEvent(
+    await http.post<MedicationOrderEventDto>(
+      `${medicationOrderPath(orderId)}/adherence-notes`,
+      body,
+    ),
+  );
 
 export const createEncounterDocument = async (
   encounterId: string,

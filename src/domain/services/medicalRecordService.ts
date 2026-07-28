@@ -37,7 +37,39 @@ function issuePrescription(encounterId: EncounterId, doctorId: UserId, medicatio
   assertRole(doctorId, ['doctor']);
   const record = ensureDraft(encounterId);
   assertMutable(record);
-  const prescription: Prescription = { id: nextId('RX'), encounterId, doctorId, issuedAt: new Date().toISOString(), medications: medications.map((m) => ({ id: nextId('MED'), ...m })) };
+  const issuedAt = new Date().toISOString();
+  const prescriptionId = nextId<Prescription['id']>('RX');
+  const prescription: Prescription = {
+    id: prescriptionId,
+    encounterId,
+    doctorId,
+    issuedAt,
+    medications: medications.map((m) => ({ id: nextId('MED'), ...m })),
+    medicationOrders: medications.map((medication) => {
+      const orderId = nextId<Prescription['medicationOrders'][number]['id']>('MED-ORDER');
+      return {
+        id: orderId,
+        prescriptionId,
+        encounterId,
+        medicationName: medication.name,
+        dose: medication.dose,
+        route: medication.route,
+        frequency: medication.frequency,
+        durationDays: medication.durationDays,
+        instructions: medication.instructions,
+        prescribedBy: doctorId,
+        prescribedAt: issuedAt,
+        createdAt: issuedAt,
+        events: [{
+          id: nextId('MED-EVENT'),
+          orderId,
+          type: 'prescribed',
+          actorId: doctorId,
+          occurredAt: issuedAt,
+        }],
+      };
+    }),
+  };
   medicalRecordRepository.prescriptions().upsert(prescription);
   medicalRecordRepository.records().upsert({ ...record, prescriptionId: prescription.id, status: 'in_review' });
   auditService.log({ actorId: doctorId, action: 'PRESCRIPTION_ISSUED', entityType: 'Prescription', entityId: prescription.id, encounterId, sourceModule: 'EMR' });

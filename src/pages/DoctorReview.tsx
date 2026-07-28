@@ -245,8 +245,16 @@ export default function DoctorReview() {
   const handleApprovePlan = () => runGuarded(async () => {
     if (!confirmedDiagnosis) throw new Error('Cần xác nhận chẩn đoán trước khi duyệt phác đồ.');
     if (!planSummary.trim()) throw new Error('Vui lòng nhập nội dung phác đồ.');
-    if (!selectedTemplate) throw new Error('Vui lòng chọn một quy trình đã xuất bản để áp dụng.');
-    const approvedPlan = await createEncounterClinicalPlan(encounter.id, { diagnosisId: confirmedDiagnosis.id, summary: planSummary });
+    if (!selectedTemplate || !selectedVersion) throw new Error('Vui lòng chọn một quy trình đã xuất bản để áp dụng.');
+    const approvedPlan = await createEncounterClinicalPlan(encounter.id, {
+      diagnosisId: confirmedDiagnosis.id,
+      summary: planSummary,
+      measurableGoals: [planSummary],
+      protocolRef: {
+        templateId: selectedTemplate.id,
+        templateVersionId: selectedVersion.id,
+      },
+    });
     diagnosisRepository.plans().upsert(approvedPlan);
     const freshEncounter = mapEncounter(await getEncounter(encounter.id), encounter.events);
     encounterRepository.upsert(freshEncounter);

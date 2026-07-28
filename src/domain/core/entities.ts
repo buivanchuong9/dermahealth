@@ -3,6 +3,7 @@ import type {
   DoctorReviewId, DoctorDiagnosisId, ClinicalPlanId, ClinicalOrderId, ClinicalResultId,
   WorkflowTemplateId, WorkflowTemplateVersionId, WorkflowInstanceId, WorkflowTaskId,
   ClinicalDocumentId, MedicalRecordId, PrescriptionId, MedicationId, CarePlanId,
+  MedicationOrderId, MedicationOrderEventId, ClinicalPlanRevisionId,
   FollowUpActivityId, ClinicalAlertId, EncounterCreationRequestId, NotificationId,
   ConsentId, AuditEventId, IntegrationConnectionId, IntegrationMessageId,
 } from './ids';
@@ -189,13 +190,73 @@ export interface DoctorDiagnosis {
   recordedAt: string;
 }
 
-export interface ClinicalPlan {
+export interface ClinicalCarePlan {
   id: ClinicalPlanId;
   encounterId: EncounterId;
+  /** Canonical care-plan link. diagnosisId remains as a migration alias. */
+  problemOrDiagnosisId: DoctorDiagnosisId;
   doctorId: UserId;
   diagnosisId: DoctorDiagnosisId;
   summary: string;
+  measurableGoals: string[];
+  protocolRef?: {
+    templateId: WorkflowTemplateId;
+    templateVersionId: WorkflowTemplateVersionId;
+    version?: string;
+  };
+  milestones: Array<{
+    label: string;
+    targetDate?: string;
+    status: string;
+  }>;
+  monitoringMetrics: string[];
+  stopOrChangeCriteria: string;
+  contraindications: string[];
+  prerequisites: string[];
+  responsibleProviderId: UserId;
+  orders: Array<{
+    id: string;
+    kind:
+      | 'medication'
+      | 'laboratory'
+      | 'imaging'
+      | 'procedure'
+      | 'patient_education'
+      | 'consultation';
+    referenceId: string;
+  }>;
+  /** @deprecated Migration alias for orders. */
+  orderRefs: ClinicalCarePlan['orders'];
+  deviationFromProtocol?: {
+    reason: string;
+    approvedBy: UserId;
+    approvedAt: string;
+  };
+  outcome?: string;
+  currentStage: 'induction' | 'monitoring' | 'response_assessment' | 'maintenance';
+  signedBy?: UserId;
+  signedAt?: string;
+  signature?: {
+    providerId: UserId;
+    signedAt: string;
+  };
+  version: number;
   approvedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @deprecated Use ClinicalCarePlan. Kept while existing repositories migrate. */
+export type ClinicalPlan = ClinicalCarePlan;
+
+export interface ClinicalPlanRevision {
+  id: ClinicalPlanRevisionId;
+  planId: ClinicalPlanId;
+  version: number;
+  action: string;
+  snapshot: Record<string, unknown>;
+  actorId: UserId;
+  occurredAt: string;
 }
 
 export interface ClinicalOrder {
@@ -293,6 +354,27 @@ export interface WorkflowTemplate {
   version?: number;
 }
 
+/** Operational coordination only. Clinical decisions and medication state are
+ * deliberately absent; completing this item cannot mutate a related order. */
+export interface KanbanTask {
+  taskId: WorkflowTaskId;
+  relatedEncounterId: EncounterId;
+  relatedOrderId?: ClinicalOrderId | MedicationOrderId;
+  urgency: Urgency;
+  sla: number;
+  ownerRole: UserRole;
+  department: string;
+  prerequisites: string[];
+  blockedReason?: string;
+  evidenceOfCompletion?: string;
+  abnormalResultEscalation?: {
+    flaggedAt: string;
+    escalatedTo: UserId;
+  };
+}
+
+/** Existing workflow-runtime transport shape. New domain code should project
+ * this to KanbanTask instead of adding clinical fields here. */
 export interface WorkflowTask {
   id: WorkflowTaskId;
   instanceId: WorkflowInstanceId;
@@ -310,6 +392,12 @@ export interface WorkflowTask {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  relatedOrderId?: ClinicalOrderId;
+  blockedReason?: string;
+  evidenceOfCompletion?: string;
+  abnormalResultFlaggedAt?: string;
+  abnormalResultEscalatedTo?: UserId;
+  /** @deprecated Legacy server field; use blockedReason. */
   clinicalWarning?: string;
   patientArrivalStatus?: 'not_arrived' | 'arrived' | 'in_room';
   reworkCount: number;
@@ -328,6 +416,10 @@ export interface WorkflowInstance {
   encounterId: EncounterId;
   templateId: WorkflowTemplateId;
   templateVersionId: WorkflowTemplateVersionId;
+  protocolRef: {
+    templateId: WorkflowTemplateId;
+    templateVersionId: WorkflowTemplateVersionId;
+  };
   /** Human-readable operational reference; never contains patient PII. */
   instanceCode: string;
   /** Prototype integrity seal over patient + encounter + pinned template version. */
@@ -336,9 +428,11 @@ export interface WorkflowInstance {
   status: WorkflowInstanceStatus;
   activatedBy: UserId;
   activatedAt: string;
+  startedAt: string;
   completedAt?: string;
   suspendedReason?: string;
   taskIds: WorkflowTaskId[];
+  tasks: WorkflowTaskId[];
   version?: number;
 }
 
@@ -362,7 +456,42 @@ export interface Medication {
   id: MedicationId;
   name: string;
   dose: string;
+  route?: string;
+  frequency?: string;
   durationDays: number;
+  instructions?: string;
+}
+
+export type MedicationOrderEventType =
+  | 'prescribed'
+  | 'dispensed'
+  | 'administered'
+  | 'adherence_confirmed'
+  | 'adherence_note';
+
+export interface MedicationOrderEvent {
+  id: MedicationOrderEventId;
+  orderId: MedicationOrderId;
+  type: MedicationOrderEventType;
+  actorId: UserId;
+  notes?: string;
+  occurredAt: string;
+}
+
+export interface MedicationOrder {
+  id: MedicationOrderId;
+  prescriptionId: PrescriptionId;
+  encounterId: EncounterId;
+  medicationName: string;
+  dose: string;
+  route?: string;
+  frequency?: string;
+  durationDays: number;
+  instructions?: string;
+  prescribedBy: UserId;
+  prescribedAt: string;
+  createdAt: string;
+  events: MedicationOrderEvent[];
 }
 
 export interface Prescription {
@@ -370,6 +499,7 @@ export interface Prescription {
   encounterId: EncounterId;
   doctorId: UserId;
   medications: Medication[];
+  medicationOrders: MedicationOrder[];
   issuedAt: string;
 }
 

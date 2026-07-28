@@ -20,6 +20,7 @@ import { encounterRepository, medicalRecordRepository, clinicalOrderRepository, 
 import {
   getEncounterMedicalRecord,
   getEncounterDocuments,
+  getEncounterPrescriptions,
   getMedicalRecordCompletionCheck,
   createEncounterDocument,
   signMedicalRecord,
@@ -30,6 +31,12 @@ import {
   type MedicalRecordCompletionCheck,
   type MedicalRecordBreakGlassGrant,
 } from '../api/medicalRecord';
+import {
+  getEncounterClinicalPlan,
+  getEncounterClinicalPlanRevisions,
+  getEncounterDiagnoses,
+} from '../api/doctorDecision';
+import { ApiError } from '../api/http';
 import { getEncounterAuditTrail } from '../api/audit';
 import { auditService } from '../domain/services/auditService';
 import { RECORD_STATUS_LABEL, ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
@@ -38,7 +45,7 @@ import type { EncounterId } from '../domain/core/ids';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 import { LifetimeMedicalRecord } from '../components/medical-record/LifetimeMedicalRecord';
-import { listWorkflowInstances } from '../api/workflowInstance';
+import { getWorkflowInstanceForEncounter } from '../api/workflowInstance';
 import {
   acceptWorkflowTask,
   cancelAdHocWorkflowTask,
@@ -48,7 +55,13 @@ import {
   startWorkflowTask,
 } from '../api/workflowTask';
 import { ROLE_LABEL } from '../domain/core/role';
-import type { WorkflowTask } from '../domain/core/entities';
+import type {
+  ClinicalPlan,
+  ClinicalPlanRevision,
+  DoctorDiagnosis,
+  Prescription,
+  WorkflowTask,
+} from '../domain/core/entities';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -187,24 +200,62 @@ function EMRWorkspace() {
     checkedAt: '',
     recordVersion: 0,
   });
+  const [clinicalPlan, setClinicalPlan] = useState<ClinicalPlan>();
+  const [planRevisions, setPlanRevisions] = useState<ClinicalPlanRevision[]>([]);
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [diagnoses, setDiagnoses] = useState<DoctorDiagnosis[]>([]);
 
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
 
   useEffect(() => {
     if (!encounter) return;
-    getEncounterMedicalRecord(encounter.id)
-      .then((row) => {
-        medicalRecordRepository.records().upsert(row);
-        return getMedicalRecordCompletionCheck(row.id);
-      })
-      .then(setCompletion)
-      .catch(() => undefined);
-    getEncounterDocuments(encounter.id)
-      .then((rows) => rows.forEach((row) => medicalRecordRepository.documents().upsert(row)))
-      .catch(() => undefined);
-    getEncounterAuditTrail(encounter.id)
-      .then((rows) => rows.forEach((row) => auditRepository.upsert(row)))
-      .catch(() => undefined);
+    let active = true;
+    const encounterId = encounter.id;
+    const recordWithCompletion = getEncounterMedicalRecord(encounterId).then(async (record) => ({
+      record,
+      completion: await getMedicalRecordCompletionCheck(record.id),
+    }));
+
+    Promise.allSettled([
+      recordWithCompletion,
+      getEncounterDocuments(encounterId),
+      getEncounterAuditTrail(encounterId),
+      getEncounterClinicalPlan(encounterId),
+      getEncounterClinicalPlanRevisions(encounterId),
+      getEncounterPrescriptions(encounterId),
+      getEncounterDiagnoses(encounterId),
+    ]).then(
+      ([
+        recordResult,
+        documentResult,
+        auditResult,
+        planResult,
+        revisionResult,
+        prescriptionResult,
+        diagnosisResult,
+      ]) => {
+        if (!active) return;
+        if (recordResult.status === 'fulfilled') {
+          medicalRecordRepository.records().upsert(recordResult.value.record);
+          setCompletion(recordResult.value.completion);
+        }
+        if (documentResult.status === 'fulfilled') {
+          documentResult.value.forEach((row) => medicalRecordRepository.documents().upsert(row));
+        }
+        if (auditResult.status === 'fulfilled') {
+          auditResult.value.forEach((row) => auditRepository.upsert(row));
+        }
+        setClinicalPlan(planResult.status === 'fulfilled' ? planResult.value : undefined);
+        setPlanRevisions(revisionResult.status === 'fulfilled' ? revisionResult.value : []);
+        setPrescriptions(
+          prescriptionResult.status === 'fulfilled' ? prescriptionResult.value : [],
+        );
+        setDiagnoses(diagnosisResult.status === 'fulfilled' ? diagnosisResult.value : []);
+      },
+    );
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [encounter?.id]);
 
@@ -255,6 +306,10 @@ function EMRWorkspace() {
   }
 
   const record = records.find((r) => r.encounterId === encounter.id);
+  const displayedDiagnosis =
+    diagnoses.find((row) => row.id === record?.diagnosisId) ??
+    diagnoses.find((row) => row.status === 'confirmed');
+  const prescribedMedications = prescriptions.flatMap((row) => row.medications);
   const encounterOrders = orders.filter((o) => o.encounterId === encounter.id);
   const encounterDocs = documents.filter((d) => d.encounterId === encounter.id);
   const encounterTasks = tasks.filter((t) => t.encounterId === encounter.id);
@@ -345,11 +400,57 @@ function EMRWorkspace() {
           <Card title="Tóm tắt hồ sơ" size="small">
             <div style={{ fontSize: 13.5, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div>Bệnh nhân: <Text strong>{currentPatient.name}</Text> ({currentPatient.code})</div>
-              <div>Chẩn đoán: <Text strong>{record?.diagnosisId ?? '— chưa có —'}</Text></div>
-              <div>Đơn thuốc: {record?.prescriptionId ?? '— chưa có —'}</div>
+              <div>Chẩn đoán: <Text strong>{displayedDiagnosis?.conditionName ?? '— chưa có —'}</Text></div>
+              <div>
+                Đơn thuốc: {prescribedMedications.length > 0
+                  ? prescribedMedications.map((medication) => `${medication.name} ${medication.dose}`).join('; ')
+                  : '— chưa có —'}
+              </div>
               <div>Hướng dẫn xuất viện: {record?.discharge?.instructions.join('; ') ?? '— chưa có —'}</div>
               <div>Kế hoạch theo dõi: {record?.followUp?.description ?? '— chưa có —'}</div>
             </div>
+
+            {clinicalPlan && (
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border-default)' }}>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>Kế hoạch lâm sàng đã ký</Text>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <Tag color="blue">{clinicalPlan.currentStage}</Tag>
+                  <Tag>v{clinicalPlan.version}</Tag>
+                  <Tag>{planRevisions.length} phiên bản lưu vết</Tag>
+                  {clinicalPlan.protocolRef && (
+                    <Tag color="geekblue">
+                      BPM {clinicalPlan.protocolRef.templateVersionId}
+                    </Tag>
+                  )}
+                </div>
+                <Paragraph style={{ marginBottom: 8 }}>{clinicalPlan.summary}</Paragraph>
+                <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                  Mục tiêu: {clinicalPlan.measurableGoals.join('; ') || 'Chưa khai báo'}
+                </Text>
+                <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                  Chỉ số theo dõi: {clinicalPlan.monitoringMetrics.join('; ') || 'Chưa khai báo'}
+                </Text>
+                <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                  Tiêu chí dừng/đổi: {clinicalPlan.stopOrChangeCriteria || 'Chưa khai báo'}
+                </Text>
+              </div>
+            )}
+
+            {prescriptions.length > 0 && (
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border-default)' }}>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>Đơn thuốc và lịch sử thực hiện</Text>
+                {prescriptions.flatMap((prescription) => prescription.medicationOrders).map((order) => (
+                  <div key={order.id} style={{ marginBottom: 8 }}>
+                    <Text>{order.medicationName} — {order.dose}</Text>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                      {order.events.map((event) => (
+                        <Tag key={event.id}>{event.type} · {new Date(event.occurredAt).toLocaleString('vi-VN')}</Tag>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {!completion.ok && (
               <Alert type="warning" showIcon style={{ marginTop: 12 }} message={`Còn thiếu để hoàn tất: ${completion.missing.map((item) => item.message).join(', ')}`} />
@@ -432,8 +533,14 @@ function TreatmentPlanKanban() {
   const { message } = AntApp.useApp();
   const navigate = useNavigate();
   const { currentPatient, role } = useAppState();
+  const patientEncounters = useStore(encounterRepository)
+    .filter((row) => row.patientId === currentPatient.id)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   const instances = useStore(workflowRepository.instances());
   const workflowTasks = useStore(workflowRepository.tasks());
+  const [selectedEncounterId, setSelectedEncounterId] = useState<EncounterId | undefined>(
+    patientEncounters[0]?.id,
+  );
   const [modal, setModal] = useState(false);
   const [title, setTitle] = useState('');
   const [department, setDepartment] = useState('Khám bệnh');
@@ -442,14 +549,14 @@ function TreatmentPlanKanban() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(patientEncounters[0]));
   const cardNodes = useRef(new Map<string, HTMLDivElement>());
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
   const canManage = hasRoleAccess(role, ['doctor', 'medical_administrator']);
 
-  const instance = instances
-    .filter((row) => row.patientId === currentPatient.id)
-    .sort((a, b) => b.activatedAt.localeCompare(a.activatedAt))[0];
+  const selectedEncounter =
+    patientEncounters.find((row) => row.id === selectedEncounterId) ?? patientEncounters[0];
+  const instance = instances.find((row) => row.encounterId === selectedEncounter?.id);
 
   const toColumn = (status: WorkflowTask['status']) => {
     if (['completed', 'skipped', 'cancelled'].includes(status)) return 'done';
@@ -466,23 +573,37 @@ function TreatmentPlanKanban() {
       date: task.completedAt
         ? new Date(task.completedAt).toLocaleDateString('vi-VN')
         : `SLA ${task.slaMinutes} phút`,
-      desc: `${ROLE_LABEL[task.responsibleRole]} · ${task.department}${task.clinicalWarning ? ` · ${task.clinicalWarning}` : ''}`,
+      desc: `${ROLE_LABEL[task.responsibleRole]} · ${task.department}${task.blockedReason ? ` · ${task.blockedReason}` : ''}`,
       priority: task.priority === 'high' ? 'high' : task.priority === 'medium' ? 'medium' : 'low',
       source: task,
     }));
 
   const refresh = async () => {
-    const [freshInstances, freshTasks] = await Promise.all([listWorkflowInstances(currentPatient.id), listWorkflowTasks()]);
-    freshInstances.forEach((row) => workflowRepository.instances().upsert(row));
-    freshTasks.forEach((row) => workflowRepository.tasks().upsert(row));
+    if (!selectedEncounter) return;
+    const [instanceResult, taskResult] = await Promise.allSettled([
+      getWorkflowInstanceForEncounter(selectedEncounter.id),
+      listWorkflowTasks(),
+    ]);
+    if (instanceResult.status === 'fulfilled') {
+      workflowRepository.instances().upsert(instanceResult.value);
+    } else if (
+      !(instanceResult.reason instanceof ApiError && instanceResult.reason.status === 404)
+    ) {
+      throw instanceResult.reason;
+    }
+    if (taskResult.status === 'fulfilled') {
+      taskResult.value.forEach((row) => workflowRepository.tasks().upsert(row));
+    }
+    if (taskResult.status === 'rejected') throw taskResult.reason;
   };
 
   useEffect(() => {
+    if (!selectedEncounter) return;
     refresh()
       .catch((error: unknown) => message.error(error instanceof Error ? error.message : 'Không tải được kế hoạch điều trị.'))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPatient.id]);
+  }, [currentPatient.id, selectedEncounter?.id]);
 
   const add = async () => {
     if (!instance || !title.trim() || !department.trim()) return;
@@ -569,20 +690,45 @@ function TreatmentPlanKanban() {
     });
   };
   const activeTask = tasks.find((t) => t.id === activeId);
+  const encounterSelector = (
+    <Card size="small">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <Text strong>Lượt khám áp dụng</Text>
+        <Select
+          style={{ minWidth: 320 }}
+          value={selectedEncounter?.id}
+          onChange={(value) => {
+            setLoading(true);
+            setSelectedEncounterId(value as EncounterId);
+          }}
+          options={patientEncounters.map((row) => ({
+            value: row.id,
+            label: `${row.id} — ${ENCOUNTER_STATUS_LABEL[row.status]}`,
+          }))}
+          placeholder="Chọn lượt khám"
+        />
+        {instance && <Tag color="blue">{instance.instanceCode}</Tag>}
+      </div>
+    </Card>
+  );
 
   if (!loading && !instance) {
     return (
-      <ProfessionalEmpty
-        title="Chưa có quy trình điều trị đang áp dụng"
-        description="Kế hoạch điều trị sẽ tự động lấy các bước từ BPM sau khi bác sĩ duyệt kế hoạch và kích hoạt quy trình cho lượt khám."
-        primaryLabel={canManage ? 'Mở quy trình BPM' : undefined}
-        primaryHref={canManage ? '/app/workflows/templates' : undefined}
-      />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {encounterSelector}
+        <ProfessionalEmpty
+          title="Lượt khám này chưa có quy trình điều trị"
+          description="Kế hoạch điều trị chỉ lấy các bước BPM gắn chính xác với lượt khám đã chọn, không tự lấy quy trình mới nhất của bệnh nhân."
+          primaryLabel={canManage ? 'Mở quy trình BPM' : undefined}
+          primaryHref={canManage ? '/app/workflows/templates' : undefined}
+        />
+      </div>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {encounterSelector}
       <Alert
         type="info"
         showIcon
