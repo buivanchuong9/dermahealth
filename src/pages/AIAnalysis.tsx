@@ -1,17 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Row, Col, Card, Steps, Upload, Button, Segmented, InputNumber, Input, Checkbox, Progress, Result, Tag,
-  Alert, Typography, List, Space,
+  Alert, Typography, List, Space, Select, Skeleton,
 } from 'antd';
-import { Upload as UploadIcon, Camera, Loader, CheckCircle2, Phone, FlaskConical, ZoomIn } from 'lucide-react';
+import {
+  Upload as UploadIcon,
+  Camera,
+  Loader,
+  CheckCircle2,
+  Phone,
+  FlaskConical,
+  Focus,
+  Image as ImageIcon,
+  MapPin,
+  ShieldCheck,
+  SunMedium,
+  TriangleAlert,
+} from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { aiAssessmentService, SYMPTOM_OPTIONS, type IntakeDraft, type SymptomKey } from '../domain/services/aiAssessmentService';
 import type { AIPreliminaryAssessment, ClinicalRedFlag, ConfidenceBand } from '../domain/core/entities';
 import type { EncounterId } from '../domain/core/ids';
+import { analyzeDermatologyImage, type ImageQualityReport } from '../domain/imageQuality';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { createEncounter, getActiveEncounter } from '../api/encounters';
 import { submitEncounterIntake } from '../api/aiAssessment';
 import { uploadFile } from '../api/uploads';
+import { getPatientConsents } from '../api/clinical';
 import { aiAssessmentRepository, encounterRepository } from '../domain/repositories';
 
 const { Title, Text, Paragraph } = Typography;
@@ -35,6 +50,17 @@ const BAND_META: Record<ConfidenceBand, { label: string; color: string }> = {
 
 const STEP_INDEX: Record<Step, number> = { upload: 0, scan: 1, result: 2, emergency: 2 };
 
+const BODY_REGIONS = [
+  { value: 'face', label: 'Mặt' },
+  { value: 'scalp', label: 'Da đầu' },
+  { value: 'neck', label: 'Cổ' },
+  { value: 'chest', label: 'Ngực' },
+  { value: 'back', label: 'Lưng' },
+  { value: 'arm-hand', label: 'Tay / bàn tay' },
+  { value: 'leg-foot', label: 'Chân / bàn chân' },
+  { value: 'other', label: 'Vùng khác' },
+];
+
 export default function AIAnalysis() {
   const { currentPatient } = useAppState();
   const [step, setStep] = useState<Step>('upload');
@@ -47,6 +73,34 @@ export default function AIAnalysis() {
   const [encounterId, setEncounterId] = useState<EncounterId | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageReport, setImageReport] = useState<ImageQualityReport | null>(null);
+  const [imageChecking, setImageChecking] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string>();
+  const [bodyRegion, setBodyRegion] = useState<string>();
+  const [viewType, setViewType] = useState<'overview' | 'closeup'>('closeup');
+  const [qualityWarningAccepted, setQualityWarningAccepted] = useState(false);
+  const [aiAcknowledged, setAiAcknowledged] = useState(false);
+  const [consentState, setConsentState] = useState<'loading' | 'granted' | 'missing' | 'error'>('loading');
+
+  useEffect(() => {
+    let active = true;
+    getPatientConsents(currentPatient.id)
+      .then((consents) => {
+        if (!active) return;
+        const consent = consents.find((item) => item.type === 'data_processing');
+        setConsentState(consent?.granted ? 'granted' : 'missing');
+      })
+      .catch(() => {
+        if (active) setConsentState('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentPatient.id]);
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
 
   const toggleSymptoms = (values: SymptomKey[]) => setIntake((p) => ({ ...p, symptoms: values }));
 
@@ -61,7 +115,20 @@ export default function AIAnalysis() {
   };
 
   const startAnalysis = async () => {
-    const errs = aiAssessmentService.validateIntake(intake);
+    const errs = [
+      ...aiAssessmentService.validateIntake(intake),
+      ...(!bodyRegion ? ['Vui lòng chọn vùng cơ thể được chụp.'] : []),
+      ...(!imageReport?.uploadFile ? ['Vui lòng chọn ảnh đạt kiểm tra chất lượng.'] : []),
+      ...(imageReport?.status === 'review' && !qualityWarningAccepted
+        ? ['Vui lòng xác nhận đã xem cảnh báo chất lượng ảnh.']
+        : []),
+      ...(consentState !== 'granted'
+        ? ['Cần đồng ý xử lý dữ liệu y tế cá nhân trước khi gửi ảnh.']
+        : []),
+      ...(!aiAcknowledged
+        ? ['Vui lòng xác nhận đã hiểu AI chỉ đưa ra đánh giá sơ bộ.']
+        : []),
+    ];
     if (errs.length) { setErrors(errs); return; }
     setErrors([]);
 
@@ -74,9 +141,9 @@ export default function AIAnalysis() {
 
     setSubmitting(true);
     let uploadedFileId: string | undefined;
-    if (imageFile) {
+    if (imageReport?.uploadFile) {
       try {
-        uploadedFileId = (await uploadFile(imageFile)).fileId;
+        uploadedFileId = (await uploadFile(imageReport.uploadFile)).fileId;
       } catch (error) {
         setSubmitting(false);
         setErrors([
@@ -138,16 +205,30 @@ export default function AIAnalysis() {
   };
 
   const resetAll = () => {
-    setIntake(EMPTY_INTAKE); setErrors([]); setEmergency(null); setAssessment(null); setEncounterId(null); setSubmitting(false); setImageFile(null); setStep('upload');
+    setIntake(EMPTY_INTAKE);
+    setErrors([]);
+    setEmergency(null);
+    setAssessment(null);
+    setEncounterId(null);
+    setSubmitting(false);
+    setImageFile(null);
+    setImageReport(null);
+    setPreviewUrl(undefined);
+    setBodyRegion(undefined);
+    setViewType('closeup');
+    setQualityWarningAccepted(false);
+    setAiAcknowledged(false);
+    setStep('upload');
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Title level={3} style={{ margin: '4px 0 0' }}>Phân Tích Da Bằng AI</Title>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Sàng Lọc Da Liễu Có Hỗ Trợ AI</Title>
+          <Text type="secondary">Kiểm tra chất lượng ảnh trước khi gửi để bác sĩ có dữ liệu đáng tin cậy hơn.</Text>
         </div>
-        <Tag color="blue" style={{ padding: '4px 10px' }}>AI Diagnosis v2.4</Tag>
+        <Tag color="blue" style={{ padding: '4px 10px' }}>AI hỗ trợ lâm sàng · Không thay thế bác sĩ</Tag>
       </div>
 
       <Card size="small">
@@ -160,36 +241,160 @@ export default function AIAnalysis() {
       </Card>
 
       {step === 'upload' && (
-        <Row gutter={16}>
+        <Row gutter={[16, 16]}>
           <Col xs={24} md={14}>
-            <Upload.Dragger
-              accept=".jpg,.jpeg,.png,.heic,image/jpeg,image/png,image/heic"
-              multiple={false}
-              maxCount={1}
-              fileList={imageFile ? [{ uid: imageFile.name, name: imageFile.name, status: 'done', size: imageFile.size, type: imageFile.type }] : []}
-              beforeUpload={(file) => {
-                if (file.size > 5 * 1024 * 1024) {
-                  setErrors(['Ảnh vượt quá dung lượng tối đa 5MB.']);
-                  return Upload.LIST_IGNORE;
-                }
-                setImageFile(file);
-                setErrors([]);
-                return false;
-              }}
-              onRemove={() => {
-                setImageFile(null);
-                return true;
-              }}
-              style={{ background: 'var(--surface-card)' }}
-            >
-              <p className="ant-upload-drag-icon"><Camera size={32} color="var(--medical-blue-600)" /></p>
-              <p style={{ fontWeight: 600, fontSize: 16 }}>Kéo thả hoặc nhấp để tải lên</p>
-              <p style={{ color: 'var(--text-secondary)' }}>Hỗ trợ JPG, PNG, HEIC · Tối đa 5MB</p>
-              <Space style={{ marginTop: 16 }}>
-                <Button icon={<UploadIcon size={15} />}>Chọn tệp</Button>
-                <Button icon={<Camera size={15} />}>Dùng camera</Button>
-              </Space>
-            </Upload.Dragger>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Card size="small" title="1. Xác định ảnh đang chụp">
+                <Row gutter={[12, 12]}>
+                  <Col xs={24} sm={12}>
+                    <Text strong style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>
+                      Vùng cơ thể *
+                    </Text>
+                    <Select
+                      value={bodyRegion}
+                      onChange={(value) => {
+                        setBodyRegion(value);
+                        setImageFile(null);
+                        setImageReport(null);
+                        setQualityWarningAccepted(false);
+                      }}
+                      options={BODY_REGIONS}
+                      placeholder="Chọn vùng da"
+                      style={{ width: '100%' }}
+                    />
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Text strong style={{ display: 'block', fontSize: 12, marginBottom: 6 }}>
+                      Loại ảnh *
+                    </Text>
+                    <Segmented
+                      block
+                      value={viewType}
+                      onChange={(value) => {
+                        setViewType(value as 'overview' | 'closeup');
+                        setImageFile(null);
+                        setImageReport(null);
+                        setQualityWarningAccepted(false);
+                      }}
+                      options={[
+                        { label: 'Toàn vùng', value: 'overview' },
+                        { label: 'Cận tổn thương', value: 'closeup' },
+                      ]}
+                    />
+                  </Col>
+                </Row>
+              </Card>
+
+              <Card size="small" title="2. Chọn ảnh và kiểm tra chất lượng">
+                <Upload.Dragger
+                  accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                  disabled={!bodyRegion || imageChecking}
+                  multiple={false}
+                  maxCount={1}
+                  fileList={imageFile ? [{ uid: imageFile.name, name: imageFile.name, status: 'done', size: imageFile.size, type: imageFile.type }] : []}
+                  beforeUpload={async (file) => {
+                    if (!bodyRegion) {
+                      setErrors(['Vui lòng chọn vùng cơ thể trước khi tải ảnh.']);
+                      return Upload.LIST_IGNORE;
+                    }
+                    setImageChecking(true);
+                    setErrors([]);
+                    setQualityWarningAccepted(false);
+                    const report = await analyzeDermatologyImage(file, { bodyRegion, viewType });
+                    setImageReport(report);
+                    if (report.status === 'blocked') {
+                      setImageFile(null);
+                      setPreviewUrl(undefined);
+                    } else {
+                      setImageFile(file);
+                      setPreviewUrl(URL.createObjectURL(file));
+                    }
+                    setImageChecking(false);
+                    return false;
+                  }}
+                  onRemove={() => {
+                    setImageFile(null);
+                    setImageReport(null);
+                    setPreviewUrl(undefined);
+                    setQualityWarningAccepted(false);
+                    return true;
+                  }}
+                  style={{ background: 'var(--surface-card)' }}
+                >
+                  <p className="ant-upload-drag-icon">
+                    {imageChecking
+                      ? <Loader size={32} color="var(--medical-blue-600)" className="spin-icon" />
+                      : <Camera size={32} color="var(--medical-blue-600)" />}
+                  </p>
+                  <p style={{ fontWeight: 600, fontSize: 16 }}>
+                    {imageChecking ? 'Đang kiểm tra ảnh…' : 'Kéo thả hoặc nhấp để chọn ảnh'}
+                  </p>
+                  <p style={{ color: 'var(--text-secondary)' }}>
+                    {bodyRegion ? 'JPG, PNG · Tối đa 5MB' : 'Chọn vùng cơ thể ở bước 1 để tiếp tục'}
+                  </p>
+                  <Button icon={<UploadIcon size={15} />} disabled={!bodyRegion || imageChecking}>
+                    Chọn ảnh
+                  </Button>
+                </Upload.Dragger>
+
+                {imageReport && (
+                  <div style={{ marginTop: 14 }}>
+                    <Alert
+                      type={imageReport.status === 'pass' ? 'success' : imageReport.status === 'review' ? 'warning' : 'error'}
+                      showIcon
+                      message={
+                        imageReport.status === 'pass'
+                          ? `Ảnh đạt kiểm tra chất lượng · ${imageReport.score}/100`
+                          : imageReport.status === 'review'
+                            ? `Ảnh có thể sử dụng nhưng cần kiểm tra · ${imageReport.score}/100`
+                            : 'Ảnh chưa đạt, vui lòng chụp lại'
+                      }
+                      description={
+                        <div>
+                          {imageReport.metrics && (
+                            <Space size={[6, 6]} wrap style={{ margin: '8px 0' }}>
+                              <Tag>{imageReport.metrics.width}×{imageReport.metrics.height}px</Tag>
+                              <Tag>Độ sáng {imageReport.metrics.brightness}/255</Tag>
+                              <Tag>Độ nét {imageReport.metrics.sharpness}</Tag>
+                            </Space>
+                          )}
+                          {imageReport.issues.map((item) => (
+                            <div key={`${item.code}-${item.severity}`} style={{ marginTop: 6 }}>
+                              <Text strong>{item.message}</Text>
+                              <Text type="secondary" style={{ display: 'block' }}>{item.guidance}</Text>
+                            </div>
+                          ))}
+                          {imageReport.privacy.metadataRemoved && (
+                            <Text type="success" style={{ display: 'block', marginTop: 8 }}>
+                              <ShieldCheck size={14} style={{ verticalAlign: -2 }} /> Đã tạo bản tải lên không chứa metadata vị trí/thiết bị.
+                            </Text>
+                          )}
+                        </div>
+                      }
+                    />
+                    {imageReport.status === 'review' && (
+                      <Checkbox
+                        checked={qualityWarningAccepted}
+                        onChange={(event) => setQualityWarningAccepted(event.target.checked)}
+                        style={{ marginTop: 10 }}
+                      >
+                        Tôi đã phóng to kiểm tra và vẫn muốn dùng ảnh này
+                      </Checkbox>
+                    )}
+                  </div>
+                )}
+              </Card>
+
+              {previewUrl && (
+                <Card size="small" title="Ảnh sẽ gửi cho hệ thống" styles={{ body: { padding: 10 } }}>
+                  <img
+                    src={previewUrl}
+                    alt="Ảnh da liễu đang chờ gửi"
+                    style={{ width: '100%', maxHeight: 420, objectFit: 'contain', borderRadius: 8, background: 'var(--surface-subtle)' }}
+                  />
+                </Card>
+              )}
+            </div>
           </Col>
 
           <Col xs={24} md={10}>
@@ -198,11 +403,16 @@ export default function AIAnalysis() {
                 <List
                   size="small"
                   dataSource={[
-                    { title: 'Đủ ánh sáng', desc: 'Chụp dưới ánh sáng trắng tự nhiên' },
-                    { title: 'Khoảng cách 10–15cm', desc: 'Để thiết bị gần vùng da cần chụp' },
-                    { title: 'Lấy nét rõ', desc: 'Giữ tay ổn định, tránh ảnh mờ' },
+                    { icon: <SunMedium size={16} />, title: 'Ánh sáng trắng, tản đều', desc: 'Không dùng flash sát da hoặc bộ lọc làm đẹp' },
+                    { icon: <MapPin size={16} />, title: viewType === 'closeup' ? 'Cách vùng da khoảng 10–15cm' : 'Bao trọn vùng cơ thể liên quan', desc: 'Không crop mất ranh giới tổn thương' },
+                    { icon: <Focus size={16} />, title: 'Chạm lấy nét vào vùng da', desc: 'Giữ điện thoại ổn định và lau sạch ống kính' },
+                    { icon: <ImageIcon size={16} />, title: 'Không sửa màu ảnh', desc: 'Không dùng filter, tăng trắng hoặc ảnh chụp lại từ màn hình' },
                   ]}
-                  renderItem={(t) => <List.Item><List.Item.Meta title={t.title} description={t.desc} /></List.Item>}
+                  renderItem={(item) => (
+                    <List.Item>
+                      <List.Item.Meta avatar={item.icon} title={item.title} description={item.desc} />
+                    </List.Item>
+                  )}
                 />
               </Card>
 
@@ -233,10 +443,54 @@ export default function AIAnalysis() {
                   <div style={{ marginBottom: 14 }}><FriendlyErrorInline title="Thông tin chưa đầy đủ" error={errors.join(' · ')} onClose={() => setErrors([])} /></div>
                 )}
 
-                <Button type="primary" block loading={submitting} icon={<FlaskConical size={15} />} onClick={() => void startAnalysis()}>Bắt đầu phân tích AI</Button>
+                <Skeleton active loading={consentState === 'loading'} paragraph={{ rows: 1 }}>
+                  {consentState === 'granted' ? (
+                    <Alert
+                      type="success"
+                      showIcon
+                      icon={<ShieldCheck size={16} />}
+                      message="Đã có đồng ý xử lý dữ liệu y tế"
+                      style={{ marginBottom: 12 }}
+                    />
+                  ) : (
+                    <Alert
+                      type="error"
+                      showIcon
+                      message={consentState === 'error' ? 'Không kiểm tra được trạng thái đồng ý' : 'Chưa có đồng ý xử lý dữ liệu y tế'}
+                      description="Ảnh da là dữ liệu y tế nhạy cảm. Hệ thống sẽ không gửi ảnh khi chưa có đồng ý hợp lệ."
+                      action={<Button size="small" href="/app/settings">Mở quyền riêng tư</Button>}
+                      style={{ marginBottom: 12 }}
+                    />
+                  )}
+                </Skeleton>
+
+                <Checkbox
+                  checked={aiAcknowledged}
+                  onChange={(event) => setAiAcknowledged(event.target.checked)}
+                  style={{ marginBottom: 12 }}
+                >
+                  Tôi hiểu AI chỉ sàng lọc sơ bộ; bác sĩ mới là người chẩn đoán cuối cùng
+                </Checkbox>
+
+                <Button
+                  type="primary"
+                  block
+                  loading={submitting}
+                  disabled={imageChecking || imageReport?.status === 'blocked'}
+                  icon={<FlaskConical size={15} />}
+                  onClick={() => void startAnalysis()}
+                >
+                  Gửi đánh giá sơ bộ
+                </Button>
               </Card>
 
-              <Alert type="warning" showIcon message="Kết quả AI chỉ là hỗ trợ ra quyết định (AI Preliminary Assessment), không phải chẩn đoán. Chẩn đoán chính thức luôn do bác sĩ xác nhận." />
+              <Alert
+                type="warning"
+                showIcon
+                icon={<TriangleAlert size={16} />}
+                message="Không chờ AI nếu triệu chứng nguy hiểm"
+                description="Khó thở, sốt cao, đau dữ dội, chảy máu nhiều hoặc tổn thương lan nhanh cần liên hệ cơ sở y tế ngay."
+              />
             </div>
           </Col>
         </Row>
@@ -246,8 +500,8 @@ export default function AIAnalysis() {
         <Card>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 16px', textAlign: 'center' }}>
             <Progress type="circle" percent={pct} size={110} strokeColor="var(--medical-blue-600)" />
-            <Title level={4} style={{ marginTop: 20 }}>Đang phân tích hình ảnh</Title>
-            <Text type="secondary" style={{ maxWidth: 420, marginBottom: 20 }}>AI đang đối chiếu với hơn 1.5 triệu ca lâm sàng trong cơ sở dữ liệu...</Text>
+            <Title level={4} style={{ marginTop: 20 }}>Đang tạo đánh giá sơ bộ</Title>
+            <Text type="secondary" style={{ maxWidth: 420, marginBottom: 20 }}>Hệ thống đang xử lý ảnh và thông tin triệu chứng. Không đóng trang trong lúc gửi dữ liệu.</Text>
             <div style={{ width: '100%', maxWidth: 420, textAlign: 'left' }}>
               {STEPS_TXT.map((s, i) => (
                 <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: stepIdx > i ? 'var(--success-bg)' : stepIdx === i ? 'var(--surface-selected)' : 'transparent', marginBottom: 4 }}>
@@ -296,14 +550,16 @@ export default function AIAnalysis() {
         <Row gutter={16}>
           <Col xs={24} sm={12} md={8}>
             <Card size="small" styles={{ body: { padding: 0 } }}>
-              <div style={{ width: '100%', aspectRatio: '1', background: 'var(--surface-subtle)', borderBottom: '1px solid var(--border-default)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ position: 'absolute', top: '22%', left: '28%', width: '40%', height: '38%', border: '2px solid var(--medical-blue-700)', borderRadius: 6, display: 'flex', alignItems: 'flex-start', padding: 4 }}>
-                  <Tag color="blue" icon={<ZoomIn size={11} style={{ verticalAlign: -1 }} />} style={{ fontSize: 11 }}>Vùng tổn thương</Tag>
-                </div>
+              <div style={{ width: '100%', aspectRatio: '1', background: 'var(--surface-subtle)', borderBottom: '1px solid var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                {previewUrl
+                  ? <img src={previewUrl} alt="Ảnh đầu vào đã kiểm tra" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  : <ImageIcon size={48} color="var(--text-muted)" />}
               </div>
               <div style={{ padding: 16 }}>
-                <Text strong style={{ display: 'block' }}>Hình ảnh đã được chú thích</Text>
-                <Text type="secondary" style={{ fontSize: 12.5 }}>AI đánh dấu vùng có nghi ngờ tổn thương</Text>
+                <Text strong style={{ display: 'block' }}>Ảnh đầu vào đã kiểm tra</Text>
+                <Text type="secondary" style={{ fontSize: 12.5 }}>
+                  {imageReport ? `Chất lượng ${imageReport.score}/100 · ${BODY_REGIONS.find((item) => item.value === bodyRegion)?.label}` : 'Ảnh đã gửi cùng khai báo triệu chứng'}
+                </Text>
                 {encounterId && <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>Lượt khám: {encounterId}</Text>}
                 <Space style={{ marginTop: 12 }}>
                   <Button size="small" onClick={resetAll}>Phân tích lại</Button>

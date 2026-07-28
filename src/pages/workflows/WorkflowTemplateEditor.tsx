@@ -24,7 +24,7 @@ import {
   reorderWorkflowTemplateVersionSteps,
   connectWorkflowTemplateVersionSteps,
   disconnectWorkflowTemplateVersionSteps,
-  saveWorkflowTemplateVersionNodePositions,
+  saveWorkflowTemplateVersionGraphLayout,
   publishWorkflowTemplateVersion,
   archiveWorkflowTemplateVersion,
   getWorkflowTemplateVersion,
@@ -32,6 +32,7 @@ import {
 import { activateEncounterWorkflow } from '../../api/encounters';
 import { listWorkflowInstances } from '../../api/workflowInstance';
 import { layoutByPrerequisites } from '../../domain/flowLayout';
+import { buildWorkflowSimulationSequence, validateWorkflowGraph } from '../../domain/workflowValidation';
 import { hasRoleAccess, type UserRole } from '../../domain/core/role';
 import type { EncounterId, WorkflowTemplateId } from '../../domain/core/ids';
 import type { WorkflowExecutorType, WorkflowStepDefinition, WorkflowTemplateVersion } from '../../domain/core/entities';
@@ -40,6 +41,7 @@ import { ProfessionalEmpty } from '../../components/feedback/ProfessionalEmpty';
 
 const { Text } = Typography;
 const WORKFLOW_AUTHOR_ROLES: readonly UserRole[] = ['clinical_process_designer', 'medical_administrator'];
+const graphSaveQueues = new Map<string, Promise<void>>();
 type StepIcon = NonNullable<WorkflowStepDefinition['icon']>;
 const ICON_META: Record<StepIcon, { label: string; icon: typeof Bot; color: string }> = {
   robot: { label: 'AI / Robot', icon: Bot, color: '#6f42c1' },
@@ -298,9 +300,8 @@ export default function WorkflowTemplateEditor() {
   const [editorLoading, setEditorLoading] = useState(true);
   const [simulationRunning, setSimulationRunning] = useState(false);
   const [simulationIndex, setSimulationIndex] = useState(0);
-  const [systemNodeLayouts, setSystemNodeLayouts] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
-  const [terminalEdgeLayouts, setTerminalEdgeLayouts] = useState<Record<string, Array<{ source: string; target: string }>>>({});
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
+  const [validationOpen, setValidationOpen] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -325,15 +326,13 @@ export default function WorkflowTemplateEditor() {
   const latestPublished = templateVersions.find((v) => v.id === template?.latestPublishedVersionId);
   const systemNodePositions = (() => {
     if (!draft) return {};
-    if (systemNodeLayouts[draft.id]) return systemNodeLayouts[draft.id];
     const storageKey = `dermahealth:workflow-layout:${draft.id}:system-nodes`;
     try {
       const stored = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, { x: number; y: number }>;
-      // Migrate layouts saved before system nodes were separated from the API payload.
       const merged = {
+        ...stored,
         ...(draft.nodePositions?.__START__ ? { __START__: draft.nodePositions.__START__ } : {}),
         ...(draft.nodePositions?.__END__ ? { __END__: draft.nodePositions.__END__ } : {}),
-        ...stored,
       };
       return Object.fromEntries(
         Object.entries(merged).filter(([, position]) =>
@@ -356,23 +355,7 @@ export default function WorkflowTemplateEditor() {
   });
 
   const flowSteps = draft?.steps ?? [];
-  const simulationSequence = ['__START__', ...flowSteps.map((step) => step.code), '__END__'];
-  const activeSimulationNode = simulationRunning ? simulationSequence[simulationIndex] : undefined;
-  const activeSimulationStep = flowSteps.find((step) => step.code === activeSimulationNode);
   const canSubmitDraftStep = Boolean(draftStep.name.trim() && draftStep.description.trim());
-  useEffect(() => {
-    if (!simulationRunning) return;
-    const timer = window.setInterval(() => {
-      setSimulationIndex((current) => {
-        if (current >= simulationSequence.length - 1) {
-          setSimulationRunning(false);
-          return 0;
-        }
-        return current + 1;
-      });
-    }, 900);
-    return () => window.clearInterval(timer);
-  }, [simulationRunning, simulationSequence.length]);
   const flowPositions = layoutByPrerequisites(flowSteps.map((s) => ({ code: s.code, prerequisiteCodes: s.prerequisiteStepCodes })));
   const openStepEditor = (code: string) => {
     const step = flowSteps.find((item) => item.code === code);
@@ -394,7 +377,7 @@ export default function WorkflowTemplateEditor() {
   const hasEndNode = Boolean(systemNodePositions.__END__);
   const terminalEdges = (() => {
     if (!draft) return [];
-    if (terminalEdgeLayouts[draft.id]) return terminalEdgeLayouts[draft.id];
+    if (draft.terminalEdges?.length) return draft.terminalEdges;
     try {
       const stored = JSON.parse(localStorage.getItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`) ?? '[]') as Array<{ source: string; target: string }>;
       const validNodeIds = new Set(['__START__', '__END__', ...flowSteps.map((step) => step.code)]);
@@ -409,6 +392,33 @@ export default function WorkflowTemplateEditor() {
       return [];
     }
   })();
+  const validationReport = validateWorkflowGraph({
+    steps: flowSteps,
+    hasStartNode,
+    hasEndNode,
+    terminalEdges,
+  });
+  const simulationSequence = buildWorkflowSimulationSequence({
+    steps: flowSteps,
+    hasStartNode,
+    hasEndNode,
+    terminalEdges,
+  });
+  const activeSimulationNode = simulationRunning ? simulationSequence[simulationIndex] : undefined;
+  const activeSimulationStep = flowSteps.find((step) => step.code === activeSimulationNode);
+  useEffect(() => {
+    if (!simulationRunning) return;
+    const timer = window.setInterval(() => {
+      setSimulationIndex((current) => {
+        if (current >= simulationSequence.length - 1) {
+          setSimulationRunning(false);
+          return 0;
+        }
+        return current + 1;
+      });
+    }, 900);
+    return () => window.clearInterval(timer);
+  }, [simulationRunning, simulationSequence.length]);
   const nodes: Node[] = [
     ...(hasStartNode ? [{ id: '__START__', type: 'terminalNode', position: startPosition, data: { kind: 'start', label: 'Bắt đầu', subtitle: 'Điểm khởi tạo quy trình', active: activeSimulationNode === '__START__', onRemove: canDesign ? () => removeTerminalNode('__START__') : undefined }, draggable: canDesign, connectable: canDesign, deletable: false }] : []),
     ...flowSteps.map((step) => ({ id: step.code, type: 'stepNode', position: stepPositions[step.code], data: { step, active: activeSimulationNode === step.code, onEdit: canDesign ? () => openStepEditor(step.code) : undefined, onRemove: canDesign ? () => removeStep(step.code) : undefined } })),
@@ -457,7 +467,12 @@ export default function WorkflowTemplateEditor() {
 
   const refreshVersion = (versionId: string, local: WorkflowTemplateVersion) => {
     getWorkflowTemplateVersion(versionId)
-      .then((fresh) => workflowRepository.versions().upsert({ ...local, ...fresh, nodePositions: fresh.nodePositions ?? local.nodePositions }))
+      .then((fresh) => workflowRepository.versions().upsert({
+        ...local,
+        ...fresh,
+        nodePositions: fresh.nodePositions ?? local.nodePositions,
+        terminalEdges: fresh.terminalEdges ?? local.terminalEdges,
+      }))
       .catch((err: unknown) => { showError(err); });
   };
 
@@ -506,45 +521,37 @@ export default function WorkflowTemplateEditor() {
       .catch((err: unknown) => { showError(err); });
   };
 
-  const syncNodePositions = (
+  const persistGraphLayout = (
     versionId: string,
     positions: Record<string, { x: number; y: number }>,
+    nextTerminalEdges: Array<{ source: string; target: string }>,
     local: WorkflowTemplateVersion,
   ) => {
-    const validStepCodes = new Set(local.steps.map((step) => step.code));
-    const stepPositions = Object.fromEntries(
-      Object.entries(positions).filter(([code]) => validStepCodes.has(code)),
-    );
-    if (Object.keys(stepPositions).length === 0) return;
-    saveWorkflowTemplateVersionNodePositions(
-      versionId,
-      stepPositions,
-    ).then((fresh) => workflowRepository.versions().upsert({
-      ...local,
-      ...fresh,
-      nodePositions: fresh.nodePositions ?? local.nodePositions,
-    })).catch(() => {
-      message.error({
-        key: 'workflow-layout-autosave',
-        content: 'Chưa lưu được vị trí node. Bố cục vẫn được giữ trên màn hình để bạn tiếp tục làm việc.',
-      });
-    });
-  };
-
-  const syncPublish = (versionId: string, version: number, local: WorkflowTemplateVersion) => {
-    publishWorkflowTemplateVersion(versionId, version)
-      .then(() => {
-        refreshVersion(versionId, local);
-        return listWorkflowTemplates();
+    const nextSave = (graphSaveQueues.get(versionId) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        const latest = await getWorkflowTemplateVersion(versionId);
+        const fresh = await saveWorkflowTemplateVersionGraphLayout(
+          versionId,
+          positions,
+          nextTerminalEdges,
+          Math.max(1, latest.rowVersion ?? 1),
+        );
+        workflowRepository.versions().upsert({
+          ...local,
+          ...fresh,
+          nodePositions: fresh.nodePositions ?? positions,
+          terminalEdges: fresh.terminalEdges ?? nextTerminalEdges,
+        });
+        localStorage.removeItem(`dermahealth:workflow-layout:${versionId}:system-nodes`);
+        localStorage.removeItem(`dermahealth:workflow-layout:${versionId}:terminal-edges`);
       })
-      .then((rows) => rows.forEach((row) => workflowRepository.templates().upsert(row)))
-      .catch((err: unknown) => { showError(err); });
-  };
-
-  const syncArchive = (versionId: string, version: number, local: WorkflowTemplateVersion) => {
-    archiveWorkflowTemplateVersion(versionId, version)
-      .then(() => refreshVersion(versionId, local))
-      .catch((err: unknown) => { showError(err); });
+      .catch((err: unknown) => {
+        showError(err);
+        throw err;
+      });
+    graphSaveQueues.set(versionId, nextSave.then(() => undefined, () => undefined));
+    return nextSave;
   };
 
   const addStep = () => guardedAsync(async () => {
@@ -597,11 +604,6 @@ export default function WorkflowTemplateEditor() {
   const removeStep = (code: string) => guarded(() => {
     const updated = workflowService.removeStep(canonicalTemplateId, code, currentUser.id);
     syncStepRemoval(updated.id, code, updated);
-    if (draft) {
-      const nextEdges = terminalEdges.filter((edge) => edge.source !== code && edge.target !== code);
-      setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: nextEdges }));
-      localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(nextEdges));
-    }
   });
   const toggleMandatory = (code: string, mandatory: boolean) => guarded(() => {
     const updated = workflowService.editStep(canonicalTemplateId, code, { mandatory }, currentUser.id);
@@ -616,12 +618,25 @@ export default function WorkflowTemplateEditor() {
     });
     message.success('Đã tạo bản chỉnh sửa mới. Quy trình đang dùng không bị ảnh hưởng.');
   });
-  const publish = () => guarded(() => {
-    if (!systemNodePositions.__START__ || !systemNodePositions.__END__) {
-      throw new Error('Cần đặt đủ điểm Bắt đầu và Kết thúc trước khi đưa quy trình vào sử dụng.');
+  const publish = () => guardedAsync(async () => {
+    if (!draft) {
+      throw new Error('Không có phiên bản nháp để đưa vào sử dụng.');
     }
-    const published = workflowService.publishVersion(canonicalTemplateId, currentUser.id);
-    syncPublish(published.id, published.version, published);
+    if (!validationReport.valid) {
+      setValidationOpen(true);
+      throw new Error(
+        `Quy trình còn ${validationReport.errors.length} lỗi cần sửa trước khi đưa vào sử dụng. ${validationReport.errors[0]?.message ?? ''}`,
+      );
+    }
+    await (graphSaveQueues.get(draft.id) ?? Promise.resolve());
+    const latest = await getWorkflowTemplateVersion(draft.id);
+    const published = await publishWorkflowTemplateVersion(
+      draft.id,
+      Math.max(1, latest.rowVersion ?? 1),
+    );
+    workflowRepository.versions().upsert(published);
+    const templateRows = await listWorkflowTemplates();
+    templateRows.forEach((row) => workflowRepository.templates().upsert(row));
     setDeploymentEncounterId(eligibleEncounters[0]?.id);
     setDeploymentOpen(true);
     message.success('Quy trình đã sẵn sàng để sử dụng.');
@@ -639,9 +654,13 @@ export default function WorkflowTemplateEditor() {
     setDeploymentOpen(false);
     if (created) navigate(`/app/workflows/instances/${created.id}`);
   });
-  const archive = (versionId: string) => guarded(() => {
-    const archived = workflowService.archiveVersion(versionId, currentUser.id);
-    syncArchive(archived.id, archived.version, archived);
+  const archive = (versionId: string) => guardedAsync(async () => {
+    const latest = await getWorkflowTemplateVersion(versionId);
+    const archived = await archiveWorkflowTemplateVersion(
+      versionId,
+      Math.max(1, latest.rowVersion ?? 1),
+    );
+    workflowRepository.versions().upsert(archived);
   });
   const openDetails = () => {
     setEditedName(template.name);
@@ -691,7 +710,7 @@ export default function WorkflowTemplateEditor() {
     setSidePanel(null);
     message.success('Đã cập nhật bước trong quy trình.');
   });
-  const connect = (connection: Connection) => guarded(() => {
+  const connect = (connection: Connection) => guardedAsync(async () => {
     if (!connection.source || !connection.target) throw new Error('Cần chọn đủ bước nguồn và bước đích.');
     if (connection.source === '__END__' || connection.target === '__START__') {
       throw new Error('Kết thúc không thể phát luồng và Bắt đầu không thể nhận luồng.');
@@ -703,8 +722,12 @@ export default function WorkflowTemplateEditor() {
         return;
       }
       const next = [...terminalEdges, { source: connection.source, target: connection.target }];
-      setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
-      localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(next));
+      await persistGraphLayout(
+        draft.id,
+        { ...stepPositions, ...systemNodePositions },
+        next,
+        draft,
+      );
       message.success('Đã nối hai node theo lựa chọn của bạn.');
       return;
     }
@@ -724,13 +747,17 @@ export default function WorkflowTemplateEditor() {
       message.success('Đã nối hai bước và lưu quan hệ phụ thuộc.');
     }
   });
-  const deleteEdges = (deleted: Edge[]) => guarded(() => {
+  const deleteEdges = (deleted: Edge[]) => guardedAsync(async () => {
     if (!draft) throw new Error('Không có phiên bản nháp để chỉnh sửa.');
     const deletedIds = new Set(deleted.map((edge) => `${edge.source}-${edge.target}`));
     const nextTerminalEdges = terminalEdges.filter((edge) => !deletedIds.has(`${edge.source}-${edge.target}`));
     if (nextTerminalEdges.length !== terminalEdges.length) {
-      setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: nextTerminalEdges }));
-      localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(nextTerminalEdges));
+      await persistGraphLayout(
+        draft.id,
+        { ...stepPositions, ...systemNodePositions },
+        nextTerminalEdges,
+        draft,
+      );
     }
     let updated: WorkflowTemplateVersion | undefined;
     const businessEdges = deleted.filter((edge) => edge.source !== '__START__' && edge.target !== '__END__');
@@ -773,13 +800,17 @@ export default function WorkflowTemplateEditor() {
     const nextTerminalEdges = newIsTerminal
       ? [...withoutOld, { source: connection.source, target: connection.target }]
       : withoutOld;
-    setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: nextTerminalEdges }));
-    localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(nextTerminalEdges));
+    await persistGraphLayout(
+      draft.id,
+      { ...stepPositions, ...systemNodePositions },
+      nextTerminalEdges,
+      { ...draft, ...latest },
+    );
     if (oldIsTerminal && !newIsTerminal) workflowRepository.versions().upsert({ ...draft, ...latest });
     setSelectedEdge(null);
     message.success('Đã chuyển dây nối sang node mới.');
   });
-  const addTerminalNode = (nodeId: '__START__' | '__END__') => guarded(() => {
+  const addTerminalNode = (nodeId: '__START__' | '__END__') => guardedAsync(async () => {
     if (!draft) throw new Error('Không có phiên bản nháp để chỉnh sửa.');
     if (systemNodePositions[nodeId]) {
       message.info(nodeId === '__START__' ? 'Sơ đồ đã có điểm Bắt đầu.' : 'Sơ đồ đã có điểm Kết thúc.');
@@ -789,19 +820,15 @@ export default function WorkflowTemplateEditor() {
       ? { x: minX - 230, y: averageY(rootSteps) + 4 }
       : { x: maxX + 280, y: averageY(leafSteps) + 4 };
     const next = { ...systemNodePositions, [nodeId]: position };
-    setSystemNodeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
-    localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:system-nodes`, JSON.stringify(next));
+    await persistGraphLayout(draft.id, { ...stepPositions, ...next }, terminalEdges, draft);
     message.success(nodeId === '__START__' ? 'Đã đặt điểm Bắt đầu lên canvas.' : 'Đã đặt điểm Kết thúc lên canvas.');
   });
-  const removeTerminalNode = (nodeId: '__START__' | '__END__') => guarded(() => {
+  const removeTerminalNode = (nodeId: '__START__' | '__END__') => guardedAsync(async () => {
     if (!draft) throw new Error('Không có phiên bản nháp để chỉnh sửa.');
     const next = { ...systemNodePositions };
     delete next[nodeId];
-    setSystemNodeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
-    localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:system-nodes`, JSON.stringify(next));
     const nextEdges = terminalEdges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
-    setTerminalEdgeLayouts((layouts) => ({ ...layouts, [draft.id]: nextEdges }));
-    localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`, JSON.stringify(nextEdges));
+    await persistGraphLayout(draft.id, { ...stepPositions, ...next }, nextEdges, draft);
     message.success(nodeId === '__START__' ? 'Đã xóa điểm Bắt đầu khỏi sơ đồ.' : 'Đã xóa điểm Kết thúc khỏi sơ đồ.');
   });
 
@@ -846,12 +873,22 @@ export default function WorkflowTemplateEditor() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {draft && <Button size="small" icon={<ListChecks size={14} />} onClick={() => setSidePanel('steps')}>Các bước ({draft.steps.length})</Button>}
             {draft && canDesign && <Button size="small" type="primary" icon={<Plus size={14} />} onClick={() => setSidePanel('add')}>Thêm bước</Button>}
+            {draft && (
+              <Button
+                size="small"
+                danger={validationReport.errors.length > 0}
+                icon={<ShieldCheck size={14} />}
+                onClick={() => setValidationOpen(true)}
+              >
+                Kiểm tra ({validationReport.errors.length + validationReport.warnings.length})
+              </Button>
+            )}
             {draft && draft.steps.length > 0 && (
               <Button
                 size="small"
                 icon={<Activity size={14} />}
-                disabled={!hasStartNode || !hasEndNode}
-                title={!hasStartNode || !hasEndNode ? 'Cần đặt điểm Bắt đầu và Kết thúc trước khi mô phỏng' : undefined}
+                disabled={!validationReport.valid}
+                title={!validationReport.valid ? 'Cần sửa lỗi cấu trúc trước khi mô phỏng' : 'Mô phỏng thứ tự cấu trúc; điều kiện lâm sàng không được tự suy đoán'}
                 onClick={() => {
                   setSimulationIndex(0);
                   setSimulationRunning((running) => !running);
@@ -877,6 +914,21 @@ export default function WorkflowTemplateEditor() {
         style={flowFullscreen ? { position: 'fixed', inset: 14, zIndex: 999, boxShadow: '0 18px 60px rgba(15,47,77,.24)' } : undefined}
         styles={{ body: { padding: 0 } }}
       >
+        {draft && (
+          <Alert
+            type={validationReport.errors.length > 0 ? 'error' : validationReport.warnings.length > 0 ? 'warning' : 'success'}
+            showIcon
+            message={
+              validationReport.errors.length > 0
+                ? `Chưa thể đưa vào sử dụng: còn ${validationReport.errors.length} lỗi luồng`
+                : validationReport.warnings.length > 0
+                  ? `Luồng hợp lệ, còn ${validationReport.warnings.length} cảnh báo vận hành`
+                  : 'Luồng đã vượt qua kiểm tra cấu trúc'
+            }
+            action={<Button size="small" onClick={() => setValidationOpen(true)}>Xem chi tiết</Button>}
+            style={{ borderRadius: 0, borderInline: 0 }}
+          />
+        )}
         {!draft && canDesign && (
           <div style={{ minHeight: flowFullscreen ? 'calc(100vh - 88px)' : 520, padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ maxWidth: 620, textAlign: 'center' }}>
@@ -897,15 +949,13 @@ export default function WorkflowTemplateEditor() {
               key={`${draft.id}:${JSON.stringify(flowSteps)}:${JSON.stringify(systemNodePositions)}:${JSON.stringify(terminalEdges)}`}
               defaultNodes={nodes}
               defaultEdges={edges}
-              onNodeDragStop={(_, node) => guarded(() => {
-                if (node.type === 'terminalNode') {
-                  const next = { ...systemNodePositions, [node.id]: { x: node.position.x, y: node.position.y } };
-                  setSystemNodeLayouts((layouts) => ({ ...layouts, [draft.id]: next }));
-                  localStorage.setItem(`dermahealth:workflow-layout:${draft.id}:system-nodes`, JSON.stringify(next));
-                  return;
-                }
-                const updated = workflowService.saveNodePositions(canonicalTemplateId, { [node.id]: { x: node.position.x, y: node.position.y } }, currentUser.id);
-                syncNodePositions(updated.id, updated.nodePositions ?? {}, updated);
+              onNodeDragStop={(_, node) => guardedAsync(async () => {
+                const nextPositions = {
+                  ...stepPositions,
+                  ...systemNodePositions,
+                  [node.id]: { x: node.position.x, y: node.position.y },
+                };
+                await persistGraphLayout(draft.id, nextPositions, terminalEdges, draft);
               })}
               onNodeDoubleClick={(_, node) => node.type === 'stepNode' && openStepEditor(node.id)}
               onPaneClick={() => setSelectedEdge(null)}
@@ -1261,6 +1311,76 @@ export default function WorkflowTemplateEditor() {
           </div>
         )}
       </Drawer>
+
+      <Modal
+        title="Kiểm tra an toàn quy trình"
+        open={validationOpen}
+        onCancel={() => setValidationOpen(false)}
+        footer={<Button type="primary" onClick={() => setValidationOpen(false)}>Đóng</Button>}
+        width={720}
+      >
+        <Alert
+          type={validationReport.valid ? (validationReport.warnings.length > 0 ? 'warning' : 'success') : 'error'}
+          showIcon
+          message={
+            validationReport.valid
+              ? 'Không phát hiện lỗi cấu trúc chặn phát hành'
+              : `${validationReport.errors.length} lỗi phải sửa trước khi đưa quy trình vào sử dụng`
+          }
+          description={
+            validationReport.valid
+              ? 'Cảnh báo không chặn phát hành nhưng nên xử lý để nhân viên và bệnh nhân nhận đủ thông tin.'
+              : 'Bộ kiểm tra đã dò đường đi từ Bắt đầu, đường tới Kết thúc, vòng lặp, node mồ côi và cấu hình điểm quyết định.'
+          }
+          style={{ marginBottom: 16 }}
+        />
+
+        {validationReport.errors.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8, color: '#b42318' }}>
+              Lỗi chặn phát hành
+            </Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {validationReport.errors.map((issue, index) => (
+                <div key={`${issue.code}-${index}`} style={{ padding: '10px 12px', border: '1px solid #f3c4c1', borderRadius: 8, background: '#fff7f6' }}>
+                  <Text strong style={{ display: 'block', fontSize: 13 }}>{issue.message}</Text>
+                  {issue.nodeCodes?.length ? (
+                    <Text type="secondary" style={{ display: 'block', marginTop: 3, fontSize: 11.5 }}>
+                      Node liên quan: {issue.nodeCodes.join(', ')}
+                    </Text>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {validationReport.warnings.length > 0 && (
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: 8, color: '#9a6700' }}>Cảnh báo vận hành</Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {validationReport.warnings.map((issue, index) => (
+                <div key={`${issue.code}-${index}`} style={{ padding: '10px 12px', border: '1px solid #f1d59c', borderRadius: 8, background: '#fffaf0' }}>
+                  <Text strong style={{ display: 'block', fontSize: 13 }}>{issue.message}</Text>
+                  {issue.nodeCodes?.length ? (
+                    <Text type="secondary" style={{ display: 'block', marginTop: 3, fontSize: 11.5 }}>
+                      Node liên quan: {issue.nodeCodes.join(', ')}
+                    </Text>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Alert
+          type="info"
+          showIcon
+          message="Giới hạn hiện tại cần xử lý ở backend"
+          description="Vị trí Bắt đầu/Kết thúc và các dây nối terminal vẫn đang lưu cục bộ trên trình duyệt. Không được coi đây là nguồn dữ liệu vận hành chính thức cho đến khi API lưu toàn bộ graph."
+          style={{ marginTop: 18 }}
+        />
+      </Modal>
 
       <Modal
         title="Quy trình đã sẵn sàng"
