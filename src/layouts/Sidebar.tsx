@@ -4,7 +4,7 @@ import {
   Home, User, Cpu, Activity, TrendingUp, Heart, Calendar,
   BarChart2, Settings, MessageCircle, TriangleAlert, MapPinned,
   Stethoscope, ListChecks, Workflow, ShieldCheck, Plug,
-  QrCode, MonitorPlay, KeyRound, UserPlus, Clock,
+  MonitorPlay, KeyRound, UserPlus, Clock,
 } from 'lucide-react';
 import { AppLogo } from '../components/brand';
 import { useAppState } from '../state/useAppState';
@@ -54,9 +54,8 @@ const NAV_MAIN: NavItem[] = [
   {
     key: 'group:operations', label: 'Vận hành phòng khám', icon: MonitorPlay, roles: 'all',
     children: [
-      { key: '/app/reception/qr-check-in', label: 'Check-in QR', icon: QrCode, roles: ['receptionist', 'medical_administrator', 'super_administrator'], permissions: ['module.checkin.access'] },
-      { key: '/app/reception', label: 'Trung tâm lễ tân', icon: User, roles: ['receptionist', 'medical_administrator', 'super_administrator'], permissions: ['module.reception.access'] },
-      { key: '/app/clinic-queue', label: 'Điều phối hàng đợi', icon: MonitorPlay, roles: ['receptionist', 'nurse', 'doctor', 'medical_administrator', 'super_administrator'], permissions: ['module.queue.access'] },
+      { key: '/app/reception', label: 'Tiếp đón & cấp số', icon: User, roles: ['receptionist', 'medical_administrator', 'super_administrator'], permissions: ['module.reception.access'] },
+      { key: '/app/clinic-queue', label: 'Gọi số & điều phối', icon: MonitorPlay, roles: ['receptionist', 'nurse', 'doctor', 'medical_administrator', 'super_administrator'], permissions: ['module.queue.access'] },
       { key: '/app/practitioner-schedule', label: 'Lịch làm việc bác sĩ', icon: Clock, roles: ['doctor', 'medical_administrator', 'super_administrator'], permissions: ['module.practitioner_schedule.access'] },
     ],
   },

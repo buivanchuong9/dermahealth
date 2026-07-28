@@ -43,6 +43,7 @@ const AuditViewer = lazy(() => import('./pages/AuditViewer'));
 const Integrations = lazy(() => import('./pages/Integrations'));
 const KioskCheckIn = lazy(() => import('./pages/KioskCheckIn'));
 const KioskResult = lazy(() => import('./pages/KioskResult'));
+const WalkInQueue = lazy(() => import('./pages/WalkInQueue'));
 const ClinicQueue = lazy(() => import('./pages/ClinicQueue'));
 const AppointmentDetail = lazy(() => import('./pages/AppointmentDetail'));
 const Reception = lazy(() => import('./pages/Reception'));
@@ -68,6 +69,7 @@ export default function App() {
                 <Route path="/register" element={<Register />} />
                 <Route path="/kiosk/check-in" element={<KioskCheckIn />} />
                 <Route path="/kiosk/check-in/result" element={<KioskResult />} />
+                <Route path="/queue/join" element={<WalkInQueue />} />
                 <Route path="/display/queue" element={<ClinicQueue board />} />
                 <Route path="/queue-display/:locationId" element={<ClinicQueue board />} />
                 <Route path="/queue-display/station/:stationId" element={<ClinicQueue board />} />

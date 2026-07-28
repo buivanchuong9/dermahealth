@@ -273,7 +273,8 @@ function activateWorkflow(encounterId: EncounterId, templateId: WorkflowTemplate
   const identity = createWorkflowIdentity({ instanceId, patientId: encounter.patientId, encounterId, templateVersionId: version.id, activatedAt });
   const instance: WorkflowInstance = {
     id: instanceId, encounterId, templateId, templateVersionId: version.id, status: 'active',
-    activatedBy: actorId, activatedAt, taskIds: [], ...identity,
+    protocolRef: { templateId, templateVersionId: version.id },
+    activatedBy: actorId, activatedAt, startedAt: activatedAt, taskIds: [], tasks: [], ...identity,
   };
 
   // copy-on-instantiate: tasks are generated from the pinned version's steps now;
@@ -287,6 +288,7 @@ function activateWorkflow(encounterId: EncounterId, templateId: WorkflowTemplate
   }));
   tasks.forEach((t) => workflowRepository.tasks().upsert(t));
   instance.taskIds = tasks.map((t) => t.id);
+  instance.tasks = instance.taskIds;
   workflowRepository.instances().upsert(instance);
 
   encounterRepository.upsert({ ...encounter, workflowInstanceId: instance.id });

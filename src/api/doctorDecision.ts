@@ -2,13 +2,17 @@ import { http } from './http';
 import type {
   AIAssessmentId,
   ClinicalPlanId,
+  ClinicalPlanRevisionId,
   DoctorDiagnosisId,
   DoctorReviewId,
   EncounterId,
   UserId,
+  WorkflowTemplateId,
+  WorkflowTemplateVersionId,
 } from '../domain/core/ids';
 import type {
   ClinicalPlan,
+  ClinicalPlanRevision,
   DoctorDiagnosis,
   DoctorReview,
 } from '../domain/core/entities';
@@ -49,9 +53,42 @@ interface ClinicalPlanDto {
   encounterId: string;
   doctorId: string;
   diagnosisId: string;
+  problemOrDiagnosisId?: string;
   summary: string;
+  measurableGoals?: string[];
+  protocolRef?: {
+    templateId: string;
+    templateVersionId: string;
+  } | null;
+  milestones?: ClinicalPlan['milestones'];
+  monitoringMetrics?: string[];
+  stopOrChangeCriteria?: string;
+  contraindications?: string[];
+  prerequisites?: string[];
+  responsibleProviderId?: string;
+  orderRefs?: ClinicalPlan['orderRefs'];
+  orders?: ClinicalPlan['orders'];
+  deviationFromProtocol?: ClinicalPlan['deviationFromProtocol'] | null;
+  outcome?: unknown;
+  currentStage?: ClinicalPlan['currentStage'];
+  signedBy?: unknown;
+  signedAt?: unknown;
+  signature?: { providerId: string; signedAt: string } | null;
+  version?: number;
   approvedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
   autoActivatedWorkflowInstanceId?: unknown;
+}
+
+interface ClinicalPlanRevisionDto {
+  id: string;
+  planId: string;
+  version: number;
+  action: string;
+  snapshot: Record<string, unknown>;
+  actorId: string;
+  occurredAt: string;
 }
 
 export interface SubmitAssessmentReviewRequest {
@@ -77,7 +114,27 @@ export interface ReviseDiagnosisRequest {
 export interface CreateClinicalPlanRequest {
   diagnosisId: string;
   summary: string;
+  measurableGoals?: string[];
+  protocolRef?: {
+    templateId: string;
+    templateVersionId: string;
+  };
+  milestones?: ClinicalPlan['milestones'];
+  monitoringMetrics?: string[];
+  stopOrChangeCriteria?: string;
+  contraindications?: string[];
+  prerequisites?: string[];
+  deviationFromProtocol?: { reason: string };
+  outcome?: string;
+  currentStage?: ClinicalPlan['currentStage'];
 }
+
+export type ReviseClinicalPlanRequest = Partial<
+  Omit<CreateClinicalPlanRequest, 'diagnosisId'>
+> & {
+  version: number;
+  reason: string;
+};
 
 const mapReview = (dto: DoctorReviewDto): DoctorReview => ({
   id: dto.id as DoctorReviewId,
@@ -109,8 +166,55 @@ const mapClinicalPlan = (dto: ClinicalPlanDto): ClinicalPlan => ({
   encounterId: dto.encounterId as EncounterId,
   doctorId: dto.doctorId as UserId,
   diagnosisId: dto.diagnosisId as DoctorDiagnosisId,
+  problemOrDiagnosisId: (dto.problemOrDiagnosisId ?? dto.diagnosisId) as DoctorDiagnosisId,
   summary: dto.summary,
+  measurableGoals: dto.measurableGoals ?? [dto.summary],
+  protocolRef: dto.protocolRef
+    ? {
+        templateId: dto.protocolRef.templateId as WorkflowTemplateId,
+        templateVersionId: dto.protocolRef.templateVersionId as WorkflowTemplateVersionId,
+      }
+    : undefined,
+  milestones: dto.milestones ?? [],
+  monitoringMetrics: dto.monitoringMetrics ?? [],
+  stopOrChangeCriteria: dto.stopOrChangeCriteria ?? '',
+  contraindications: dto.contraindications ?? [],
+  prerequisites: dto.prerequisites ?? [],
+  responsibleProviderId: (dto.responsibleProviderId ?? dto.doctorId) as UserId,
+  orders: dto.orders ?? dto.orderRefs ?? [],
+  orderRefs: dto.orderRefs ?? dto.orders ?? [],
+  deviationFromProtocol: dto.deviationFromProtocol ?? undefined,
+  outcome: optionalString(dto.outcome),
+  currentStage: dto.currentStage ?? 'induction',
+  signedBy: optionalString(dto.signedBy) as UserId | undefined,
+  signedAt: optionalString(dto.signedAt),
+  signature: dto.signature
+    ? {
+        providerId: dto.signature.providerId as UserId,
+        signedAt: dto.signature.signedAt,
+      }
+    : optionalString(dto.signedBy) && optionalString(dto.signedAt)
+      ? {
+          providerId: optionalString(dto.signedBy) as UserId,
+          signedAt: optionalString(dto.signedAt)!,
+        }
+      : undefined,
+  version: dto.version ?? 1,
   approvedAt: dto.approvedAt,
+  createdAt: dto.createdAt ?? dto.approvedAt,
+  updatedAt: dto.updatedAt ?? dto.approvedAt,
+});
+
+const mapClinicalPlanRevision = (
+  dto: ClinicalPlanRevisionDto,
+): ClinicalPlanRevision => ({
+  id: dto.id as ClinicalPlanRevisionId,
+  planId: dto.planId as ClinicalPlanId,
+  version: dto.version,
+  action: dto.action,
+  snapshot: dto.snapshot,
+  actorId: dto.actorId as UserId,
+  occurredAt: dto.occurredAt,
 });
 
 const assessmentPath = (encounterId: string, assessmentId: string) =>
@@ -148,3 +252,21 @@ export const createEncounterClinicalPlan = async (encounterId: string, body: Cre
 
 export const getEncounterClinicalPlan = async (encounterId: string) =>
   mapClinicalPlan(await http.get<ClinicalPlanDto>(`/api/v1/encounters/${encodeURIComponent(encounterId)}/clinical-plan`));
+
+export const reviseEncounterClinicalPlan = async (
+  encounterId: string,
+  body: ReviseClinicalPlanRequest,
+) =>
+  mapClinicalPlan(
+    await http.patch<ClinicalPlanDto>(
+      `/api/v1/encounters/${encodeURIComponent(encounterId)}/clinical-plan`,
+      body,
+    ),
+  );
+
+export const getEncounterClinicalPlanRevisions = async (encounterId: string) =>
+  (
+    await http.get<ClinicalPlanRevisionDto[]>(
+      `/api/v1/encounters/${encodeURIComponent(encounterId)}/clinical-plan/revisions`,
+    )
+  ).map(mapClinicalPlanRevision);

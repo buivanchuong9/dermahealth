@@ -17,15 +17,21 @@ interface WorkflowInstanceDto {
   encounterId: string;
   templateId: string;
   templateVersionId: string;
+  protocolRef?: {
+    templateId: string;
+    templateVersionId: string;
+  };
   instanceCode: string;
   integrityHash: string;
   identityVersion: number;
   status: WorkflowInstanceStatus;
   activatedBy: string;
   activatedAt: string;
+  startedAt?: string;
   completedAt?: unknown;
   suspendedReason?: unknown;
   taskIds?: string[];
+  tasks?: string[];
   version?: number;
 }
 
@@ -48,15 +54,23 @@ const mapInstance = (dto: WorkflowInstanceDto): WorkflowInstance => ({
   encounterId: dto.encounterId as EncounterId,
   templateId: dto.templateId as WorkflowTemplateId,
   templateVersionId: dto.templateVersionId as WorkflowTemplateVersionId,
+  protocolRef: {
+    templateId: (dto.protocolRef?.templateId ?? dto.templateId) as WorkflowTemplateId,
+    templateVersionId: (
+      dto.protocolRef?.templateVersionId ?? dto.templateVersionId
+    ) as WorkflowTemplateVersionId,
+  },
   instanceCode: dto.instanceCode,
   integrityHash: dto.integrityHash,
   identityVersion: dto.identityVersion,
   status: dto.status,
   activatedBy: dto.activatedBy as UserId,
   activatedAt: dto.activatedAt,
+  startedAt: dto.startedAt ?? dto.activatedAt,
   completedAt: optionalString(dto.completedAt),
   suspendedReason: optionalString(dto.suspendedReason),
   taskIds: (dto.taskIds ?? []) as WorkflowTaskId[],
+  tasks: (dto.tasks ?? dto.taskIds ?? []) as WorkflowTaskId[],
   version: dto.version,
 });
 
@@ -72,6 +86,13 @@ export const listWorkflowInstances = async (patientId: string) =>
 
 export const getWorkflowInstance = async (instanceId: string) =>
   mapInstance(await http.get<WorkflowInstanceDto>(instancePath(instanceId)));
+
+export const getWorkflowInstanceForEncounter = async (encounterId: string) =>
+  mapInstance(
+    await http.get<WorkflowInstanceDto>(
+      `/api/v1/encounters/${encodeURIComponent(encounterId)}/workflow`,
+    ),
+  );
 
 export const verifyWorkflowInstanceIdentity = (instanceId: string) =>
   http.get<unknown>(`${instancePath(instanceId)}/identity-verify`);

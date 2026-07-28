@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ReactFlow, Background, Controls, Handle, Position, MiniMap, Panel, type Node, type Edge, type NodeProps, type Connection } from '@xyflow/react';
+import { ReactFlow, Background, Controls, Handle, Position, MiniMap, Panel, BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type Node, type Edge, type NodeProps, type EdgeProps, type Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { App as AntApp, Card, Input, Select, InputNumber, Checkbox, Button, Tag, Alert, Typography, Result, Grid, Modal, Popconfirm, Drawer, Collapse, Spin, Tooltip } from 'antd';
-import { Plus, Trash2, Archive, ArrowLeft, Lock, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck, Play, Check, X } from 'lucide-react';
+import { Plus, Trash2, Archive, ArrowLeft, Lock, SearchX, Bot, Stethoscope, HeartPulse, UserRoundCheck, FlaskConical, ScanLine, Pill, CreditCard, LogOut, ClipboardCheck, Activity, Pencil, Rocket, ListChecks, Maximize2, Minimize2, UserRound, GitBranch, Timer, ServerCog, Headphones, ShieldCheck, Play, Check, X, CheckCircle2 } from 'lucide-react';
 import { DragHandle } from '../../components/common/DragHandle';
 import { IconActionButton } from '../../components/common/IconActionButton';
 import { useAppState } from '../../state/useAppState';
@@ -87,6 +87,12 @@ const EXECUTOR_GROUPS: Array<{ label: string; values: WorkflowExecutorType[] }> 
   { label: 'Điều khiển luồng', values: ['decision', 'waiting'] },
 ];
 const executorForRole = (role: UserRole): WorkflowExecutorType => ({ patient: 'patient', receptionist: 'receptionist', nurse: 'nurse', doctor: 'doctor', lab_technician: 'lab_technician', imaging_technician: 'imaging_technician', pharmacist: 'pharmacist', care_coordinator: 'care_coordinator', customer_care_employee: 'customer_care', medical_administrator: 'clinic_manager', system_administrator: 'system_automation' } as Partial<Record<UserRole, WorkflowExecutorType>>)[role] ?? 'care_coordinator';
+const executorMetaForStep = (step: WorkflowStepDefinition) => {
+  const storedType = step.executorType as string | undefined;
+  return (storedType ? EXECUTOR_META[storedType as WorkflowExecutorType] : undefined)
+    ?? EXECUTOR_META[executorForRole(step.responsibleRole)]
+    ?? EXECUTOR_META.care_coordinator;
+};
 const executorOptions = EXECUTOR_GROUPS.map((group) => ({
   label: group.label,
   options: group.values.map((value) => {
@@ -137,7 +143,10 @@ const makeStepCode = (name: string, existingCodes: string[]): string => {
   return code;
 };
 function StepIconView({ step, size = 22 }: { step: WorkflowStepDefinition; size?: number }) {
-  const meta = ICON_META[step.icon ?? defaultIconForRole(step.responsibleRole)];
+  const storedIcon = step.icon as string | undefined;
+  const meta = (storedIcon ? ICON_META[storedIcon as StepIcon] : undefined)
+    ?? ICON_META[defaultIconForRole(step.responsibleRole)]
+    ?? ICON_META.task;
   const Icon = meta.icon;
   return <span title={meta.label} style={{ width: size + 14, height: size + 14, borderRadius: 10, background: `${meta.color}16`, color: meta.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon size={size} strokeWidth={2.1}/></span>;
 }
@@ -146,6 +155,11 @@ const EMPTY_STEP: WorkflowStepDefinition = {
   code: '', icon: 'nurse', executorType: 'nurse', name: '', description: '', taskType: 'clinical', responsibleRole: 'nurse', department: '',
   mandatory: true, estimatedDurationMinutes: 10, maxWaitingMinutes: 20, skipPermission: [], prerequisiteStepCodes: [],
 };
+
+const SimulationContext = createContext<{
+  activeNode?: string;
+  completedNodes: Set<string>;
+}>({ completedNodes: new Set() });
 
 function NodeDeleteButton({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
@@ -165,14 +179,16 @@ function NodeDeleteButton({ label, onRemove }: { label: string; onRemove: () => 
   );
 }
 
-function StepFlowNode({ data }: NodeProps) {
+function StepFlowNode({ id, data }: NodeProps) {
   const [hovered, setHovered] = useState(false);
   const step = data.step as WorkflowStepDefinition;
   const onEdit = data.onEdit as (() => void) | undefined;
   const onRemove = data.onRemove as (() => void) | undefined;
-  const executorLabel = EXECUTOR_META[step.executorType ?? executorForRole(step.responsibleRole)].label;
+  const executorLabel = executorMetaForStep(step).label;
   const color = step.mandatory ? '#1e5e9e' : '#8792a2';
-  const active = Boolean(data.active);
+  const simulation = useContext(SimulationContext);
+  const active = simulation.activeNode === id;
+  const completed = simulation.completedNodes.has(id);
   const isGateway = step.executorType === 'decision';
   if (isGateway) {
     return (
@@ -184,7 +200,7 @@ function StepFlowNode({ data }: NodeProps) {
       >
         <Handle id="target-left" type="target" position={Position.Left} style={{ background: '#fff', border: '2px solid #7b1fa2', width: 10, height: 10 }} />
         <Handle id="target-top" type="target" position={Position.Top} style={{ background: '#fff', border: '2px solid #7b1fa2', width: 10, height: 10 }} />
-        <div style={{ position: 'absolute', inset: 13, transform: 'rotate(45deg)', borderRadius: 8, background: active ? '#f5eafa' : '#fff', border: '2px solid #7b1fa2', boxShadow: active ? '0 0 0 4px rgba(123,31,162,.13)' : '0 2px 7px rgba(74,20,91,.16)' }} />
+        <div style={{ position: 'absolute', inset: 13, transform: 'rotate(45deg)', borderRadius: 8, background: active ? '#f5eafa' : completed ? '#ecfdf5' : '#fff', border: `2px solid ${completed ? '#16856b' : '#7b1fa2'}`, boxShadow: active ? '0 0 0 5px rgba(123,31,162,.18)' : '0 2px 7px rgba(74,20,91,.16)' }} />
         <div style={{ position: 'relative', zIndex: 1, width: 74, textAlign: 'center', pointerEvents: 'none' }}>
           <GitBranch size={18} color="#7b1fa2" />
           <Text strong style={{ display: 'block', fontSize: 10.5, lineHeight: 1.15 }}>{step.name || 'Điều kiện'}</Text>
@@ -201,12 +217,16 @@ function StepFlowNode({ data }: NodeProps) {
       title="Kéo để di chuyển bước"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ position: 'relative', background: active ? '#edf7ff' : '#fff', border: `1.5px solid ${active ? '#13a8a8' : color}`, borderRadius: 8, padding: '8px 12px', minWidth: 170, boxShadow: active ? '0 0 0 4px rgba(19,168,168,.12)' : '0 1px 3px rgba(15,47,77,.1)', cursor: 'grab', transition: 'box-shadow .15s ease' }}
+      style={{ position: 'relative', background: active ? '#e8fbfb' : completed ? '#f0faf6' : '#fff', border: `2px solid ${active ? '#0f9f9f' : completed ? '#2f9b72' : color}`, borderRadius: 8, padding: '8px 12px', minWidth: 170, boxShadow: active ? '0 0 0 5px rgba(19,168,168,.18), 0 8px 20px rgba(19,168,168,.18)' : '0 1px 3px rgba(15,47,77,.1)', cursor: 'grab', transition: 'all .2s ease' }}
     >
       <Handle id="target-left" type="target" position={Position.Left} style={{ background: '#fff', border: `2px solid ${color}`, width: 10, height: 10 }} />
       <Handle id="target-top" type="target" position={Position.Top} style={{ background: '#fff', border: `2px solid ${color}`, width: 9, height: 9 }} />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><StepIconView step={step} size={26}/><div style={{ minWidth: 0, flex: 1 }}><Text strong style={{ fontSize: 12.5, display: 'block' }}>{step.name || 'Bước chưa đặt tên'}</Text><Text type="secondary" style={{ fontSize: 10.5 }}>{executorLabel}{step.location ? ` · ${step.location}` : ''}</Text></div>{onEdit && <button type="button" className="nodrag" aria-label={`Sửa bước ${step.name}`} onClick={(event) => { event.stopPropagation(); onEdit(); }} style={{ border: 0, background: 'transparent', color: '#607d8b', padding: 3, cursor: 'pointer', display: 'inline-flex' }}><Pencil size={13}/></button>}</div>
-      <div style={{ marginTop: 4 }}><Tag color={step.mandatory ? 'blue' : 'default'} style={{ fontSize: 10, margin: 0 }}>{step.mandatory ? 'Bắt buộc' : 'Tuỳ chọn'}</Tag></div>
+      <div style={{ marginTop: 4, display: 'flex', gap: 5 }}>
+        <Tag color={step.mandatory ? 'blue' : 'default'} style={{ fontSize: 10, margin: 0 }}>{step.mandatory ? 'Bắt buộc' : 'Tuỳ chọn'}</Tag>
+        {active && <Tag color="cyan" style={{ fontSize: 10, margin: 0 }}>Đang xử lý</Tag>}
+        {completed && <Tag color="success" style={{ fontSize: 10, margin: 0 }}>Đã qua</Tag>}
+      </div>
       <Handle id="source-right" type="source" position={Position.Right} style={{ background: color, border: '2px solid #fff', width: 10, height: 10 }} />
       <Handle id="source-bottom" type="source" position={Position.Bottom} style={{ background: color, border: '2px solid #fff', width: 9, height: 9 }} />
       {onRemove && hovered && <NodeDeleteButton label={`Xóa bước ${step.name}`} onRemove={onRemove} />}
@@ -214,12 +234,14 @@ function StepFlowNode({ data }: NodeProps) {
   );
 }
 
-function TerminalFlowNode({ data }: NodeProps) {
+function TerminalFlowNode({ id, data }: NodeProps) {
   const [hovered, setHovered] = useState(false);
   const isStart = data.kind === 'start';
   const color = isStart ? '#16856b' : '#b44552';
   const Icon = isStart ? Play : Check;
-  const active = Boolean(data.active);
+  const simulation = useContext(SimulationContext);
+  const active = simulation.activeNode === id;
+  const completed = simulation.completedNodes.has(id);
   const onRemove = data.onRemove as (() => void) | undefined;
   return (
     <div
@@ -227,7 +249,7 @@ function TerminalFlowNode({ data }: NodeProps) {
       aria-label={`${String(data.label)}. ${String(data.subtitle)}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ position: 'relative', width: 50, height: 50, borderRadius: '50%', background: color, color: '#fff', boxShadow: active ? `0 0 0 4px ${color}24` : '0 1px 4px rgba(15,47,77,.22)', display: 'grid', placeItems: 'center', cursor: 'grab', transition: 'box-shadow .15s ease' }}
+      style={{ position: 'relative', width: 50, height: 50, borderRadius: '50%', background: completed ? '#2f9b72' : color, color: '#fff', boxShadow: active ? `0 0 0 6px ${color}35, 0 8px 20px ${color}30` : '0 1px 4px rgba(15,47,77,.22)', display: 'grid', placeItems: 'center', cursor: 'grab', transition: 'all .2s ease' }}
     >
       {isStart ? (
         <>
@@ -246,6 +268,71 @@ function TerminalFlowNode({ data }: NodeProps) {
   );
 }
 const nodeTypes = { stepNode: StepFlowNode, terminalNode: TerminalFlowNode };
+
+function SimulationFlowEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  markerEnd,
+  style,
+  data,
+  label,
+}: EdgeProps) {
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    borderRadius: 10,
+  });
+  const active = Boolean(data?.simulationActive);
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan"
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              padding: '2px 5px',
+              borderRadius: 4,
+              background: 'rgba(255,255,255,.94)',
+              color: '#46586a',
+              fontSize: 11,
+              pointerEvents: 'all',
+            }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+      {active && (
+        <g style={{ pointerEvents: 'none' }}>
+          <circle r="10" fill="#20d5d2" opacity=".18">
+            <animateMotion dur="1.15s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+          <circle r="5" fill="#f5ffff" stroke="#0f9f9f" strokeWidth="2">
+            <animateMotion dur="1.15s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+          <circle r="2" fill="#0f9f9f">
+            <animateMotion dur="1.15s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+        </g>
+      )}
+    </>
+  );
+}
+
+const edgeTypes = { simulationFlow: SimulationFlowEdge };
 
 function SortableStepRow({ step, canDesign, onToggleMandatory, onIconChange, onRemove }: { step: WorkflowStepDefinition; canDesign: boolean; onToggleMandatory: (v: boolean) => void; onIconChange: (v: StepIcon) => void; onRemove: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.code });
@@ -266,7 +353,7 @@ function SortableStepRow({ step, canDesign, onToggleMandatory, onIconChange, onR
       </div>
       <Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>{step.description}</Text>
       <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
-        {EXECUTOR_META[step.executorType ?? executorForRole(step.responsibleRole)].label} · {step.department} · SLA {step.maxWaitingMinutes}p
+        {executorMetaForStep(step).label} · {step.department || 'Chưa gán khoa/phòng'} · SLA {step.maxWaitingMinutes}p
         {step.prerequisiteStepCodes.length > 0 && ` · phụ thuộc: ${step.prerequisiteStepCodes.join(', ')}`}
       </Text>
     </div>
@@ -300,6 +387,7 @@ export default function WorkflowTemplateEditor() {
   const [editorLoading, setEditorLoading] = useState(true);
   const [simulationRunning, setSimulationRunning] = useState(false);
   const [simulationIndex, setSimulationIndex] = useState(0);
+  const [simulationCompleted, setSimulationCompleted] = useState(false);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [validationOpen, setValidationOpen] = useState(false);
 
@@ -398,6 +486,40 @@ export default function WorkflowTemplateEditor() {
     hasEndNode,
     terminalEdges,
   });
+  const nodeLabel = (code: string) => {
+    if (code === '__START__') return 'Bắt đầu';
+    if (code === '__END__') return 'Kết thúc';
+    return flowSteps.find((step) => step.code === code)?.name ?? code;
+  };
+  const validationGuidance = (issue: (typeof validationReport.errors)[number]) => {
+    const affectedSteps = (issue.nodeCodes ?? [])
+      .filter((code) => code !== '__START__' && code !== '__END__')
+      .map(nodeLabel);
+    switch (issue.code) {
+      case 'end_boundary_mismatch':
+      case 'cannot_reach_end':
+        return affectedSteps.length
+          ? `Nối ${affectedSteps.join(', ')} với điểm Kết thúc.`
+          : 'Nối bước cuối cùng với điểm Kết thúc.';
+      case 'start_boundary_mismatch':
+      case 'unreachable_from_start':
+        return affectedSteps.length
+          ? `Tạo đường đi từ điểm Bắt đầu tới ${affectedSteps.join(', ')}.`
+          : 'Nối điểm Bắt đầu với bước đầu tiên.';
+      case 'missing_start':
+        return 'Thêm điểm Bắt đầu vào sơ đồ.';
+      case 'missing_end':
+        return 'Thêm điểm Kết thúc vào sơ đồ.';
+      case 'start_without_outgoing':
+        return 'Kéo một đường nối từ Bắt đầu tới bước đầu tiên.';
+      case 'end_without_incoming':
+        return 'Kéo một đường nối từ bước cuối cùng tới Kết thúc.';
+      case 'cycle':
+        return 'Xóa đường nối khiến quy trình quay lại bước đã đi qua.';
+      default:
+        return issue.message;
+    }
+  };
   const simulationSequence = buildWorkflowSimulationSequence({
     steps: flowSteps,
     hasStartNode,
@@ -406,36 +528,67 @@ export default function WorkflowTemplateEditor() {
   });
   const activeSimulationNode = simulationRunning ? simulationSequence[simulationIndex] : undefined;
   const activeSimulationStep = flowSteps.find((step) => step.code === activeSimulationNode);
+  const completedSimulationNodes = new Set(
+    simulationCompleted
+      ? simulationSequence
+      : simulationRunning
+        ? simulationSequence.slice(0, simulationIndex)
+        : [],
+  );
+  const nextSimulationNode = simulationRunning ? simulationSequence[simulationIndex + 1] : undefined;
+  const nextSimulationStep = flowSteps.find((step) => step.code === nextSimulationNode);
   useEffect(() => {
     if (!simulationRunning) return;
     const timer = window.setInterval(() => {
       setSimulationIndex((current) => {
         if (current >= simulationSequence.length - 1) {
           setSimulationRunning(false);
-          return 0;
+          setSimulationCompleted(true);
+          message.success('Mô phỏng đã đi hết quy trình.');
+          return current;
         }
         return current + 1;
       });
-    }, 900);
+    }, 1400);
     return () => window.clearInterval(timer);
-  }, [simulationRunning, simulationSequence.length]);
+  }, [message, simulationRunning, simulationSequence.length]);
   const nodes: Node[] = [
-    ...(hasStartNode ? [{ id: '__START__', type: 'terminalNode', position: startPosition, data: { kind: 'start', label: 'Bắt đầu', subtitle: 'Điểm khởi tạo quy trình', active: activeSimulationNode === '__START__', onRemove: canDesign ? () => removeTerminalNode('__START__') : undefined }, draggable: canDesign, connectable: canDesign, deletable: false }] : []),
-    ...flowSteps.map((step) => ({ id: step.code, type: 'stepNode', position: stepPositions[step.code], data: { step, active: activeSimulationNode === step.code, onEdit: canDesign ? () => openStepEditor(step.code) : undefined, onRemove: canDesign ? () => removeStep(step.code) : undefined } })),
-    ...(hasEndNode ? [{ id: '__END__', type: 'terminalNode', position: endPosition, data: { kind: 'end', label: 'Kết thúc', subtitle: 'Điểm hoàn tất quy trình', active: activeSimulationNode === '__END__', onRemove: canDesign ? () => removeTerminalNode('__END__') : undefined }, draggable: canDesign, connectable: canDesign, deletable: false }] : []),
+    ...(hasStartNode ? [{ id: '__START__', type: 'terminalNode', position: startPosition, data: { kind: 'start', label: 'Bắt đầu', subtitle: 'Điểm khởi tạo quy trình', active: activeSimulationNode === '__START__', completed: completedSimulationNodes.has('__START__'), onRemove: canDesign ? () => removeTerminalNode('__START__') : undefined }, draggable: canDesign, connectable: canDesign, deletable: false }] : []),
+    ...flowSteps.map((step) => ({ id: step.code, type: 'stepNode', position: stepPositions[step.code], data: { step, active: activeSimulationNode === step.code, completed: completedSimulationNodes.has(step.code), onEdit: canDesign ? () => openStepEditor(step.code) : undefined, onRemove: canDesign ? () => removeStep(step.code) : undefined } })),
+    ...(hasEndNode ? [{ id: '__END__', type: 'terminalNode', position: endPosition, data: { kind: 'end', label: 'Kết thúc', subtitle: 'Điểm hoàn tất quy trình', active: activeSimulationNode === '__END__', completed: completedSimulationNodes.has('__END__'), onRemove: canDesign ? () => removeTerminalNode('__END__') : undefined }, draggable: canDesign, connectable: canDesign, deletable: false }] : []),
   ];
+  const edgeSimulationStyle = (source: string, target: string) => {
+    const edgeIndex = simulationSequence.findIndex(
+      (nodeId, index) => nodeId === source && simulationSequence[index + 1] === target,
+    );
+    const belongsToSimulationPath = edgeIndex >= 0;
+    const completed = belongsToSimulationPath
+      && (simulationCompleted || (simulationRunning && edgeIndex < simulationIndex));
+    const active = simulationRunning && belongsToSimulationPath && edgeIndex === simulationIndex - 1;
+    const pending = simulationRunning && !active && !completed;
+    return {
+      animated: false,
+      data: { simulationActive: active },
+      style: {
+        stroke: active ? '#0f9f9f' : completed ? '#2f9b72' : simulationRunning ? '#b7c3cf' : '#2878c8',
+        strokeWidth: active ? 4 : completed ? 3 : 2.2,
+        strokeDasharray: pending ? '7 7' : undefined,
+        opacity: pending ? 0.62 : 1,
+        transition: 'stroke .22s ease, stroke-width .22s ease, opacity .22s ease',
+      },
+    };
+  };
   const edges: Edge[] = [];
   flowSteps.forEach((s) => s.prerequisiteStepCodes.forEach((prereq) => {
-      if (flowSteps.some((x) => x.code === prereq)) edges.push({ id: `${prereq}-${s.code}`, source: prereq, target: s.code, type: 'smoothstep', animated: simulationRunning, deletable: canDesign, label: s.conditionalRule || undefined, labelStyle: { fontSize: 11, fill: '#46586a' }, labelBgStyle: { fill: '#fff', fillOpacity: 0.94 }, style: { stroke: activeSimulationNode === s.code ? '#13a8a8' : '#2878c8', strokeWidth: activeSimulationNode === s.code ? 4 : 2.5 } });
+      if (flowSteps.some((x) => x.code === prereq)) edges.push({ id: `${prereq}-${s.code}`, source: prereq, target: s.code, type: 'simulationFlow', ...edgeSimulationStyle(prereq, s.code), deletable: canDesign, label: s.conditionalRule || undefined, labelStyle: { fontSize: 11, fill: '#46586a' }, labelBgStyle: { fill: '#fff', fillOpacity: 0.94 } });
   }));
   terminalEdges.forEach((edge) => edges.push({
     id: `${edge.source}-${edge.target}`,
     source: edge.source,
     target: edge.target,
-    type: 'smoothstep',
-    animated: simulationRunning,
+    type: 'simulationFlow',
+    ...edgeSimulationStyle(edge.source, edge.target),
     deletable: canDesign,
-    style: { stroke: edge.source === '__START__' ? '#16856b' : '#b44552', strokeWidth: 2.2 },
   }));
 
   if (editorLoading) {
@@ -624,9 +777,7 @@ export default function WorkflowTemplateEditor() {
     }
     if (!validationReport.valid) {
       setValidationOpen(true);
-      throw new Error(
-        `Quy trình còn ${validationReport.errors.length} lỗi cần sửa trước khi đưa vào sử dụng. ${validationReport.errors[0]?.message ?? ''}`,
-      );
+      return;
     }
     await (graphSaveQueues.get(draft.id) ?? Promise.resolve());
     const latest = await getWorkflowTemplateVersion(draft.id);
@@ -891,6 +1042,7 @@ export default function WorkflowTemplateEditor() {
                 title={!validationReport.valid ? 'Cần sửa lỗi cấu trúc trước khi mô phỏng' : 'Mô phỏng thứ tự cấu trúc; điều kiện lâm sàng không được tự suy đoán'}
                 onClick={() => {
                   setSimulationIndex(0);
+                  setSimulationCompleted(false);
                   setSimulationRunning((running) => !running);
                 }}
               >
@@ -914,21 +1066,6 @@ export default function WorkflowTemplateEditor() {
         style={flowFullscreen ? { position: 'fixed', inset: 14, zIndex: 999, boxShadow: '0 18px 60px rgba(15,47,77,.24)' } : undefined}
         styles={{ body: { padding: 0 } }}
       >
-        {draft && (
-          <Alert
-            type={validationReport.errors.length > 0 ? 'error' : validationReport.warnings.length > 0 ? 'warning' : 'success'}
-            showIcon
-            message={
-              validationReport.errors.length > 0
-                ? `Chưa thể đưa vào sử dụng: còn ${validationReport.errors.length} lỗi luồng`
-                : validationReport.warnings.length > 0
-                  ? `Luồng hợp lệ, còn ${validationReport.warnings.length} cảnh báo vận hành`
-                  : 'Luồng đã vượt qua kiểm tra cấu trúc'
-            }
-            action={<Button size="small" onClick={() => setValidationOpen(true)}>Xem chi tiết</Button>}
-            style={{ borderRadius: 0, borderInline: 0 }}
-          />
-        )}
         {!draft && canDesign && (
           <div style={{ minHeight: flowFullscreen ? 'calc(100vh - 88px)' : 520, padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ maxWidth: 620, textAlign: 'center' }}>
@@ -940,6 +1077,10 @@ export default function WorkflowTemplateEditor() {
         )}
         {draft && (
           <div style={{ height: flowFullscreen ? 'calc(100vh - 78px)' : 'clamp(520px, calc(100vh - 290px), 760px)' }}>
+            <SimulationContext.Provider value={{
+              activeNode: activeSimulationNode,
+              completedNodes: completedSimulationNodes,
+            }}>
             <ReactFlow
               // React Flow only consumes defaultNodes on mount. Terminal nodes
               // are added locally, so the old key left the canvas with stale
@@ -948,7 +1089,7 @@ export default function WorkflowTemplateEditor() {
               // remount and fit the viewport whenever nodes are added/removed.
               key={`${draft.id}:${JSON.stringify(flowSteps)}:${JSON.stringify(systemNodePositions)}:${JSON.stringify(terminalEdges)}`}
               defaultNodes={nodes}
-              defaultEdges={edges}
+              edges={edges}
               onNodeDragStop={(_, node) => guardedAsync(async () => {
                 const nextPositions = {
                   ...stepPositions,
@@ -961,6 +1102,7 @@ export default function WorkflowTemplateEditor() {
               onPaneClick={() => setSelectedEdge(null)}
               onEdgeClick={(_, edge) => setSelectedEdge(edge)}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               onConnect={canDesign ? connect : undefined}
               onEdgesDelete={canDesign ? deleteEdges : undefined}
               onReconnect={canDesign ? reconnect : undefined}
@@ -975,7 +1117,7 @@ export default function WorkflowTemplateEditor() {
               <Background gap={16} color="#e9eff4" />
               <Controls />
               <MiniMap pannable zoomable />
-              {canDesign && <Panel position="top-left"><div style={{background:'rgba(255,255,255,.94)',padding:'7px 10px',borderRadius:6,fontSize:12,boxShadow:'var(--shadow-card)'}}>Kéo mọi node, kể cả Bắt đầu/Kết thúc, để tự bố trí. Nối từ chấm xanh sang chấm trắng; vòng lặp và tự nối vẫn được chặn để bảo vệ luồng khám.</div></Panel>}
+              {canDesign && !simulationRunning && <Panel position="top-left"><div style={{background:'rgba(255,255,255,.94)',padding:'7px 10px',borderRadius:6,fontSize:12,boxShadow:'var(--shadow-card)'}}>Kéo mọi node, kể cả Bắt đầu/Kết thúc, để tự bố trí. Nối từ chấm xanh sang chấm trắng; vòng lặp và tự nối vẫn được chặn để bảo vệ luồng khám.</div></Panel>}
               {canDesign && selectedEdge && (
                 <Panel position="bottom-center">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(8,38,64,.96)', color: '#fff', padding: '9px 11px', borderRadius: 9, boxShadow: '0 8px 24px rgba(8,38,64,.24)' }}>
@@ -1058,22 +1200,67 @@ export default function WorkflowTemplateEditor() {
               )}
               {simulationRunning && (
                 <Panel position="bottom-left">
-                  <div style={{ background: 'rgba(8,38,64,.94)', color: '#fff', width: 300, padding: '11px 13px', borderRadius: 9, boxShadow: '0 10px 30px rgba(8,38,64,.22)' }}>
+                  <div style={{ background: 'rgba(8,38,64,.96)', color: '#fff', width: 330, padding: '13px 15px', borderRadius: 11, boxShadow: '0 12px 34px rgba(8,38,64,.28)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Activity size={16} color="#5eead4" />
-                      <strong style={{ fontSize: 12.5 }}>Token đang chạy</strong>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, opacity: .72 }}>{simulationIndex + 1}/{simulationSequence.length}</span>
+                      <strong style={{ fontSize: 12.5 }}>Đang mô phỏng lượt khám</strong>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, opacity: .78 }}>Bước {simulationIndex + 1}/{simulationSequence.length}</span>
                     </div>
-                    <div style={{ marginTop: 7, fontSize: 13 }}>
+                    <div style={{ height: 5, background: 'rgba(255,255,255,.16)', borderRadius: 999, marginTop: 10, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${((simulationIndex + 1) / Math.max(1, simulationSequence.length)) * 100}%`,
+                          height: '100%',
+                          background: '#5eead4',
+                          borderRadius: 999,
+                          transition: 'width .25s ease',
+                        }}
+                      />
+                    </div>
+                    <div style={{ marginTop: 10, fontSize: 11, color: '#99f6e4', textTransform: 'uppercase', letterSpacing: '.05em' }}>Đang xử lý tại</div>
+                    <div style={{ marginTop: 3, fontSize: 14, fontWeight: 650 }}>
                       {activeSimulationStep?.name ?? (activeSimulationNode === '__START__' ? 'Khởi tạo lượt khám' : 'Hoàn tất quy trình')}
                     </div>
                     {activeSimulationStep?.conditionalRule && <div style={{ marginTop: 4, fontSize: 11, color: '#bae6fd' }}>Điều kiện: {activeSimulationStep.conditionalRule}</div>}
                     {activeSimulationStep?.requiredOutput && <div style={{ marginTop: 3, fontSize: 11, opacity: .78 }}>Dữ liệu đầu ra: {activeSimulationStep.requiredOutput}</div>}
+                    {nextSimulationNode && (
+                      <div style={{ marginTop: 10, paddingTop: 9, borderTop: '1px solid rgba(255,255,255,.14)', fontSize: 11.5, opacity: .86 }}>
+                        Tiếp theo: <strong>{nextSimulationStep?.name ?? (nextSimulationNode === '__END__' ? 'Kết thúc quy trình' : 'Bước tiếp theo')}</strong>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 10.5, opacity: .78 }}>
+                      <span>● Xanh lá: đã qua</span>
+                      <span>● Xanh ngọc: đang xử lý</span>
+                    </div>
+                  </div>
+                </Panel>
+              )}
+              {simulationCompleted && (
+                <Panel position="bottom-center">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(240,250,246,.98)', border: '1px solid #86c9ae', color: '#135f48', padding: '10px 12px', borderRadius: 10, boxShadow: '0 10px 28px rgba(19,95,72,.18)', marginBottom: 10 }}>
+                    <CheckCircle2 size={18} />
+                    <div>
+                      <strong style={{ display: 'block', fontSize: 12.5 }}>Mô phỏng hoàn tất</strong>
+                      <span style={{ fontSize: 11.5 }}>Đã đi qua {simulationSequence.length} điểm trong luồng.</span>
+                    </div>
+                    <Button
+                      size="small"
+                      type="primary"
+                      onClick={() => {
+                        setSimulationIndex(0);
+                        setSimulationCompleted(false);
+                        setSimulationRunning(true);
+                      }}
+                    >
+                      Chạy lại
+                    </Button>
+                    <Button size="small" onClick={() => setSimulationCompleted(false)}>Đóng</Button>
                   </div>
                 </Panel>
               )}
               {nodes.length === 0 && <Panel position="top-center"><div style={{background:'rgba(255,255,255,.96)',padding:'9px 13px',borderRadius:8,fontSize:12.5,boxShadow:'var(--shadow-card)'}}>Canvas đang trống. Chọn Bắt đầu, bước nghiệp vụ và Kết thúc từ thanh công cụ để tự dựng luồng.</div></Panel>}
             </ReactFlow>
+            </SimulationContext.Provider>
           </div>
         )}
         {!draft && !canDesign && (
@@ -1329,8 +1516,8 @@ export default function WorkflowTemplateEditor() {
           }
           description={
             validationReport.valid
-              ? 'Cảnh báo không chặn phát hành nhưng nên xử lý để nhân viên và bệnh nhân nhận đủ thông tin.'
-              : 'Bộ kiểm tra đã dò đường đi từ Bắt đầu, đường tới Kết thúc, vòng lặp, node mồ côi và cấu hình điểm quyết định.'
+              ? 'Quy trình đã có đường đi đầy đủ từ Bắt đầu đến Kết thúc.'
+              : 'Sửa các mục bên dưới rồi kiểm tra lại.'
           }
           style={{ marginBottom: 16 }}
         />
@@ -1338,16 +1525,22 @@ export default function WorkflowTemplateEditor() {
         {validationReport.errors.length > 0 && (
           <div style={{ marginBottom: 18 }}>
             <Text strong style={{ display: 'block', marginBottom: 8, color: '#b42318' }}>
-              Lỗi chặn phát hành
+              Việc cần làm
             </Text>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {validationReport.errors.map((issue, index) => (
                 <div key={`${issue.code}-${index}`} style={{ padding: '10px 12px', border: '1px solid #f3c4c1', borderRadius: 8, background: '#fff7f6' }}>
-                  <Text strong style={{ display: 'block', fontSize: 13 }}>{issue.message}</Text>
+                  <Text strong style={{ display: 'block', fontSize: 13 }}>{validationGuidance(issue)}</Text>
                   {issue.nodeCodes?.length ? (
-                    <Text type="secondary" style={{ display: 'block', marginTop: 3, fontSize: 11.5 }}>
-                      Node liên quan: {issue.nodeCodes.join(', ')}
-                    </Text>
+                    <Collapse
+                      ghost
+                      size="small"
+                      items={[{
+                        key: 'details',
+                        label: 'Chi tiết',
+                        children: <Text type="secondary">{issue.nodeCodes.map(nodeLabel).join(', ')}</Text>,
+                      }]}
+                    />
                   ) : null}
                 </div>
               ))}
@@ -1357,15 +1550,21 @@ export default function WorkflowTemplateEditor() {
 
         {validationReport.warnings.length > 0 && (
           <div>
-            <Text strong style={{ display: 'block', marginBottom: 8, color: '#9a6700' }}>Cảnh báo vận hành</Text>
+            <Text strong style={{ display: 'block', marginBottom: 8, color: '#9a6700' }}>Nên kiểm tra thêm</Text>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {validationReport.warnings.map((issue, index) => (
                 <div key={`${issue.code}-${index}`} style={{ padding: '10px 12px', border: '1px solid #f1d59c', borderRadius: 8, background: '#fffaf0' }}>
-                  <Text strong style={{ display: 'block', fontSize: 13 }}>{issue.message}</Text>
+                  <Text strong style={{ display: 'block', fontSize: 13 }}>{validationGuidance(issue)}</Text>
                   {issue.nodeCodes?.length ? (
-                    <Text type="secondary" style={{ display: 'block', marginTop: 3, fontSize: 11.5 }}>
-                      Node liên quan: {issue.nodeCodes.join(', ')}
-                    </Text>
+                    <Collapse
+                      ghost
+                      size="small"
+                      items={[{
+                        key: 'details',
+                        label: 'Chi tiết',
+                        children: <Text type="secondary">{issue.nodeCodes.map(nodeLabel).join(', ')}</Text>,
+                      }]}
+                    />
                   ) : null}
                 </div>
               ))}
@@ -1373,34 +1572,34 @@ export default function WorkflowTemplateEditor() {
           </div>
         )}
 
-        <Alert
-          type="info"
-          showIcon
-          message="Giới hạn hiện tại cần xử lý ở backend"
-          description="Vị trí Bắt đầu/Kết thúc và các dây nối terminal vẫn đang lưu cục bộ trên trình duyệt. Không được coi đây là nguồn dữ liệu vận hành chính thức cho đến khi API lưu toàn bộ graph."
-          style={{ marginTop: 18 }}
-        />
       </Modal>
 
       <Modal
-        title="Quy trình đã sẵn sàng"
+        title="Đã đưa quy trình vào sử dụng"
         open={deploymentOpen}
         onCancel={() => setDeploymentOpen(false)}
-        footer={[
-          <Button key="later" onClick={() => setDeploymentOpen(false)}>Dùng cho lượt khám sau</Button>,
-          <Button key="deploy" type="primary" icon={<Rocket size={15} />} disabled={!deploymentEncounterId} onClick={deployNow}>Khởi chạy ngay</Button>,
-        ]}
+        width={520}
+        footer={eligibleEncounters.length > 0
+          ? [
+              <Button key="later" onClick={() => setDeploymentOpen(false)}>Để sau</Button>,
+              <Button key="deploy" type="primary" icon={<Rocket size={15} />} onClick={deployNow}>
+                Áp dụng cho lượt khám đã chọn
+              </Button>,
+            ]
+          : <Button type="primary" onClick={() => setDeploymentOpen(false)}>Hoàn tất</Button>}
       >
         <Alert
           type="success"
           showIcon
-          message="Đã đưa quy trình vào sử dụng"
-          description="Từ bây giờ, hệ thống sẽ tự chọn phiên bản này cho lượt khám cùng chuyên khoa sau khi bác sĩ duyệt phác đồ."
+          message="Phiên bản mới đang hoạt động"
+          description={eligibleEncounters.length > 0
+            ? 'Quy trình sẽ tự áp dụng cho các lượt khám phù hợp. Bạn cũng có thể chọn một lượt khám bên dưới để áp dụng ngay.'
+            : 'Chưa có lượt khám phù hợp ở thời điểm này. Hệ thống sẽ tự áp dụng khi có lượt khám cùng chuyên khoa được bác sĩ duyệt phác đồ.'}
           style={{ marginBottom: 16 }}
         />
-        {eligibleEncounters.length > 0 ? (
+        {eligibleEncounters.length > 0 && (
           <div>
-            <Text strong style={{ display: 'block', marginBottom: 7 }}>Chọn bệnh nhân và lượt khám để áp dụng</Text>
+            <Text strong style={{ display: 'block', marginBottom: 7 }}>Áp dụng ngay cho</Text>
             <Select
               style={{ width: '100%' }}
               value={deploymentEncounterId}
@@ -1410,10 +1609,7 @@ export default function WorkflowTemplateEditor() {
                 return { value: encounter.id, label: `${patient?.name ?? 'Bệnh nhân'} · ${patient?.code ?? encounter.patientId} · ${encounter.department}` };
               })}
             />
-            <Text type="secondary" style={{ display: 'block', marginTop: 7, fontSize: 12 }}>Hệ thống sẽ tạo một phiên quy trình riêng, khóa theo bệnh nhân, lượt khám và phiên bản mẫu đang xuất bản.</Text>
           </div>
-        ) : (
-          <ProfessionalEmpty compact title="Chưa có lượt khám phù hợp để khởi chạy ngay" description="Quy trình vẫn đang hoạt động và sẽ được hệ thống tự áp dụng khi có lượt khám cùng chuyên khoa được bác sĩ duyệt phác đồ." showActions={false} />
         )}
       </Modal>
 

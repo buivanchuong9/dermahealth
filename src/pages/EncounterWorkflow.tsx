@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Button, Result, Spin } from "antd";
 import { Navigate, useParams } from "react-router-dom";
 import { getEncounter, mapEncounter } from "../api/encounters";
-import { listWorkflowInstances } from "../api/workflowInstance";
+import { getWorkflowInstanceForEncounter } from "../api/workflowInstance";
+import { ApiError } from "../api/http";
 import { encounterRepository, workflowRepository } from "../domain/repositories";
 import type { MedicalEncounter, WorkflowInstance } from "../domain/core/entities";
 
@@ -19,16 +20,17 @@ export default function EncounterWorkflow() {
     getEncounter(encounterId)
       .then(async (encounterRow) => {
         const mappedEncounter = mapEncounter(encounterRow);
-        const instances = await listWorkflowInstances(mappedEncounter.patientId);
-        return { mappedEncounter, instances };
+        const matchingInstance = await getWorkflowInstanceForEncounter(mappedEncounter.id)
+          .catch((error: unknown) => {
+            if (error instanceof ApiError && error.status === 404) return undefined;
+            throw error;
+          });
+        return { mappedEncounter, matchingInstance };
       })
-      .then(({ mappedEncounter, instances }) => {
+      .then(({ mappedEncounter, matchingInstance }) => {
         if (!active) return;
-        const matchingInstance = instances.find(
-          (item) => item.encounterId === encounterId,
-        );
         encounterRepository.upsert(mappedEncounter);
-        instances.forEach((item) => workflowRepository.instances().upsert(item));
+        if (matchingInstance) workflowRepository.instances().upsert(matchingInstance);
         setEncounter(mappedEncounter);
         setInstance(matchingInstance);
       })

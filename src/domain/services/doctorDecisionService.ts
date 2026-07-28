@@ -68,7 +68,16 @@ function reviseDiagnosis(previousDiagnosisId: DoctorDiagnosisId, doctorId: UserI
 
 function approveClinicalPlan(encounterId: EncounterId, doctorId: UserId, diagnosisId: DoctorDiagnosisId, summary: string): ClinicalPlan {
   assertRole(doctorId, ['doctor']);
-  const plan: ClinicalPlan = { id: nextId('PLAN'), encounterId, doctorId, diagnosisId, summary, approvedAt: new Date().toISOString() };
+  const now = new Date().toISOString();
+  const plan: ClinicalPlan = {
+    id: nextId('PLAN'), encounterId, doctorId, diagnosisId,
+    problemOrDiagnosisId: diagnosisId, summary,
+    measurableGoals: [summary], milestones: [], monitoringMetrics: [],
+    stopOrChangeCriteria: '', contraindications: [], prerequisites: [],
+    responsibleProviderId: doctorId, orders: [], orderRefs: [], currentStage: 'induction',
+    signedBy: doctorId, signedAt: now, signature: { providerId: doctorId, signedAt: now }, version: 1,
+    approvedAt: now, createdAt: now, updatedAt: now,
+  };
   diagnosisRepository.plans().upsert(plan);
   const encounter = encounterRepository.getById(encounterId);
   if (encounter) encounterRepository.upsert({ ...encounter, clinicalPlanId: plan.id });
