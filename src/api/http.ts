@@ -86,8 +86,11 @@ async function request<T>(
     idempotencyKey,
   }: RequestOptions = {},
 ): Promise<T> {
+  const isFormData = body instanceof FormData;
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (body !== undefined && !isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
   const requestIdempotencyKey =
     method === "GET" ? undefined : (idempotencyKey ?? crypto.randomUUID());
   if (requestIdempotencyKey) {
@@ -105,7 +108,7 @@ async function request<T>(
     method,
     headers,
     credentials: "include",
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   if (res.status === 401 && auth && retryAuth) {

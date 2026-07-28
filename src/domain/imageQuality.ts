@@ -42,7 +42,8 @@ export interface ImageQualityReport {
 }
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
-const MIN_SHORT_SIDE = 640;
+const MIN_SHORT_SIDE_BLOCKING = 200;
+const MIN_SHORT_SIDE_WARNING = 640;
 const MAX_DECODED_SIDE = 12_000;
 const ANALYSIS_SIDE = 256;
 
@@ -69,12 +70,23 @@ export function evaluateImageQualityMetrics(
   const shortSide = Math.min(metrics.width, metrics.height);
   const longSide = Math.max(metrics.width, metrics.height);
 
-  if (shortSide < MIN_SHORT_SIDE) {
+  // The inference model resizes every input to a small fixed size regardless
+  // of upload resolution, so a mid-range short side is a soft warning, not a
+  // hard block. Only reject images too small to carry any usable clinical
+  // detail at all.
+  if (shortSide < MIN_SHORT_SIDE_BLOCKING) {
     issues.push(issue(
       'resolution_low',
       'blocking',
-      `Ảnh chỉ có ${metrics.width}×${metrics.height}px, chưa đủ chi tiết.`,
+      `Ảnh chỉ có ${metrics.width}×${metrics.height}px, quá nhỏ để xử lý.`,
       'Chụp lại gần hơn bằng camera chính, không dùng ảnh đã gửi qua ứng dụng chat.',
+    ));
+  } else if (shortSide < MIN_SHORT_SIDE_WARNING) {
+    issues.push(issue(
+      'resolution_low',
+      'warning',
+      `Ảnh chỉ có ${metrics.width}×${metrics.height}px, có thể thiếu chi tiết.`,
+      'Nếu có thể, hãy chụp lại gần hơn bằng camera chính để bác sĩ nhìn rõ ranh giới tổn thương.',
     ));
   }
   if (longSide > MAX_DECODED_SIDE) {

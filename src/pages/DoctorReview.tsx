@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Typography, Space, Skeleton, List } from 'antd';
-import { Brain, CheckCircle, XCircle, MinusCircle, ClipboardList, FlaskConical, FileCheck2, GitBranch, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Typography, Space, Skeleton, List, Collapse } from 'antd';
+import { Brain, CheckCircle, ClipboardList, FlaskConical, FileCheck2, GitBranch, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, aiAssessmentRepository, clinicalOrderRepository, diagnosisRepository, workflowRepository } from '../domain/repositories';
@@ -23,18 +23,32 @@ import { activateEncounterWorkflow, getEncounter, mapEncounter } from '../api/en
 import { getEncounterAIAssessments } from '../api/aiAssessment';
 import { listWorkflowInstances } from '../api/workflowInstance';
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '../api/workflowTemplate';
-import { type AIHumanReviewStatus } from '../domain/core/enums';
+import { ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
 import { hasRoleAccess } from '../domain/core/role';
-import type { EncounterId, AIAssessmentId } from '../domain/core/ids';
+import type { EncounterId } from '../domain/core/ids';
 import type { ClinicalOrder, ConfidenceBand } from '../domain/core/entities';
-import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 import { AccessDenied } from '../components/feedback/AccessDenied';
+import { SYMPTOM_OPTIONS } from '../domain/services/aiAssessmentService';
 
 const { Title, Text, Paragraph } = Typography;
 
 const BAND_COLOR: Record<ConfidenceBand, string> = { high: 'red', moderate: 'gold', low: 'default' };
-const BAND_LABEL: Record<ConfidenceBand, string> = { high: 'Khả năng cao', moderate: 'Khả năng trung bình', low: 'Khả năng thấp' };
+const BAND_LABEL: Record<ConfidenceBand, string> = { high: 'Phù hợp cao', moderate: 'Phù hợp vừa', low: 'Phù hợp thấp' };
+const SYMPTOM_LABEL = Object.fromEntries(SYMPTOM_OPTIONS.map((item) => [item.key, item.label]));
+const humanizeEvidence = (items: string[]) =>
+  items.map((item) => SYMPTOM_LABEL[item] ?? item.replaceAll('_', ' ')).join(', ');
+
+function formatEncounterLabel(createdAt: string, status: keyof typeof ENCOUNTER_STATUS_LABEL) {
+  const date = new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(createdAt));
+  return `Ca da liễu · ${date} · ${ENCOUNTER_STATUS_LABEL[status]}`;
+}
 
 export default function DoctorReview() {
   const { currentUser, currentPatient, role } = useAppState();
@@ -54,6 +68,7 @@ export default function DoctorReview() {
   const [diagnosisName, setDiagnosisName] = useState('');
   const [diagnosisCode, setDiagnosisCode] = useState('');
   const [isAdditional, setIsAdditional] = useState(false);
+  const [selectedCandidateCode, setSelectedCandidateCode] = useState<string>();
   const [planSummary, setPlanSummary] = useState('');
   const [orderType, setOrderType] = useState<ClinicalOrder['type']>('laboratory');
   const [orderJustification, setOrderJustification] = useState('');
@@ -194,23 +209,28 @@ export default function DoctorReview() {
       .finally(() => setBusy(false));
   };
 
-  const handleReview = (aiAssessmentId: AIAssessmentId, action: AIHumanReviewStatus, code?: string) => runGuarded(async () => {
-    const topRanked = assessment?.candidateConditions[0]?.code;
-    if (action !== 'accepted' && !rationale.trim()) {
-      throw new Error('Cần ghi rõ lý do khi bác sĩ không chấp nhận nguyên trạng gợi ý hàng đầu của AI.');
-    }
-    if (action === 'accepted' && code && code !== topRanked && !rationale.trim()) {
-      throw new Error('Cần ghi rõ lý do khi bác sĩ chọn gợi ý khác với gợi ý xếp hạng cao nhất của AI.');
-    }
-    const review = await submitAssessmentReview(encounter.id, aiAssessmentId, {
-      action, acceptedConditionCode: code, rationale: rationale || undefined,
-    });
-    diagnosisRepository.reviews().upsert(review);
-    setRationale('');
-  });
-
   const handleRecordDiagnosis = (status: 'provisional' | 'confirmed') => runGuarded(async () => {
     if (!diagnosisName.trim()) throw new Error('Vui lòng nhập tên chẩn đoán.');
+    if (isAdditional && !rationale.trim()) {
+      throw new Error('Cần ghi nhận định lâm sàng khi chẩn đoán nằm ngoài gợi ý của AI.');
+    }
+    if (
+      selectedCandidateCode &&
+      selectedCandidateCode !== assessment?.candidateConditions[0]?.code &&
+      !rationale.trim()
+    ) {
+      throw new Error('Cần ghi nhận định lâm sàng khi chọn gợi ý không xếp hạng đầu tiên.');
+    }
+    if (assessment && !reviews.some((review) => review.aiAssessmentId === assessment.id)) {
+      const review = await submitAssessmentReview(encounter.id, assessment.id, {
+        action: selectedCandidateCode && !isAdditional ? 'accepted' : 'rejected',
+        acceptedConditionCode: selectedCandidateCode && !isAdditional
+          ? selectedCandidateCode
+          : undefined,
+        rationale: rationale || undefined,
+      });
+      diagnosisRepository.reviews().upsert(review);
+    }
     const diagnosis = await createEncounterDiagnosis(encounter.id, {
       conditionName: diagnosisName, conditionCode: diagnosisCode || undefined, aiAssessmentId: assessment?.id,
       isAdditionalToAI: isAdditional, rationale: rationale || undefined, status,
@@ -219,7 +239,7 @@ export default function DoctorReview() {
     if (status === 'confirmed' && encounterService.canTransition(encounter.status, 'diagnosed')) {
       encounterService.transitionStatus(encounter.id, 'diagnosed', currentUser.id);
     }
-    setDiagnosisName(''); setDiagnosisCode(''); setIsAdditional(false); setRationale('');
+    setDiagnosisName(''); setDiagnosisCode(''); setIsAdditional(false); setSelectedCandidateCode(undefined); setRationale('');
   });
 
   const handleApprovePlan = () => runGuarded(async () => {
@@ -294,7 +314,10 @@ export default function DoctorReview() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <Title level={3} style={{ margin: '4px 0 0' }}>Xem Xét AI & Ra Quyết Định Lâm Sàng</Title>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Xem xét AI và ra quyết định lâm sàng</Title>
+          <Text type="secondary">
+            Đối chiếu dữ liệu đầu vào, bằng chứng hình ảnh và nhận định AI trước khi xác nhận chẩn đoán.
+          </Text>
         </div>
         <Space wrap>
           <Select
@@ -304,9 +327,18 @@ export default function DoctorReview() {
               setDataLoading(true);
               setError(null);
               setSelectedTemplateId(undefined);
+              setSelectedCandidateCode(undefined);
+              setDiagnosisName('');
+              setDiagnosisCode('');
+              setIsAdditional(false);
+              setRationale('');
               setSelectedId(value as EncounterId);
             }}
-            options={encounters.map((item) => ({ value: item.id, label: `${item.id} — ${item.status}` }))}
+            aria-label="Chọn ca khám"
+            options={encounters.map((item) => ({
+              value: item.id,
+              label: formatEncounterLabel(item.createdAt, item.status),
+            }))}
           />
           <Button
             icon={<RefreshCw size={14} />}
@@ -322,14 +354,23 @@ export default function DoctorReview() {
         </Space>
       </div>
 
-      {error && <FriendlyErrorInline error={error} onClose={() => setError(null)} />}
+      {error && (
+        <Alert
+          type="error"
+          showIcon
+          closable
+          message="Chưa thể hoàn tất"
+          description={error}
+          onClose={() => setError(null)}
+        />
+      )}
 
       <Skeleton active loading={dataLoading}>
       <Row gutter={16}>
         <Col xs={24} md={12}>
           <Card
-            title={<span><Brain size={16} style={{ verticalAlign: -2, marginRight: 6 }} />Đánh Giá Sơ Bộ AI</span>}
-            extra={assessment && <Tag color="warning">{assessment.status === 'completed' ? 'Top 3 Ứng Viên Chẩn Đoán' : 'Không đủ dữ liệu'}</Tag>}
+            title={<span><Brain size={16} style={{ verticalAlign: -2, marginRight: 6 }} />Gợi ý từ AI</span>}
+            extra={assessment && <Tag color="warning">{assessment.status === 'completed' ? '3 khả năng tham khảo' : 'Không đủ dữ liệu'}</Tag>}
             size="small"
           >
             {!assessment && <Text type="secondary">Chưa có đánh giá AI cho lượt khám này.</Text>}
@@ -339,73 +380,127 @@ export default function DoctorReview() {
             )}
 
             {assessment?.status === 'completed' && assessment.candidateConditions.map((c) => (
-              <div key={c.code} style={{ padding: 12, background: 'var(--surface-subtle)', borderRadius: 8, border: '1px solid var(--border-default)', marginBottom: 10 }}>
+              <div
+                key={c.code}
+                style={{
+                  padding: 12,
+                  background: selectedCandidateCode === c.code ? 'var(--surface-selected)' : 'var(--surface-subtle)',
+                  borderRadius: 8,
+                  border: `1px solid ${selectedCandidateCode === c.code ? 'var(--medical-blue-500)' : 'var(--border-default)'}`,
+                  marginBottom: 10,
+                }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                   <Text strong>{c.name}</Text>
                   <Tag color={BAND_COLOR[c.confidenceBand]}>{BAND_LABEL[c.confidenceBand]}</Tag>
                 </div>
                 <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 6 }}>{c.rationale}</Paragraph>
-                <Text type="success" style={{ fontSize: 12 }}>Ủng hộ: {c.supportingEvidence.join(', ')}</Text>
-                {c.conflictingEvidence.length > 0 && <Text type="danger" style={{ fontSize: 12, display: 'block' }}>Trái ngược: {c.conflictingEvidence.join(', ')}</Text>}
-                <Space style={{ marginTop: 10 }} size={6}>
-                  <Button size="small" type="primary" ghost loading={busy} icon={<CheckCircle size={13} />} onClick={() => handleReview(assessment.id, 'accepted', c.code)}>Chấp nhận</Button>
-                  <Button size="small" loading={busy} icon={<MinusCircle size={13} />} onClick={() => handleReview(assessment.id, 'partial', c.code)}>Chấp nhận một phần</Button>
-                  <Button size="small" danger loading={busy} icon={<XCircle size={13} />} onClick={() => handleReview(assessment.id, 'rejected', c.code)}>Từ chối</Button>
-                </Space>
+                <Text type="success" style={{ fontSize: 12 }}>Dấu hiệu phù hợp: {humanizeEvidence(c.supportingEvidence)}</Text>
+                {c.conflictingEvidence.length > 0 && <Text type="danger" style={{ fontSize: 12, display: 'block' }}>Dấu hiệu chưa phù hợp: {humanizeEvidence(c.conflictingEvidence)}</Text>}
+                <Button
+                  size="small"
+                  type={selectedCandidateCode === c.code ? 'primary' : 'default'}
+                  icon={<CheckCircle size={13} />}
+                  style={{ marginTop: 10 }}
+                  onClick={() => {
+                    setSelectedCandidateCode(c.code);
+                    setDiagnosisName(c.name);
+                    setDiagnosisCode(c.code);
+                    setIsAdditional(false);
+                  }}
+                >
+                  {selectedCandidateCode === c.code ? 'Đã chọn làm chẩn đoán' : 'Chọn gợi ý này'}
+                </Button>
               </div>
             ))}
 
             {assessment?.status === 'completed' && (
-              <>
-                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Lý do (bắt buộc nếu không chọn gợi ý xếp hạng cao nhất)</Text>
-                <Input value={rationale} onChange={(e) => setRationale(e.target.value)} placeholder="VD: Phân bố tổn thương điển hình hơn cho..." style={{ marginBottom: 12 }} />
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', borderTop: '1px solid var(--border-default)', paddingTop: 8 }}>
-                  Mô hình: {assessment.modelVersion} · {assessment.inputSnapshotId} · {new Date(assessment.generatedAt).toLocaleString('vi-VN')}
-                </Text>
-                <Text type="secondary" style={{ fontSize: 11, fontStyle: 'italic', display: 'block', marginTop: 4 }}>
-                  Đây là hỗ trợ ra quyết định của AI (AI Preliminary Assessment), không phải chẩn đoán xác định. Chẩn đoán cuối cùng luôn do bác sĩ quyết định.
-                </Text>
-              </>
-            )}
-
-            {reviews.length > 0 && (
-              <div style={{ marginTop: 12, borderTop: '1px solid var(--border-default)', paddingTop: 10 }}>
-                <Text strong style={{ fontSize: 12.5, display: 'block', marginBottom: 6 }}>Lịch sử xem xét</Text>
-                {reviews.map((r) => (
-                  <Text key={r.id} type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                    {r.action} — {r.acceptedConditionCode ?? '—'} {r.rationale ? `(${r.rationale})` : ''}
-                  </Text>
-                ))}
-              </div>
+              <Collapse
+                ghost
+                size="small"
+                items={[{
+                  key: 'technical',
+                  label: 'Thông tin kỹ thuật và lịch sử',
+                  children: (
+                    <>
+                      <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                        Model {assessment.modelVersion} · Tạo lúc {new Date(assessment.generatedAt).toLocaleString('vi-VN')}
+                      </Text>
+                      {reviews.length > 0 && (
+                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+                          Đã ghi nhận {reviews.length} lần xem xét trước.
+                        </Text>
+                      )}
+                    </>
+                  ),
+                }]}
+              />
             )}
           </Card>
         </Col>
 
         <Col xs={24} md={12}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Card title={<span><ClipboardList size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Chẩn đoán của bác sĩ</span>} size="small">
-              {diagnoses.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  {diagnoses.map((d) => (
-                    <div key={d.id} style={{ fontSize: 13, padding: '6px 0', borderBottom: '1px solid var(--border-default)' }}>
-                      <Text strong>{d.conditionName}</Text> — <Tag>{d.status}</Tag>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <Card title={<span><ClipboardList size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Kết luận của bác sĩ</span>} size="small">
+              {confirmedDiagnosis ? (
+                <Alert
+                  type="success"
+                  showIcon
+                  message="Chẩn đoán đã được xác nhận"
+                  description={confirmedDiagnosis.conditionName}
+                />
+              ) : (
+                <>
+              <Alert
+                type="info"
+                showIcon
+                message={selectedCandidateCode
+                  ? 'Đã điền từ gợi ý AI. Bác sĩ có thể chỉnh sửa trước khi xác nhận.'
+                  : 'Chọn một gợi ý bên trái hoặc tự nhập chẩn đoán bên dưới.'}
+                style={{ marginBottom: 12 }}
+              />
               <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tên chẩn đoán *</Text>
-              <Input value={diagnosisName} onChange={(e) => setDiagnosisName(e.target.value)} style={{ marginBottom: 10 }} />
+              <Input
+                value={diagnosisName}
+                onChange={(e) => {
+                  setDiagnosisName(e.target.value);
+                  if (selectedCandidateCode) setIsAdditional(false);
+                }}
+                placeholder="Nhập chẩn đoán cuối cùng của bác sĩ"
+                style={{ marginBottom: 10 }}
+              />
               <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Mã (tuỳ chọn)</Text>
               <Input value={diagnosisCode} onChange={(e) => setDiagnosisCode(e.target.value)} style={{ marginBottom: 10 }} />
-              <Checkbox checked={isAdditional} onChange={(e) => setIsAdditional(e.target.checked)} style={{ marginBottom: 12, fontSize: 13 }}>Chẩn đoán này không nằm trong gợi ý của AI</Checkbox>
+              <Checkbox
+                checked={isAdditional}
+                onChange={(e) => {
+                  setIsAdditional(e.target.checked);
+                  if (e.target.checked) setSelectedCandidateCode(undefined);
+                }}
+                style={{ marginBottom: 12, fontSize: 13 }}
+              >
+                Đây là chẩn đoán khác với các gợi ý của AI
+              </Checkbox>
+              <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                Nhận định lâm sàng {isAdditional ? '*' : '(tuỳ chọn)'}
+              </Text>
+              <Input.TextArea
+                value={rationale}
+                onChange={(e) => setRationale(e.target.value)}
+                placeholder="Dấu hiệu và căn cứ dẫn đến kết luận của bác sĩ"
+                autoSize={{ minRows: 2, maxRows: 4 }}
+                style={{ marginBottom: 12 }}
+              />
               <Space>
-                <Button loading={busy} onClick={() => handleRecordDiagnosis('provisional')}>Lưu tạm thời</Button>
+                <Button loading={busy} onClick={() => handleRecordDiagnosis('provisional')}>Lưu nháp</Button>
                 <Button type="primary" loading={busy} icon={<FileCheck2 size={14} />} onClick={() => handleRecordDiagnosis('confirmed')}>Xác nhận chẩn đoán</Button>
               </Space>
+                </>
+              )}
             </Card>
 
-            <Card
-              title={<span><GitBranch size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Kế hoạch & quy trình áp dụng</span>}
+            {confirmedDiagnosis && <Card
+              title={<span><GitBranch size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Kế hoạch điều trị</span>}
               size="small"
               extra={activeWorkflowInstance && <Tag color="success" icon={<ShieldCheck size={12} />}>Đã kích hoạt</Tag>}
             >
@@ -505,7 +600,7 @@ export default function DoctorReview() {
                   {!confirmedDiagnosis && <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>Cần xác nhận chẩn đoán trước.</Text>}
                 </>
               )}
-            </Card>
+            </Card>}
 
             <Card title={<span><FlaskConical size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Chỉ định cận lâm sàng</span>} size="small">
               {encounterOrders.map((o) => (
