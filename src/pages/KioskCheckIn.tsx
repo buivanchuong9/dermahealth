@@ -6,10 +6,8 @@ import {
   Card,
   Input,
   Modal,
-  Result,
   Select,
   Space,
-  Statistic,
   Table,
   Tabs,
   Tag,
@@ -20,19 +18,22 @@ import {
   BellRing,
   CalendarCheck,
   Check,
+  Clock3,
   Keyboard,
   LogIn,
+  MapPin,
   QrCode,
   RotateCcw,
   ScanLine,
   Search,
   SkipForward,
+  Users,
 } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import type { Appointment, QueueTicket } from "../domain/core/entities";
 import { useFriendlyError } from "../components/feedback/useFriendlyError";
 import { checkIn, createKioskDevice } from "../api/reception";
-import { issueCheckInToken, listAppointments } from "../api/appointments";
+import { issueCheckInToken, listAppointments, revokeCheckInToken } from "../api/appointments";
 import { listEncounters } from "../api/encounters";
 import {
   acknowledgeQueueTicket,
@@ -56,6 +57,13 @@ const RECEPTION_DEVICE_ID_KEY = "dermahealth:reception-device:id";
 const RECEPTION_DEVICE_SECRET_KEY = "dermahealth:reception-device:secret";
 const MIN_CALLS_BEFORE_SKIP = 3;
 const QUEUE_PAGE_SIZE = 6;
+const localDayRange = (value = new Date()) => {
+  const start = new Date(value);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(value);
+  end.setHours(23, 59, 59, 999);
+  return { start: start.getTime(), end: end.getTime() };
+};
 
 const storedReceptionDevice = () => {
   try {
@@ -93,43 +101,68 @@ export function QueueResult({
   onReset?: () => void;
 }) {
   return (
-    <Result
-      status="success"
-      title="Check-in thành công"
-      subTitle="Bệnh nhân đã được đưa vào hàng đợi khám."
-      extra={
-        <Space direction="vertical" size="large" style={{ width: "100%" }}>
-          <Statistic
-            title="Số thứ tự"
-            value={ticket.number}
-            valueStyle={{ color: "#1769aa", fontSize: 56, fontWeight: 800 }}
-          />
-          <Space wrap size="large">
-            <Statistic title="Số người phía trước" value={ticket.peopleAhead} />
-            <Statistic
-              title="Thời gian chờ dự kiến"
-              value={ticket.estimatedWaitMinutes}
-              suffix="phút"
-            />
-          </Space>
-          <Card size="small">
-            <Text strong>
-              {ticket.department} · {ticket.waitingArea}
-            </Text>
-            <br />
-            <Text>Phòng dự kiến: {ticket.room ?? "Sẽ thông báo"}</Text>
-            {ticket.preparationInstructions.map((item) => (
-              <div key={item}>• {item}</div>
-            ))}
-          </Card>
-          {onReset && (
-            <Button icon={<RotateCcw size={15} />} onClick={onReset}>
-              Tiếp nhận bệnh nhân khác
-            </Button>
+    <div style={{ width: "100%", maxWidth: 620, margin: "0 auto" }}>
+      <Card
+        styles={{ body: { padding: 0, overflow: "hidden", borderRadius: 16 } }}
+        style={{ borderRadius: 16, boxShadow: "0 18px 48px rgba(14,55,86,.14)" }}
+      >
+        <div style={{ padding: "18px 20px", color: "#fff", background: "linear-gradient(135deg,#0d4770 0%,#1769aa 58%,#148a91 100%)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <span style={{ width: 30, height: 30, display: "grid", placeItems: "center", borderRadius: "50%", background: "rgba(255,255,255,.18)" }}><Check size={18} /></span>
+            <div>
+              <Text strong style={{ display: "block", color: "#fff", fontSize: 16 }}>Check-in thành công</Text>
+              <Text style={{ color: "rgba(255,255,255,.78)", fontSize: 12.5 }}>Giữ màn hình này để theo dõi lượt khám</Text>
+            </div>
+            <Tag style={{ marginLeft: "auto", color: "#fff", borderColor: "rgba(255,255,255,.35)", background: "rgba(255,255,255,.12)" }}>ĐANG CHỜ</Tag>
+          </div>
+          <div style={{ textAlign: "center", padding: "24px 0 18px" }}>
+            <Text style={{ color: "rgba(255,255,255,.72)", fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>Số thứ tự của bạn</Text>
+            <div style={{ color: "#fff", fontSize: "clamp(64px, 17vw, 104px)", fontWeight: 800, lineHeight: 1, letterSpacing: "-.04em", marginTop: 8 }}>{ticket.number}</div>
+          </div>
+        </div>
+
+        <div style={{ padding: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 }}>
+            <div style={{ padding: 13, borderRadius: 11, background: "#f4f8fb", border: "1px solid #e0e9f0" }}>
+              <Users size={17} color="#1769aa" />
+              <Text type="secondary" style={{ display: "block", fontSize: 11.5, marginTop: 7 }}>Người phía trước</Text>
+              <Text strong style={{ fontSize: 22 }}>{ticket.peopleAhead}</Text>
+            </div>
+            <div style={{ padding: 13, borderRadius: 11, background: "#f4f8fb", border: "1px solid #e0e9f0" }}>
+              <Clock3 size={17} color="#1769aa" />
+              <Text type="secondary" style={{ display: "block", fontSize: 11.5, marginTop: 7 }}>Chờ dự kiến</Text>
+              <Text strong style={{ fontSize: 22 }}>{ticket.estimatedWaitMinutes} <span style={{ fontSize: 13, fontWeight: 500 }}>phút</span></Text>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 11, alignItems: "flex-start", padding: "15px 2px 12px" }}>
+            <MapPin size={19} color="#148a91" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <Text strong style={{ display: "block" }}>{ticket.department}</Text>
+              <Text type="secondary">{ticket.waitingArea} · {ticket.room ?? "Phòng sẽ được thông báo"}</Text>
+            </div>
+          </div>
+
+          {ticket.preparationInstructions.length > 0 && (
+            <div style={{ padding: "11px 13px", borderRadius: 10, background: "#fff8e8", border: "1px solid #f2d791" }}>
+              <Text strong style={{ fontSize: 12.5 }}>Trong lúc chờ</Text>
+              {ticket.preparationInstructions.map((item) => (
+                <Text key={item} style={{ display: "block", marginTop: 4, fontSize: 12.5 }}>• {item}</Text>
+              ))}
+            </div>
           )}
-        </Space>
-      }
-    />
+
+          <Text type="secondary" style={{ display: "block", textAlign: "center", fontSize: 11.5, marginTop: 14 }}>
+            Theo dõi màn hình gọi số và loa thông báo. Không cần lấy thêm số giấy.
+          </Text>
+        </div>
+      </Card>
+      {onReset && (
+        <Button block size="large" icon={<RotateCcw size={15} />} onClick={onReset} style={{ marginTop: 14 }}>
+          Tiếp nhận bệnh nhân khác
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -142,12 +175,14 @@ export default function KioskCheckIn({
   const showError = useFriendlyError();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const initial = (location.state as { ticket?: QueueTicket } | null)?.ticket;
+  const requestedAppointmentId = searchParams.get("appointmentId") ?? undefined;
   const appointments = useStore(appointmentRepository);
   const patients = useStore(patientRepository);
   const queueTickets = useStore(queueRepository);
   const [token, setToken] = useState("");
-  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>();
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | undefined>(requestedAppointmentId);
   const [ticket, setTicket] = useState<QueueTicket | undefined>(initial);
   const [submitting, setSubmitting] = useState(false);
   const [queueActionId, setQueueActionId] = useState<string>();
@@ -160,10 +195,10 @@ export default function KioskCheckIn({
   const cameraFrameRef = useRef<number | null>(null);
   const [refreshing, setRefreshing] = useState(reception);
   const [eligibilityCutoff, setEligibilityCutoff] = useState(
-    () => Date.now() - 4 * 60 * 60 * 1000,
+    () => localDayRange().start,
   );
   const [eligibilityCeiling, setEligibilityCeiling] = useState(
-    () => Date.now() + 2 * 60 * 60 * 1000,
+    () => localDayRange().end,
   );
 
   const refreshReceptionData = useCallback(async () => {
@@ -187,9 +222,9 @@ export default function KioskCheckIn({
         ),
       );
     }
-    const now = Date.now();
-    const nextCutoff = now - 4 * 60 * 60 * 1000;
-    const nextCeiling = now + 2 * 60 * 60 * 1000;
+    const today = localDayRange();
+    const nextCutoff = today.start;
+    const nextCeiling = today.end;
     setEligibilityCutoff(nextCutoff);
     setEligibilityCeiling(nextCeiling);
     if (
@@ -257,6 +292,9 @@ export default function KioskCheckIn({
         .filter(
           (item) =>
             item.status === "upcoming" &&
+            Boolean(item.startAt) &&
+            new Date(item.startAt!).getTime() >= eligibilityCutoff &&
+            new Date(item.startAt!).getTime() <= eligibilityCeiling &&
             !queueTickets.some(
               (ticketItem) =>
                 ticketItem.appointmentId === item.id ||
@@ -265,7 +303,7 @@ export default function KioskCheckIn({
             ),
         )
         .sort((a, b) => (a.startAt ?? "").localeCompare(b.startAt ?? "")),
-    [appointments, queueTickets],
+    [appointments, eligibilityCeiling, eligibilityCutoff, queueTickets],
   );
   const activeReceptionTickets = useMemo(
     () => {
@@ -279,6 +317,12 @@ export default function KioskCheckIn({
         completed: 6,
       };
       return queueTickets
+        .filter((item) => {
+          const issuedAt = new Date(item.issuedAt).getTime();
+          return item.status !== "completed"
+            && issuedAt >= eligibilityCutoff
+            && issuedAt <= eligibilityCeiling;
+        })
         .sort(
           (a, b) =>
             statusOrder[a.status] - statusOrder[b.status] ||
@@ -286,7 +330,7 @@ export default function KioskCheckIn({
             a.id.localeCompare(b.id),
         );
     },
-    [queueTickets],
+    [eligibilityCeiling, eligibilityCutoff, queueTickets],
   );
   const firstWaitingTicketByDepartment = useMemo(() => {
     const result = new Map<string, string>();
@@ -630,9 +674,36 @@ export default function KioskCheckIn({
         setSelectedAppointmentId(undefined);
         return;
       }
+      // A reception check-in must not reuse the appointment's previously
+      // issued QR. That token may have expired while still being marked
+      // active by an older backend version.
+      try {
+        await revokeCheckInToken(
+          appointment.id,
+          "Lễ tân phát mã mới để tiếp nhận trực tiếp",
+        );
+      } catch {
+        // No active token is a valid state; issuing below remains authoritative.
+      }
       const issued = await issueCheckInToken(appointment.id);
       if (!issued.token) {
         throw new Error("Máy chủ không trả về mã check-in.");
+      }
+      const now = Date.now();
+      const validFrom = Date.parse(issued.validFrom);
+      const expiresAt = Date.parse(issued.expiresAt);
+      if (!Number.isFinite(validFrom) || !Number.isFinite(expiresAt)) {
+        throw new Error("Máy chủ trả về thời hạn mã check-in không hợp lệ.");
+      }
+      if (now < validFrom) {
+        throw new Error(
+          `Chưa đến thời gian tiếp nhận. Mã có hiệu lực từ ${new Date(validFrom).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}.`,
+        );
+      }
+      if (now > expiresAt) {
+        throw new Error(
+          "Mã vừa phát hành đã hết hạn. Cần kiểm tra đồng hồ hoặc cấu hình thời gian check-in trên máy chủ.",
+        );
       }
       await performCheckIn(issued.token, appointment);
     } catch (error) {
@@ -934,7 +1005,7 @@ export default function KioskCheckIn({
                               marginBottom: 8,
                             }}
                           >
-                            <Text strong>Danh sách điều phối bệnh nhân</Text>
+                            <Text strong>Hàng đợi hôm nay</Text>
                             <Space size={8}>
                               <Tag>
                                 Chờ{" "}
@@ -1191,11 +1262,11 @@ export default function KioskCheckIn({
                             }}
                           >
                             <div>
-                              <Text strong>Lịch hẹn chưa tiếp nhận</Text>
+                              <Text strong>Lịch hẹn hôm nay chưa tiếp nhận</Text>
                               <br />
                               <Text type="secondary">
-                                Toàn bộ bệnh nhân đã đăng ký và chưa vào hàng
-                                đợi
+                                Chỉ hiển thị lịch trong ngày; lịch cũ được giữ
+                                trong hồ sơ và không làm dài màn vận hành
                               </Text>
                             </div>
                             <Tag color="gold">

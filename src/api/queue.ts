@@ -100,6 +100,21 @@ export async function callNextQueueTicket(payload: {
   return mapQueueTicket(row);
 }
 
+export async function createWalkInQueueTicket(payload: {
+  clinicLocationId: string;
+  serviceCode: string;
+  fullName: string;
+  phone: string;
+  note?: string;
+}): Promise<QueueTicket> {
+  const row = await http.post<ApiQueueTicket>(
+    "/api/v1/queue-tickets/walk-ins",
+    payload,
+    { auth: false },
+  );
+  return mapQueueTicket(row);
+}
+
 async function updateQueueTicket(
   ticketId: string,
   action: "acknowledgements" | "service-starts" | "skips" | "completions",

@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Input, Button, Tag, Typography, Alert, List, App as AntApp, Grid, Modal, Select, Statistic, Steps, Empty } from 'antd';
-import { Plus, Workflow, Lock, History, ArrowRight, CheckCircle2, FilePenLine, Rocket, Users, Search } from 'lucide-react';
+import { Card, Input, Button, Tag, Typography, Alert, App as AntApp, Grid, Modal, Select, Statistic, Popconfirm, Table } from 'antd';
+import { Plus, Workflow, Lock, History, ArrowRight, CheckCircle2, FilePenLine, Search, Archive } from 'lucide-react';
 import { useAppState } from '../../state/useAppState';
 import { useStore } from '../../state/useStore';
 import { workflowRepository } from '../../domain/repositories';
-import { listWorkflowTemplates, listWorkflowTemplateVersions, createWorkflowTemplate } from '../../api/workflowTemplate';
+import { listWorkflowTemplates, listWorkflowTemplateVersions, createWorkflowTemplate, archiveWorkflowTemplateVersion } from '../../api/workflowTemplate';
 import { useFriendlyError } from '../../components/feedback/useFriendlyError';
 import { hasRoleAccess, type UserRole } from '../../domain/core/role';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 const WORKFLOW_AUTHOR_ROLES: readonly UserRole[] = [
   'clinical_process_designer',
   'medical_administrator',
@@ -30,10 +30,18 @@ export default function WorkflowTemplates() {
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft' | 'archived'>('all');
+  const [archivingVersionId, setArchivingVersionId] = useState<string>();
 
   const canDesign = hasRoleAccess(role, WORKFLOW_AUTHOR_ROLES);
-  const publishedCount = templates.filter((template) => Boolean(template.latestPublishedVersionId)).length;
+  const canArchive = hasRoleAccess(role, ['medical_administrator']);
+  const publishedCount = templates.filter((template) =>
+    versions.some((version) =>
+      version.templateId === template.id
+      && version.id === template.latestPublishedVersionId
+      && version.status === 'published',
+    ),
+  ).length;
   const draftCount = templates.filter((template) =>
     versions.some((version) => version.templateId === template.id && version.status === 'draft'),
   ).length;
@@ -42,9 +50,40 @@ export default function WorkflowTemplates() {
     const matchesQuery = !normalizedQuery
       || template.name.toLocaleLowerCase('vi').includes(normalizedQuery)
       || template.specialty.toLocaleLowerCase('vi').includes(normalizedQuery);
+    const templateVersions = versions.filter((version) => version.templateId === template.id);
+    const isPublished = templateVersions.some((version) =>
+      version.id === template.latestPublishedVersionId && version.status === 'published',
+    );
+    const hasDraft = templateVersions.some((version) => version.status === 'draft');
+    const isArchived = templateVersions.length > 0
+      && templateVersions.every((version) => version.status === 'archived');
     const matchesStatus = statusFilter === 'all'
-      || (statusFilter === 'published' ? Boolean(template.latestPublishedVersionId) : !template.latestPublishedVersionId);
+      ? !isArchived
+      : statusFilter === 'published'
+        ? isPublished
+        : statusFilter === 'draft'
+          ? hasDraft
+          : isArchived;
     return matchesQuery && matchesStatus;
+  });
+  const tableRows = visibleTemplates.map((template) => {
+    const templateVersions = versions.filter((version) => version.templateId === template.id);
+    const published = templateVersions.find((version) =>
+      version.id === template.latestPublishedVersionId && version.status === 'published',
+    );
+    const draft = templateVersions.find((version) => version.status === 'draft');
+    const archived = templateVersions
+      .filter((version) => version.status === 'archived')
+      .sort((left, right) => right.version - left.version)[0];
+    return {
+      key: template.id,
+      template,
+      templateVersions,
+      published,
+      draft,
+      archived,
+      displayedVersion: published ?? draft ?? archived,
+    };
   });
 
   useEffect(() => {
@@ -79,14 +118,52 @@ export default function WorkflowTemplates() {
     }
   };
 
+  const archiveVersion = async (versionId: string, rowVersion: number, published: boolean) => {
+    try {
+      setArchivingVersionId(versionId);
+      const archived = await archiveWorkflowTemplateVersion(versionId, Math.max(1, rowVersion));
+      workflowRepository.versions().upsert(archived);
+      message.success(published ? 'Đã ngừng sử dụng quy trình.' : 'Đã xóa bản nháp.');
+    } catch (err) {
+      showError(err);
+    } finally {
+      setArchivingVersionId(undefined);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Title level={3} style={{ margin: 0 }}>Quy trình khám & điều trị</Title>
           <Text type="secondary">Thiết kế mẫu chuẩn, xuất bản có phiên bản và áp dụng riêng cho từng lượt khám.</Text>
         </div>
-        {canDesign && <Button type="primary" size="large" icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>Tạo quy trình</Button>}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Input
+            allowClear
+            prefix={<Search size={14} />}
+            placeholder="Tìm tên hoặc chuyên khoa"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            style={{ width: isStacked ? 'min(100%, 260px)' : 280 }}
+          />
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            style={{ width: 160 }}
+            options={[
+              { value: 'all', label: 'Đang hoạt động' },
+              { value: 'published', label: 'Đang sử dụng' },
+              { value: 'draft', label: 'Đang thiết kế' },
+              { value: 'archived', label: 'Đã lưu trữ' },
+            ]}
+          />
+          {canDesign && (
+            <Button type="primary" icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>
+              Tạo quy trình
+            </Button>
+          )}
+        </div>
       </div>
 
       {!canDesign && (
@@ -99,19 +176,6 @@ export default function WorkflowTemplates() {
         />
       )}
 
-      <Card styles={{ body: { padding: isStacked ? 16 : '18px 24px' } }}>
-        <Steps
-          responsive
-          current={-1}
-          items={[
-            { title: 'Thiết kế', description: 'Xây các bước và điều kiện', icon: <FilePenLine size={16} /> },
-            { title: 'Kiểm tra & xuất bản', description: 'Khóa một phiên bản sử dụng', icon: <CheckCircle2 size={16} /> },
-            { title: 'Áp dụng lượt khám', description: 'Tạo bản chạy riêng cho bệnh nhân', icon: <Rocket size={16} /> },
-            { title: 'Theo dõi điều trị', description: 'Bệnh nhân và bác sĩ cùng cập nhật', icon: <Users size={16} /> },
-          ]}
-        />
-      </Card>
-
       <div style={{ display: 'grid', gridTemplateColumns: isStacked ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
         <Card size="small"><Statistic title="Tổng số quy trình" value={templates.length} prefix={<Workflow size={17} />} /></Card>
         <Card size="small"><Statistic title="Đang sử dụng" value={publishedCount} valueStyle={{ color: 'var(--success)' }} prefix={<CheckCircle2 size={17} />} /></Card>
@@ -121,59 +185,106 @@ export default function WorkflowTemplates() {
       <Card
         size="small"
         title="Thư viện quy trình"
-        extra={(
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Input allowClear prefix={<Search size={14} />} placeholder="Tìm tên hoặc chuyên khoa" value={query} onChange={(event) => setQuery(event.target.value)} style={{ width: isStacked ? 190 : 250 }} />
-            <Select
-              value={statusFilter}
-              onChange={setStatusFilter}
-              style={{ width: 150 }}
-              options={[
-                { value: 'all', label: 'Tất cả trạng thái' },
-                { value: 'published', label: 'Đang sử dụng' },
-                { value: 'draft', label: 'Chưa xuất bản' },
-              ]}
-            />
-          </div>
-        )}
+        styles={{ body: { padding: 0 } }}
       >
-          <List
-            dataSource={visibleTemplates}
-            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Không có quy trình phù hợp" /> }}
-            renderItem={(t) => {
-              const tVersions = versions.filter((v) => v.templateId === t.id);
-              const published = tVersions.find((v) => v.id === t.latestPublishedVersionId);
-              const draft = tVersions.find((v) => v.status === 'draft');
-              const stepCount = (published ?? draft)?.steps.length ?? 0;
-              return (
-                <List.Item
-                  actions={[
-                    <Button
-                      key="open"
-                      type={published ? 'default' : 'primary'}
-                      icon={<ArrowRight size={14} />}
-                      onClick={() => navigate(`/app/workflows/templates/${t.id}`)}
+        <Table
+          rowKey="key"
+          dataSource={tableRows}
+          pagination={false}
+          scroll={{ x: 900 }}
+          locale={{ emptyText: 'Không có quy trình phù hợp' }}
+          columns={[
+            {
+              title: 'Quy trình',
+              key: 'workflow',
+              width: '48%',
+              render: (_, row) => (
+                <div>
+                  <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                    <Workflow size={14} style={{ verticalAlign: -2, marginRight: 7 }} />
+                    {row.template.name}
+                  </Text>
+                  {row.template.description && (
+                    <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 5 }}>
+                      {row.template.description}
+                    </Text>
+                  )}
+                  <Text type="secondary" style={{ fontSize: 11.5 }}>
+                    <History size={11} style={{ verticalAlign: -1 }} /> {row.templateVersions.length} phiên bản
+                  </Text>
+                </div>
+              ),
+            },
+            {
+              title: 'Chuyên khoa',
+              key: 'specialty',
+              width: 150,
+              render: (_, row) => <Tag color="blue">{row.template.specialty}</Tag>,
+            },
+            {
+              title: 'Số bước',
+              key: 'steps',
+              width: 100,
+              align: 'center',
+              render: (_, row) => row.displayedVersion?.steps.length ?? 0,
+            },
+            {
+              title: 'Trạng thái',
+              key: 'status',
+              width: 150,
+              render: (_, row) => (
+                <Tag color={row.published ? 'success' : row.archived && !row.draft ? 'default' : 'processing'}>
+                  {row.published ? `Đang sử dụng · v${row.published.version}` : row.draft ? 'Đang thiết kế' : 'Đã lưu trữ'}
+                </Tag>
+              ),
+            },
+            {
+              title: 'Hành động',
+              key: 'actions',
+              width: 260,
+              align: 'right',
+              render: (_, row) => (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  {canArchive && row.displayedVersion?.status !== 'archived' && (
+                    <Popconfirm
+                      title={row.published ? 'Ngừng sử dụng quy trình này?' : 'Xóa bản nháp này?'}
+                      description={row.published
+                        ? 'Lượt khám mới sẽ không dùng phiên bản này. Các ca đã áp dụng vẫn được giữ nguyên.'
+                        : 'Bản nháp sẽ được chuyển vào mục Đã lưu trữ.'}
+                      okText={row.published ? 'Ngừng sử dụng' : 'Xóa bản nháp'}
+                      cancelText="Hủy"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => void archiveVersion(
+                        (row.published ?? row.draft)!.id,
+                        (row.published ?? row.draft)!.rowVersion ?? 1,
+                        Boolean(row.published),
+                      )}
                     >
-                      {published ? 'Xem & quản lý' : 'Tiếp tục thiết kế'}
-                    </Button>,
-                  ]}
-                >
-                    <div style={{ padding: 14, background: 'var(--surface-subtle)', borderRadius: 10, border: '1px solid var(--border-default)', width: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: t.description ? 4 : 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
-                          <Text strong><Workflow size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{t.name}</Text>
-                          <Tag color="blue" style={{ margin: 0 }}>{t.specialty}</Tag>
-                          <Tag style={{ margin: 0 }}>{stepCount} bước</Tag>
-                        </div>
-                        <Tag color={published ? 'success' : 'default'} style={{ margin: 0, flexShrink: 0 }}>{published ? `Đang sử dụng · v${published.version}` : 'Đang thiết kế'}</Tag>
-                      </div>
-                      {t.description && <Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 4 }}>{t.description}</Paragraph>}
-                      <Text type="secondary" style={{ fontSize: 11.5 }}><History size={11} style={{ verticalAlign: -1 }} /> {tVersions.length} phiên bản · Mỗi lượt khám nhận một bản chạy độc lập</Text>
-                    </div>
-                </List.Item>
-              );
-            }}
-          />
+                      <Button
+                        size="small"
+                        danger
+                        icon={<Archive size={14} />}
+                        loading={archivingVersionId === (row.published ?? row.draft)?.id}
+                      >
+                        {row.published ? 'Ngừng' : 'Xóa'}
+                      </Button>
+                    </Popconfirm>
+                  )}
+                  {row.displayedVersion?.status !== 'archived' && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<ArrowRight size={14} />}
+                      onClick={() => navigate(`/app/workflows/templates/${row.template.id}`)}
+                    >
+                      {row.published ? 'Quản lý' : 'Thiết kế'}
+                    </Button>
+                  )}
+                </div>
+              ),
+            },
+          ]}
+        />
       </Card>
 
       <Modal
