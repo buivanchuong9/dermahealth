@@ -22,6 +22,12 @@ interface ClinicalResultDto {
   orderId: string;
   summary: string;
   abnormal: boolean;
+  critical?: boolean;
+  criticalReason?: unknown;
+  acknowledgedAt?: unknown;
+  acknowledgedBy?: unknown;
+  acknowledgementNote?: unknown;
+  version?: number;
   recordedAt: string;
   recordedBy: string;
 }
@@ -40,6 +46,8 @@ export interface MarkInvalidSampleRequest {
 export interface RecordClinicalResultRequest {
   summary: string;
   abnormal: boolean;
+  critical?: boolean;
+  criticalReason?: string;
   version: number;
 }
 
@@ -51,7 +59,10 @@ const mapOrder = (dto: ClinicalOrderDto): ClinicalOrder => ({
   justification: dto.justification,
   status: dto.status,
   assignedRole: dto.assignedRole,
+  invalidSampleReason: typeof dto.invalidSampleReason === 'string' ? dto.invalidSampleReason : undefined,
+  version: dto.version,
   createdAt: dto.createdAt,
+  updatedAt: dto.updatedAt,
 });
 
 const mapResult = (dto: ClinicalResultDto): ClinicalResult => ({
@@ -59,6 +70,12 @@ const mapResult = (dto: ClinicalResultDto): ClinicalResult => ({
   orderId: dto.orderId as ClinicalOrderId,
   summary: dto.summary,
   abnormal: dto.abnormal,
+  critical: dto.critical ?? false,
+  criticalReason: typeof dto.criticalReason === 'string' ? dto.criticalReason : undefined,
+  acknowledgedAt: typeof dto.acknowledgedAt === 'string' ? dto.acknowledgedAt : undefined,
+  acknowledgedBy: typeof dto.acknowledgedBy === 'string' ? dto.acknowledgedBy as UserId : undefined,
+  acknowledgementNote: typeof dto.acknowledgementNote === 'string' ? dto.acknowledgementNote : undefined,
+  version: dto.version ?? 1,
   recordedAt: dto.recordedAt,
   recordedBy: dto.recordedBy as UserId,
 });
@@ -84,6 +101,9 @@ export const getEncounterClinicalOrders = async (encounterId: string) =>
     )
   ).map(mapOrder);
 
+export const listAssignedClinicalOrders = async () =>
+  (await http.get<ClinicalOrderDto[]>('/api/v1/clinical-orders')).map(mapOrder);
+
 export const markClinicalOrderInvalidSample = async (
   orderId: string,
   body: MarkInvalidSampleRequest,
@@ -96,3 +116,11 @@ export const recordClinicalOrderResult = async (
 
 export const getClinicalOrderResult = async (orderId: string) =>
   mapResult(await http.get<ClinicalResultDto>(`${orderPath(orderId)}/result`));
+
+export const acknowledgeCriticalClinicalResult = async (
+  orderId: string,
+  body: { note: string; version: number },
+) => mapResult(await http.post<ClinicalResultDto>(
+  `${orderPath(orderId)}/result/acknowledgements`,
+  body,
+));

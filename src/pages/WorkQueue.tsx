@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { App as AntApp, Card, Select, Table, Tag, Typography, Button } from 'antd';
+import { App as AntApp, Alert, Card, Checkbox, Input, Modal, Select, Space, Table, Tag, Typography, Button } from 'antd';
 import {
   DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCorners,
   useDroppable, useDraggable,
@@ -11,7 +11,7 @@ import { DragHandle } from '../components/common/DragHandle';
 import { DragConfirmDialog, type PendingDrop } from '../components/common/DragConfirmDialog';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
-import { workflowRepository, encounterRepository } from '../domain/repositories';
+import { clinicalOrderRepository, workflowRepository, encounterRepository } from '../domain/repositories';
 import {
   listWorkflowTasks,
   acceptWorkflowTask,
@@ -23,9 +23,14 @@ import {
 import { TASK_STATUS_LABEL } from '../domain/core/enums';
 import { hasRoleAccess, ROLE_LABEL } from '../domain/core/role';
 import type { WorkflowTaskStatus, Priority, Urgency } from '../domain/core/enums';
-import type { WorkflowTask } from '../domain/core/entities';
+import type { ClinicalOrder, WorkflowTask } from '../domain/core/entities';
 import { useFriendlyError } from '../components/feedback/useFriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
+import {
+  listAssignedClinicalOrders,
+  markClinicalOrderInvalidSample,
+  recordClinicalOrderResult,
+} from '../api/clinicalOrder';
 
 const { Title, Text } = Typography;
 
@@ -116,6 +121,7 @@ export default function WorkQueue() {
   const { currentUser, role } = useAppState();
   const tasks = useStore(workflowRepository.tasks());
   const encounters = useStore(encounterRepository);
+  const clinicalOrders = useStore(clinicalOrderRepository.orders());
   const [department, setDepartment] = useState('all');
   const [statusFilter, setStatusFilter] = useState<WorkflowTaskStatus | 'all'>('all');
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
@@ -123,6 +129,14 @@ export default function WorkQueue() {
   const [activeTask, setActiveTask] = useState<WorkflowTask | null>(null);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
+  const [resultOrder, setResultOrder] = useState<ClinicalOrder | null>(null);
+  const [resultSummary, setResultSummary] = useState('');
+  const [resultAbnormal, setResultAbnormal] = useState(false);
+  const [resultCritical, setResultCritical] = useState(false);
+  const [criticalReason, setCriticalReason] = useState('');
+  const [invalidSampleOrder, setInvalidSampleOrder] = useState<ClinicalOrder | null>(null);
+  const [invalidSampleReason, setInvalidSampleReason] = useState('');
+  const [clinicalOrderBusy, setClinicalOrderBusy] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor));
 
@@ -150,11 +164,77 @@ export default function WorkQueue() {
 
   const refreshTasks = () =>
     listWorkflowTasks().then((rows) => workflowRepository.tasks().replaceAll(rows)).catch((err: unknown) => { showError(err); });
+  const refreshClinicalOrders = () =>
+    listAssignedClinicalOrders()
+      .then((rows) => clinicalOrderRepository.orders().replaceAll(rows))
+      .catch((err: unknown) => { showError(err); });
 
   useEffect(() => {
     refreshTasks();
+    refreshClinicalOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const submitClinicalResult = async () => {
+    if (!resultOrder) return;
+    if (!resultSummary.trim()) {
+      message.error('Cần nhập kết quả chuyên môn.');
+      return;
+    }
+    if (resultCritical && !resultAbnormal) {
+      message.error('Kết quả nguy cấp bắt buộc phải được đánh dấu bất thường.');
+      return;
+    }
+    if (resultCritical && !criticalReason.trim()) {
+      message.error('Cần ghi rõ lý do xác định kết quả nguy cấp.');
+      return;
+    }
+    setClinicalOrderBusy(true);
+    try {
+      const result = await recordClinicalOrderResult(resultOrder.id, {
+        summary: resultSummary.trim(),
+        abnormal: resultAbnormal,
+        critical: resultCritical,
+        criticalReason: resultCritical ? criticalReason.trim() : undefined,
+        version: Math.max(1, resultOrder.version ?? 1),
+      });
+      clinicalOrderRepository.results().upsert(result);
+      await refreshClinicalOrders();
+      setResultOrder(null);
+      setResultSummary('');
+      setResultAbnormal(false);
+      setResultCritical(false);
+      setCriticalReason('');
+      message.success(resultCritical ? 'Đã gửi kết quả nguy cấp và kích hoạt quy trình xác nhận.' : 'Đã ghi nhận kết quả.');
+    } catch (err) {
+      showError(err);
+    } finally {
+      setClinicalOrderBusy(false);
+    }
+  };
+
+  const submitInvalidSample = async () => {
+    if (!invalidSampleOrder) return;
+    if (invalidSampleReason.trim().length < 3) {
+      message.error('Cần ghi rõ nguyên nhân mẫu không hợp lệ.');
+      return;
+    }
+    setClinicalOrderBusy(true);
+    try {
+      await markClinicalOrderInvalidSample(invalidSampleOrder.id, {
+        reason: invalidSampleReason.trim(),
+        version: Math.max(1, invalidSampleOrder.version ?? 1),
+      });
+      await refreshClinicalOrders();
+      setInvalidSampleOrder(null);
+      setInvalidSampleReason('');
+      message.success('Đã báo mẫu không hợp lệ để điều phối lấy lại.');
+    } catch (err) {
+      showError(err);
+    } finally {
+      setClinicalOrderBusy(false);
+    }
+  };
 
   const autoAssign = () => {
     const candidates = tasks.filter((t) => t.responsibleRole === role && t.status === 'ready' && !t.assigneeId);
@@ -248,6 +328,65 @@ export default function WorkQueue() {
         </div>
       </Card>
 
+      <Card
+        title="Y lệnh cận lâm sàng cần thực hiện"
+        size="small"
+        extra={<Tag color="blue">{clinicalOrders.filter((order) => order.status === 'requested' || order.status === 'in_progress').length} đang chờ</Tag>}
+      >
+        <Table
+          size="small"
+          rowKey="id"
+          scroll={{ x: 'max-content' }}
+          pagination={{ pageSize: 6 }}
+          dataSource={clinicalOrders}
+          locale={{ emptyText: 'Không có y lệnh trong phạm vi vai trò hiện tại.' }}
+          columns={[
+            {
+              title: 'Loại',
+              dataIndex: 'type',
+              render: (value: ClinicalOrder['type']) =>
+                value === 'laboratory' ? 'Xét nghiệm' : value === 'imaging' ? 'Chẩn đoán hình ảnh' : 'Hội chẩn',
+            },
+            {
+              title: 'Lượt khám',
+              dataIndex: 'encounterId',
+              render: (value: string) => {
+                const encounter = encounters.find((item) => item.id === value);
+                return encounter ? `${value} · ${encounter.department}` : value;
+              },
+            },
+            { title: 'Lý do chỉ định', dataIndex: 'justification' },
+            {
+              title: 'Trạng thái',
+              render: (_: unknown, order: ClinicalOrder) => (
+                <Tag color={order.status === 'invalid_sample' ? 'error' : order.status === 'completed' ? 'success' : order.status === 'result_ready' ? 'warning' : 'processing'}>
+                  {order.status === 'requested' ? 'Chờ thực hiện' : order.status === 'in_progress' ? 'Đang thực hiện' : order.status === 'invalid_sample' ? 'Mẫu không hợp lệ' : order.status === 'result_ready' ? 'Có kết quả bất thường' : order.status === 'completed' ? 'Hoàn tất' : 'Đã hủy'}
+                </Tag>
+              ),
+            },
+            {
+              title: 'Thao tác',
+              fixed: 'right',
+              render: (_: unknown, order: ClinicalOrder) => {
+                const actionable =
+                  canAct &&
+                  order.assignedRole === role &&
+                  (order.status === 'requested' || order.status === 'in_progress');
+                if (!actionable) return <Text type="secondary">Chỉ xem</Text>;
+                return (
+                  <Space wrap>
+                    <Button size="small" type="primary" onClick={() => setResultOrder(order)}>Nhập kết quả</Button>
+                    {order.type === 'laboratory' && (
+                      <Button size="small" danger onClick={() => setInvalidSampleOrder(order)}>Mẫu không hợp lệ</Button>
+                    )}
+                  </Space>
+                );
+              },
+            },
+          ]}
+        />
+      </Card>
+
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
           {COLUMNS.map((col) => <Column key={col.key} col={col} tasks={byColumn(col.key)} encounterLabelFor={encounterLabelFor} readOnly={!canAct} />)}
@@ -275,6 +414,73 @@ export default function WorkQueue() {
       </Card>
 
       {pendingDrop && <DragConfirmDialog pending={pendingDrop} onCancel={() => setPendingDrop(null)} />}
+
+      <Modal
+        title="Ghi nhận kết quả cận lâm sàng"
+        open={Boolean(resultOrder)}
+        onCancel={() => setResultOrder(null)}
+        onOk={() => void submitClinicalResult()}
+        okText="Gửi kết quả"
+        cancelText="Hủy"
+        confirmLoading={clinicalOrderBusy}
+      >
+        <Alert
+          type="info"
+          showIcon
+          message="Kết quả đã gửi là dữ liệu lâm sàng có audit"
+          description="Không đánh dấu nguy cấp chỉ để ưu tiên hàng đợi. Nếu nguy cấp, bác sĩ bắt buộc phải xác nhận đã tiếp nhận và xử trí trước khi đóng lượt khám."
+          style={{ marginBottom: 12 }}
+        />
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Input.TextArea
+            rows={4}
+            value={resultSummary}
+            onChange={(event) => setResultSummary(event.target.value)}
+            placeholder="Kết quả, giá trị đo, đơn vị, khoảng tham chiếu và nhận xét..."
+          />
+          <Checkbox
+            checked={resultAbnormal}
+            onChange={(event) => {
+              setResultAbnormal(event.target.checked);
+              if (!event.target.checked) setResultCritical(false);
+            }}
+          >
+            Kết quả bất thường
+          </Checkbox>
+          <Checkbox
+            checked={resultCritical}
+            disabled={!resultAbnormal}
+            onChange={(event) => setResultCritical(event.target.checked)}
+          >
+            Kết quả nguy cấp — cần bác sĩ xác nhận ngay
+          </Checkbox>
+          {resultCritical && (
+            <Input.TextArea
+              rows={2}
+              value={criticalReason}
+              onChange={(event) => setCriticalReason(event.target.value)}
+              placeholder="Lý do/ngưỡng nguy cấp và yêu cầu xử trí tức thời..."
+            />
+          )}
+        </Space>
+      </Modal>
+
+      <Modal
+        title="Báo mẫu không hợp lệ"
+        open={Boolean(invalidSampleOrder)}
+        onCancel={() => setInvalidSampleOrder(null)}
+        onOk={() => void submitInvalidSample()}
+        okText="Xác nhận cần lấy lại"
+        cancelText="Hủy"
+        confirmLoading={clinicalOrderBusy}
+      >
+        <Input.TextArea
+          rows={3}
+          value={invalidSampleReason}
+          onChange={(event) => setInvalidSampleReason(event.target.value)}
+          placeholder="Ví dụ: mẫu đông, sai ống, thiếu thể tích..."
+        />
+      </Modal>
     </div>
   );
 }

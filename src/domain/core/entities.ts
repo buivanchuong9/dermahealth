@@ -208,6 +208,9 @@ export interface ClinicalOrder {
   assignedRole: UserRole;
   createdAt: string;
   resultId?: ClinicalResultId;
+  invalidSampleReason?: string;
+  version?: number;
+  updatedAt?: string;
 }
 
 export interface ClinicalResult {
@@ -215,6 +218,12 @@ export interface ClinicalResult {
   orderId: ClinicalOrderId;
   summary: string;
   abnormal: boolean;
+  critical?: boolean;
+  criticalReason?: string;
+  acknowledgedAt?: string;
+  acknowledgedBy?: UserId;
+  acknowledgementNote?: string;
+  version?: number;
   recordedAt: string;
   recordedBy: UserId;
 }
@@ -267,6 +276,7 @@ export interface WorkflowTemplateVersion {
   status: WorkflowTemplateStatus;
   steps: WorkflowStepDefinition[];
   nodePositions?: Record<string, { x: number; y: number }>;
+  terminalEdges?: Array<{ source: string; target: string }>;
   createdAt: string;
   publishedAt?: string;
   rowVersion?: number;

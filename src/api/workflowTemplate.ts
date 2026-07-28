@@ -24,6 +24,7 @@ interface WorkflowTemplateVersionDto {
   lifecycleStatus?: WorkflowTemplateStatus;
   steps?: WorkflowStepDefinition[];
   nodePositions?: Record<string, { x: number; y: number }>;
+  terminalEdges?: Array<{ source: string; target: string }>;
   createdAt: string;
   publishedAt?: unknown;
   rowVersion?: number;
@@ -98,6 +99,7 @@ const mapVersion = (dto: WorkflowTemplateVersionDto): WorkflowTemplateVersion =>
     prerequisiteStepCodes: step.prerequisiteStepCodes ?? [],
   })),
   nodePositions: dto.nodePositions,
+  terminalEdges: dto.terminalEdges ?? [],
   createdAt: dto.createdAt,
   publishedAt: optionalString(dto.publishedAt),
   // A draft created by older API versions did not always expose rowVersion.
@@ -261,6 +263,16 @@ export const saveWorkflowTemplateVersionNodePositions = (
 ) => http.put<WorkflowTemplateVersionDto>(
   `${versionPath(versionId)}/node-positions`,
   { positions },
+).then(mapVersion);
+
+export const saveWorkflowTemplateVersionGraphLayout = (
+  versionId: string,
+  positions: Record<string, { x: number; y: number }>,
+  terminalEdges: Array<{ source: string; target: string }>,
+  rowVersion: number,
+) => http.put<WorkflowTemplateVersionDto>(
+  `${versionPath(versionId)}/graph-layout`,
+  { positions, terminalEdges, rowVersion },
 ).then(mapVersion);
 
 export const publishWorkflowTemplateVersion = async (versionId: string, version: number) => {
