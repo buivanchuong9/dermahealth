@@ -20,7 +20,6 @@ import {
 } from "antd";
 import {
   Camera,
-  ChevronRight,
   LogOut,
   Mail,
   MapPin,
@@ -146,13 +145,6 @@ const getPlanColors = (index: number) => {
     { bg: "#fff3d0", text: "#b87d00", btn: "#b87d00" }, // Max
   ];
   return colors[index % colors.length];
-};
-
-const GENDER_LABEL: Record<string, string> = {
-  male: "Nam",
-  female: "Nữ",
-  other: "Khác",
-  unknown: "Chưa cập nhật",
 };
 
 const formatMoney = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
@@ -599,7 +591,7 @@ export default function Profile() {
         cancelText="Để sau"
         confirmLoading={upgradeLoading}
         centered
-        styles={{ content: { borderRadius: 16 } }}
+        styles={{ root: { borderRadius: 16 } }}
       >
         {selectedPlan && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
