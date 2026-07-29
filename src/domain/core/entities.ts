@@ -36,6 +36,8 @@ export interface PatientProfile {
   email: string;
   address: string;
   bloodType: string;
+  heightCm?: number;
+  weightKg?: number;
 }
 
 export interface Patient {

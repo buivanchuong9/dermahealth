@@ -1,0 +1,21 @@
+.profile-page-wrapper {
+  background-color: #f4f6f8;
+  min-height: calc(100vh - 68px);
+  /* Full-bleed layout to negate .app-content padding */
+  margin: -30px calc(-1 * clamp(24px, 2.4vw, 40px)) -40px;
+  padding: 30px clamp(24px, 2.4vw, 40px) 40px;
+}
+
+@media (max-width: 768px) {
+  .profile-page-wrapper {
+    margin: -20px -16px -28px;
+    padding: 20px 16px 28px;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1023px) {
+  .profile-page-wrapper {
+    margin: -20px;
+    padding: 20px;
+  }
+}

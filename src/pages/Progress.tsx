@@ -35,9 +35,9 @@ export default function Progress() {
   const submitPhoto = async (file: File) => {
     setUploading(true);
     try {
-      const uploaded = await uploadFile(file);
+      const uploaded = await uploadFile(file, "progress-photo");
       await createProgressPhoto(currentPatient.id, {
-        fileName: uploaded.fileName ?? file.name,
+        fileId: uploaded.fileId,
         takenAt: new Date().toISOString(),
       });
       await reload();

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Typography, Space, Skeleton, List, Collapse } from 'antd';
 import { Brain, CheckCircle, ClipboardList, FlaskConical, FileCheck2, GitBranch, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
@@ -51,6 +52,8 @@ function formatEncounterLabel(createdAt: string, status: keyof typeof ENCOUNTER_
 }
 
 export default function DoctorReview() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { currentUser, currentPatient, role } = useAppState();
   const encounters = useStore(encounterRepository).filter((e) => e.patientId === currentPatient.id && e.status !== 'closed');
   const assessments = useStore(aiAssessmentRepository);
@@ -63,7 +66,14 @@ export default function DoctorReview() {
   const workflowVersions = useStore(workflowRepository.versions());
   const workflowInstances = useStore(workflowRepository.instances());
 
-  const [selectedId, setSelectedId] = useState<EncounterId | undefined>(encounters[0]?.id);
+  const requestedEncounterId = searchParams.get('encounterId') as EncounterId | null;
+  const requestedTemplateId = searchParams.get('templateId') ?? undefined;
+  const returnTo = searchParams.get('returnTo');
+  const [selectedId, setSelectedId] = useState<EncounterId | undefined>(
+    encounters.some((row) => row.id === requestedEncounterId)
+      ? requestedEncounterId ?? undefined
+      : encounters[0]?.id,
+  );
   const [rationale, setRationale] = useState('');
   const [diagnosisName, setDiagnosisName] = useState('');
   const [diagnosisCode, setDiagnosisCode] = useState('');
@@ -76,7 +86,9 @@ export default function DoctorReview() {
   const [busy, setBusy] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>();
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(
+    requestedTemplateId,
+  );
   const [criticalAcknowledgementNotes, setCriticalAcknowledgementNotes] = useState<Record<string, string>>({});
 
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
@@ -236,8 +248,9 @@ export default function DoctorReview() {
       isAdditionalToAI: isAdditional, rationale: rationale || undefined, status,
     });
     diagnosisRepository.diagnoses().upsert(diagnosis);
-    if (status === 'confirmed' && encounterService.canTransition(encounter.status, 'diagnosed')) {
-      encounterService.transitionStatus(encounter.id, 'diagnosed', currentUser.id);
+    if (status === 'confirmed') {
+      const freshEncounter = mapEncounter(await getEncounter(encounter.id), encounter.events);
+      encounterRepository.upsert(freshEncounter);
     }
     setDiagnosisName(''); setDiagnosisCode(''); setIsAdditional(false); setSelectedCandidateCode(undefined); setRationale('');
   });
@@ -269,12 +282,13 @@ export default function DoctorReview() {
     if (!existing) {
       await activateEncounterWorkflow(encounter.id, {
         templateId: selectedTemplate.id,
-        encounterVersion: freshEncounter.version ?? 0,
+        encounterVersion: Math.max(1, freshEncounter.version ?? 1),
       });
       const refreshedInstances = await listWorkflowInstances(encounter.patientId);
       refreshedInstances.forEach((item) => workflowRepository.instances().upsert(item));
     }
     setPlanSummary('');
+    if (returnTo?.startsWith('/app/')) navigate(returnTo);
   });
 
   const handleActivateExistingPlan = () => runGuarded(async () => {
@@ -285,10 +299,11 @@ export default function DoctorReview() {
     encounterRepository.upsert(freshEncounter);
     await activateEncounterWorkflow(encounter.id, {
       templateId: selectedTemplate.id,
-      encounterVersion: freshEncounter.version ?? 0,
+      encounterVersion: Math.max(1, freshEncounter.version ?? 1),
     });
     const refreshedInstances = await listWorkflowInstances(encounter.patientId);
     refreshedInstances.forEach((item) => workflowRepository.instances().upsert(item));
+    if (returnTo?.startsWith('/app/')) navigate(returnTo);
   });
 
   const handleCreateOrder = () => runGuarded(async () => {
