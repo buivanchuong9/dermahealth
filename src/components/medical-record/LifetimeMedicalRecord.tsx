@@ -11,24 +11,34 @@ import {
   Select,
   Space,
   Spin,
-  Statistic,
   Tag,
   Timeline,
   Typography,
 } from "antd";
 import {
+  Activity,
+  AlertTriangle,
   Building2,
   CalendarDays,
+  CheckCircle2,
+  ClipboardList,
   FileHeart,
+  FileText,
+  HeartPulse,
   Hospital,
+  Image,
+  Pill,
   RefreshCw,
   ShieldCheck,
   Stethoscope,
+  Syringe,
+  UserRound,
 } from "lucide-react";
 import { ApiError } from "../../api/http";
 import {
   getLifetimeMedicalRecord,
   type LifetimeMedicalRecord as LifetimeMedicalRecordData,
+  type LifetimeRecordClinicalItem,
   type LifetimeRecordEvent,
   type LifetimeRecordEventType,
 } from "../../api/lifetimeMedicalRecord";
@@ -36,111 +46,234 @@ import { useAppState } from "../../state/useAppState";
 
 const { Title, Text, Paragraph } = Typography;
 
-const EVENT_TYPE_LABEL: Record<LifetimeRecordEventType, string> = {
-  encounter: "Lượt khám",
-  diagnosis: "Chẩn đoán",
-  procedure: "Thủ thuật",
-  prescription: "Đơn thuốc",
-  laboratory: "Xét nghiệm",
-  imaging: "Chẩn đoán hình ảnh",
-  vaccination: "Tiêm chủng",
-  allergy: "Dị ứng",
-  document: "Tài liệu",
-  care_plan: "Kế hoạch chăm sóc",
+const EVENT_META: Record<
+  LifetimeRecordEventType,
+  { label: string; color: string; icon: typeof Activity }
+> = {
+  encounter: { label: "Lượt khám", color: "blue", icon: Stethoscope },
+  diagnosis: { label: "Chẩn đoán", color: "purple", icon: HeartPulse },
+  procedure: { label: "Thủ thuật", color: "cyan", icon: Activity },
+  prescription: { label: "Đơn thuốc", color: "green", icon: Pill },
+  laboratory: { label: "Xét nghiệm", color: "gold", icon: ClipboardList },
+  imaging: { label: "Chẩn đoán hình ảnh", color: "geekblue", icon: Image },
+  vaccination: { label: "Tiêm chủng", color: "lime", icon: Syringe },
+  allergy: { label: "Dị ứng", color: "red", icon: AlertTriangle },
+  document: { label: "Tài liệu", color: "default", icon: FileText },
+  care_plan: { label: "Kế hoạch chăm sóc", color: "processing", icon: FileHeart },
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  registered: "Đã tiếp nhận",
+  intake_in_progress: "Đang khai thác bệnh sử",
+  intake_complete: "Đã hoàn tất khai thác",
+  ai_assessed: "Đã hỗ trợ đánh giá",
+  under_doctor_review: "Bác sĩ đang thăm khám",
+  awaiting_results: "Chờ kết quả",
+  diagnosed: "Đã xác nhận chẩn đoán",
+  plan_approved: "Đã duyệt kế hoạch",
+  workflow_active: "Đang điều trị",
+  in_progress: "Đang thực hiện",
+  completed: "Đã hoàn thành",
+  confirmed: "Đã xác nhận",
+  signed: "Đã ký",
+  closed: "Đã kết thúc",
+  requested: "Đã chỉ định",
+  active: "Đang hoạt động",
+  draft: "Bản nháp",
+};
+
+const displayDateTime = (value?: string | null) =>
+  value
+    ? new Date(value).toLocaleString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : "Chưa có";
+
 const displayDate = (value?: string | null) =>
-  value ? new Date(value).toLocaleString("vi-VN") : "Chưa có";
+  value
+    ? new Date(value).toLocaleDateString("vi-VN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : "Chưa có";
+
+const displayGender = (value?: string | null) => {
+  if (value === "male") return "Nam";
+  if (value === "female") return "Nữ";
+  if (value === "other") return "Khác";
+  return value || "Chưa cập nhật";
+};
+
+const deduplicateClinicalItems = (items: LifetimeRecordClinicalItem[]) => {
+  const unique = new Map<string, LifetimeRecordClinicalItem>();
+  items.forEach((item) => {
+    const key = (item.code || item.display)
+      .toLocaleLowerCase("vi")
+      .replace(/\s+v\d+$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!unique.has(key)) unique.set(key, item);
+  });
+  return [...unique.values()];
+};
+
+function SafetyPanel({
+  icon: Icon,
+  title,
+  items,
+  empty,
+  tone,
+}: {
+  icon: typeof AlertTriangle;
+  title: string;
+  items: LifetimeRecordClinicalItem[];
+  empty: string;
+  tone: "danger" | "warning" | "info";
+}) {
+  return (
+    <div className={`records-safety-panel records-safety-panel--${tone}`}>
+      <div className="records-safety-panel__heading">
+        <span className="records-safety-panel__icon"><Icon size={16} /></span>
+        <Text strong>{title}</Text>
+        <span className="records-safety-panel__count">{items.length}</span>
+      </div>
+      {items.length ? (
+        <div className="records-chip-list">
+          {items.slice(0, 4).map((item) => (
+            <span className="records-clinical-chip" key={item.id || item.display}>
+              {item.display}{item.value ? ` · ${item.value}` : ""}
+            </span>
+          ))}
+          {items.length > 4 && (
+            <span className="records-clinical-chip records-clinical-chip--muted">
+              +{items.length - 4} mục
+            </span>
+          )}
+        </div>
+      ) : (
+        <Text type="secondary" className="records-safety-panel__empty">
+          {empty}
+        </Text>
+      )}
+    </div>
+  );
+}
 
 function ClinicalList({
   title,
   items,
 }: {
   title: string;
-  items: LifetimeRecordEvent["diagnoses"];
+  items: LifetimeRecordClinicalItem[];
 }) {
   if (!items.length) return null;
   return (
-    <div>
-      <Text strong style={{ fontSize: 12 }}>
-        {title}
-      </Text>
-      <Space size={[4, 4]} wrap style={{ marginTop: 5 }}>
+    <div className="records-event-detail">
+      <Text type="secondary" className="records-event-detail__label">{title}</Text>
+      <div className="records-chip-list">
         {items.map((item) => (
-          <Tag key={item.id}>
-            {item.display}
-            {item.value ? `: ${item.value}` : ""}
-          </Tag>
+          <span className="records-clinical-chip" key={item.id || `${title}-${item.display}`}>
+            {item.display}{item.value ? ` · ${item.value}` : ""}
+          </span>
         ))}
-      </Space>
+      </div>
     </div>
   );
 }
 
 function EventCard({ event }: { event: LifetimeRecordEvent }) {
+  const meta = EVENT_META[event.type];
+  const Icon = meta.icon;
   const detailSections = [
     { title: "Chẩn đoán", items: event.diagnoses },
-    { title: "Thuốc", items: event.medications },
+    { title: "Thuốc điều trị", items: event.medications },
     { title: "Chỉ định", items: event.orders },
     { title: "Kết quả", items: event.results },
-    { title: "Thủ thuật", items: event.procedures },
+    { title: "Can thiệp / thủ thuật", items: event.procedures },
   ];
+  const hasClinicalDetail =
+    detailSections.some((section) => section.items.length > 0) ||
+    event.documents.length > 0;
 
   return (
-    <Card size="small">
-      <Space direction="vertical" size={10} style={{ width: "100%" }}>
-        <Row gutter={[12, 8]} justify="space-between">
-          <Col>
-            <Space size={8} wrap>
-              <Tag color="blue">{EVENT_TYPE_LABEL[event.type]}</Tag>
-              <Text strong>{event.title}</Text>
-              {event.status && <Tag>{event.status}</Tag>}
+    <article className="records-event-card">
+      <div className="records-event-card__header">
+        <div className="records-event-card__identity">
+          <span className={`records-event-card__icon records-event-card__icon--${event.type}`}>
+            <Icon size={17} />
+          </span>
+          <div>
+            <Space size={7} wrap>
+              <Tag color={meta.color} bordered={false}>{meta.label}</Tag>
+              {event.status && (
+                <Tag bordered={false}>{STATUS_LABEL[event.status] ?? "Đã ghi nhận"}</Tag>
+              )}
             </Space>
-          </Col>
-          <Col>
-            <Text type="secondary">{displayDate(event.occurredAt)}</Text>
-          </Col>
-        </Row>
-        <Space size={6} wrap>
-          <Hospital size={14} />
-          <Text>{event.source.organizationName}</Text>
-          {event.source.facilityName && (
-            <Text type="secondary">· {event.source.facilityName}</Text>
-          )}
-          {event.practitionerName && (
-            <Text type="secondary">· {event.practitionerName}</Text>
-          )}
-        </Space>
-        {event.summary && <Paragraph style={{ margin: 0 }}>{event.summary}</Paragraph>}
-        {detailSections.some((section) => section.items.length > 0) && (
-          <Collapse
-            ghost
-            size="small"
-            items={[
-              {
-                key: "clinical-detail",
-                label: "Xem chi tiết lâm sàng",
-                children: (
-                  <Space direction="vertical" size={12}>
-                    {detailSections.map((section) => (
-                      <ClinicalList
-                        key={section.title}
-                        title={section.title}
-                        items={section.items}
-                      />
-                    ))}
-                  </Space>
-                ),
-              },
-            ]}
-          />
-        )}
-        <Text type="secondary" style={{ fontSize: 11 }}>
-          Nguồn: {event.provenance.sourceSystem ?? event.source.system ?? "Hệ thống cơ sở"} ·
-          Mã hồ sơ nguồn: {event.provenance.sourceRecordId}
-        </Text>
-      </Space>
-    </Card>
+            <Title level={5} className="records-event-card__title">{event.title}</Title>
+          </div>
+        </div>
+        <div className="records-event-card__date">
+          <CalendarDays size={14} />
+          <span>{displayDateTime(event.occurredAt)}</span>
+        </div>
+      </div>
+
+      <div className="records-event-card__provider">
+        <Hospital size={14} />
+        <Text strong>{event.source.facilityName || event.source.organizationName}</Text>
+        {event.specialty && <Text type="secondary">· {event.specialty}</Text>}
+        {event.practitionerName && <Text type="secondary">· {event.practitionerName}</Text>}
+      </div>
+
+      {event.summary && (
+        <Paragraph className="records-event-card__summary">{event.summary}</Paragraph>
+      )}
+
+      {hasClinicalDetail && (
+        <Collapse
+          ghost
+          size="small"
+          className="records-event-card__collapse"
+          items={[
+            {
+              key: "clinical-detail",
+              label: "Xem dữ liệu lâm sàng",
+              children: (
+                <div className="records-event-detail-grid">
+                  {detailSections.map((section) => (
+                    <ClinicalList key={section.title} title={section.title} items={section.items} />
+                  ))}
+                  {event.documents.length > 0 && (
+                    <ClinicalList
+                      title="Tài liệu"
+                      items={event.documents.map((document) => ({
+                        id: document.id,
+                        display: document.title,
+                      }))}
+                    />
+                  )}
+                </div>
+              ),
+            },
+          ]}
+        />
+      )}
+
+      <div className="records-event-card__provenance">
+        <ShieldCheck size={13} />
+        <span>
+          Nguồn: {event.provenance.sourceSystem || event.source.system || event.source.organizationName}
+          {event.provenance.lastVerifiedAt
+            ? ` · Đối soát ${displayDate(event.provenance.lastVerifiedAt)}`
+            : " · Có lưu vết nguồn"}
+        </span>
+      </div>
+    </article>
   );
 }
 
@@ -161,7 +294,7 @@ export function LifetimeMedicalRecord() {
     } catch (cause) {
       setError(
         cause instanceof ApiError && cause.status === 404
-          ? "Backend chưa triển khai API hồ sơ bệnh án trọn đời. Team BE xem tài liệu LIFETIME_MEDICAL_RECORD_API.md."
+          ? "Dịch vụ hồ sơ hợp nhất chưa sẵn sàng."
           : cause instanceof Error
             ? cause.message
             : "Không tải được hồ sơ bệnh án trọn đời.",
@@ -188,8 +321,7 @@ export function LifetimeMedicalRecord() {
     const keyword = search.trim().toLocaleLowerCase("vi");
     return (record?.events ?? []).filter((event) => {
       if (eventType && event.type !== eventType) return false;
-      if (organizationId && event.source.organizationId !== organizationId)
-        return false;
+      if (organizationId && event.source.organizationId !== organizationId) return false;
       if (!keyword) return true;
       const clinicalText = [
         ...event.diagnoses,
@@ -216,120 +348,176 @@ export function LifetimeMedicalRecord() {
     });
   }, [eventType, organizationId, record?.events, search]);
 
-  return (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card>
-        <Row gutter={[16, 16]} align="middle">
-          <Col flex="auto">
-            <Space align="start">
-              <FileHeart size={28} color="var(--medical-blue-700)" />
-              <div>
-                <Title level={4} style={{ margin: 0 }}>
-                  Hồ sơ bệnh án trọn đời
-                </Title>
-                <Text type="secondary">
-                  Lịch sử khám chữa bệnh hợp nhất từ các cơ sở, giữ nguyên nguồn
-                  và thời điểm của từng hồ sơ.
-                </Text>
-              </div>
-            </Space>
-          </Col>
-          <Col>
-            <Tag color="green" icon={<ShieldCheck size={13} />}>
-              Có truy vết nguồn dữ liệu
-            </Tag>
-          </Col>
-        </Row>
-      </Card>
+  const patient = record?.patient;
+  const summary = record?.summary;
+  const allergies = deduplicateClinicalItems(summary?.allergies ?? []);
+  const activeConditions = deduplicateClinicalItems(summary?.activeConditions ?? []);
+  const currentMedications = deduplicateClinicalItems(summary?.currentMedications ?? []);
+  const initials = (patient?.name || currentPatient.name)
+    .split(" ")
+    .slice(-2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 
-      {error && <Alert type="warning" showIcon message="Chưa tải được dữ liệu hợp nhất" description={error} />}
+  return (
+    <div className="records-lifetime">
+      <section className="records-patient-hero">
+        <div className="records-patient-hero__main">
+          <div className="records-patient-avatar">{initials || <UserRound size={24} />}</div>
+          <div>
+            <div className="records-eyebrow">Hồ sơ sức khỏe hợp nhất</div>
+            <Title level={3}>{patient?.name || currentPatient.name}</Title>
+            <Space size={[8, 6]} wrap>
+              <span className="records-patient-meta">Mã BN {patient?.code || currentPatient.code}</span>
+              <span className="records-patient-meta">{displayGender(patient?.gender || currentPatient.profile.gender)}</span>
+              <span className="records-patient-meta">Sinh {displayDate(patient?.dob || currentPatient.profile.dob)}</span>
+              <span className="records-patient-meta">Nhóm máu {patient?.bloodType || currentPatient.profile.bloodType || "—"}</span>
+            </Space>
+          </div>
+        </div>
+        <div className="records-patient-hero__trust">
+          <span className="records-trust-badge"><ShieldCheck size={15} /> Dữ liệu có truy vết</span>
+          <Text type="secondary">
+            Đồng bộ {record?.synchronizedAt ? displayDateTime(record.synchronizedAt) : "đang cập nhật"}
+          </Text>
+        </div>
+      </section>
+
+      {error && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Chưa tải được dữ liệu hợp nhất"
+          description={error}
+          action={<Button size="small" onClick={() => void load()}>Thử lại</Button>}
+        />
+      )}
 
       <Spin spinning={loading}>
-        <Row gutter={[12, 12]}>
-          <Col xs={12} lg={6}>
-            <Card size="small">
-              <Statistic title="Tổng lượt khám" value={record?.summary.encounterCount ?? 0} prefix={<Stethoscope size={17} />} />
-            </Card>
-          </Col>
-          <Col xs={12} lg={6}>
-            <Card size="small">
-              <Statistic title="Đơn vị y tế" value={record?.summary.organizationCount ?? 0} prefix={<Building2 size={17} />} />
-            </Card>
-          </Col>
-          <Col xs={12} lg={6}>
-            <Card size="small">
-              <Statistic title="Cơ sở đã khám" value={record?.summary.facilityCount ?? 0} prefix={<Hospital size={17} />} />
-            </Card>
-          </Col>
-          <Col xs={12} lg={6}>
-            <Card size="small">
-              <Statistic title="Cập nhật gần nhất" value={record?.summary.lastRecordedAt ? new Date(record.summary.lastRecordedAt).toLocaleDateString("vi-VN") : "—"} prefix={<CalendarDays size={17} />} />
-            </Card>
-          </Col>
-        </Row>
-
-        <Card size="small" title="Tìm trong toàn bộ lịch sử">
-          <Row gutter={[10, 10]}>
-            <Col xs={24} md={10}>
-              <Input.Search
-                allowClear
-                value={search}
-                placeholder="Chẩn đoán, thuốc, bác sĩ, cơ sở..."
-                onChange={(event) => setSearch(event.target.value)}
+        <section className="records-section">
+          <div className="records-section__heading">
+            <div>
+              <div className="records-eyebrow">An toàn người bệnh</div>
+              <Title level={4}>Thông tin cần biết trước khi chỉ định</Title>
+            </div>
+            <Tag color={allergies.length ? "red" : "green"} bordered={false}>
+              {allergies.length ? "Có cảnh báo cần chú ý" : "Chưa ghi nhận cảnh báo dị ứng"}
+            </Tag>
+          </div>
+          <Row gutter={[12, 12]}>
+            <Col xs={24} lg={8}>
+              <SafetyPanel
+                icon={AlertTriangle}
+                title="Dị ứng & phản ứng có hại"
+                items={allergies}
+                empty="Chưa ghi nhận dị ứng"
+                tone="danger"
               />
             </Col>
-            <Col xs={24} md={6}>
-              <Select
-                allowClear
-                style={{ width: "100%" }}
-                placeholder="Loại hồ sơ"
-                value={eventType}
-                options={Object.entries(EVENT_TYPE_LABEL).map(([value, label]) => ({
-                  value,
-                  label,
-                }))}
-                onChange={setEventType}
+            <Col xs={24} lg={8}>
+              <SafetyPanel
+                icon={HeartPulse}
+                title="Bệnh đang theo dõi"
+                items={activeConditions}
+                empty="Chưa ghi nhận bệnh đang hoạt động"
+                tone="warning"
               />
             </Col>
-            <Col xs={24} md={6}>
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: "100%" }}
-                placeholder="Đơn vị y tế"
-                value={organizationId}
-                options={organizations}
-                onChange={setOrganizationId}
+            <Col xs={24} lg={8}>
+              <SafetyPanel
+                icon={Pill}
+                title="Thuốc đang sử dụng"
+                items={currentMedications}
+                empty="Chưa ghi nhận thuốc đang dùng"
+                tone="info"
               />
-            </Col>
-            <Col xs={24} md={2}>
-              <Button block icon={<RefreshCw size={14} />} onClick={() => void load()} aria-label="Tải lại hồ sơ" />
             </Col>
           </Row>
-        </Card>
+        </section>
 
-        <Card title={`Dòng thời gian khám chữa bệnh${record ? ` (${filteredEvents.length})` : ""}`}>
-          {filteredEvents.length ? (
-            <Timeline
-              items={filteredEvents.map((event) => ({
-                color: "blue",
-                children: <EventCard event={event} />,
+        <section className="records-metrics">
+          <div className="records-metric">
+            <span className="records-metric__icon"><Stethoscope size={18} /></span>
+            <div><strong>{summary?.encounterCount ?? 0}</strong><span>Lượt khám</span></div>
+          </div>
+          <div className="records-metric">
+            <span className="records-metric__icon"><Building2 size={18} /></span>
+            <div><strong>{summary?.organizationCount ?? 0}</strong><span>Đơn vị y tế</span></div>
+          </div>
+          <div className="records-metric">
+            <span className="records-metric__icon"><Hospital size={18} /></span>
+            <div><strong>{summary?.facilityCount ?? 0}</strong><span>Cơ sở đã khám</span></div>
+          </div>
+          <div className="records-metric records-metric--wide">
+            <span className="records-metric__icon"><CalendarDays size={18} /></span>
+            <div><strong>{displayDate(summary?.lastRecordedAt)}</strong><span>Cập nhật lâm sàng gần nhất</span></div>
+          </div>
+        </section>
+
+        <section className="records-history">
+          <div className="records-history__header">
+            <div>
+              <div className="records-eyebrow">Dòng thời gian lâm sàng</div>
+              <Title level={4}>Toàn bộ lịch sử khám chữa bệnh</Title>
+              <Text type="secondary">{filteredEvents.length} sự kiện phù hợp</Text>
+            </div>
+            <Button icon={<RefreshCw size={14} />} onClick={() => void load()}>Đồng bộ</Button>
+          </div>
+
+          <div className="records-filterbar">
+            <Input.Search
+              allowClear
+              value={search}
+              placeholder="Tìm chẩn đoán, thuốc, bác sĩ, cơ sở..."
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <Select
+              allowClear
+              placeholder="Tất cả loại hồ sơ"
+              value={eventType}
+              options={Object.entries(EVENT_META).map(([value, meta]) => ({
+                value,
+                label: meta.label,
               }))}
+              onChange={setEventType}
             />
-          ) : (
-            <Empty
-              description={
-                error
-                  ? "Chờ backend cung cấp dữ liệu"
-                  : record?.events.length
-                    ? "Không có hồ sơ phù hợp bộ lọc"
-                    : "Chưa có lịch sử khám chữa bệnh"
-              }
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Tất cả cơ sở y tế"
+              value={organizationId}
+              options={organizations}
+              onChange={setOrganizationId}
             />
-          )}
-        </Card>
+          </div>
+
+          <div className="records-timeline">
+            {filteredEvents.length ? (
+              <Timeline
+                items={filteredEvents.map((event) => ({
+                  color: EVENT_META[event.type].color,
+                  dot: <span className="records-timeline__dot"><CheckCircle2 size={13} /></span>,
+                  children: <EventCard event={event} />,
+                }))}
+              />
+            ) : (
+              <Card>
+                <Empty
+                  description={
+                    error
+                      ? "Chờ dịch vụ dữ liệu sẵn sàng"
+                      : record?.events.length
+                        ? "Không có hồ sơ phù hợp bộ lọc"
+                        : "Chưa có lịch sử khám chữa bệnh"
+                  }
+                />
+              </Card>
+            )}
+          </div>
+        </section>
       </Spin>
-    </Space>
+    </div>
   );
 }

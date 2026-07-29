@@ -18,6 +18,8 @@ export interface ApiPatient {
   email: string | null;
   address: string | null;
   bloodType: string;
+  heightCm: number | null;
+  weightKg: number | null;
   primaryDoctor: { id: string; code: string; name: string } | null;
   version: number;
   createdAt: string;
@@ -40,6 +42,8 @@ export interface UpdatePatientRequest {
   email?: string | null;
   address?: string | null;
   bloodType?: string;
+  heightCm?: number | null;
+  weightKg?: number | null;
   primaryDoctorId?: string | null;
   version: number;
 }
@@ -141,6 +145,8 @@ const mapPatient = (row: ApiPatient): Patient => ({
     email: row.email ?? "",
     address: row.address ?? "",
     bloodType: row.bloodType,
+    heightCm: row.heightCm ?? undefined,
+    weightKg: row.weightKg ?? undefined,
   },
 });
 
@@ -406,8 +412,9 @@ export const createMedicationReminder = (
 
 // Bare `{}` body in the spec — inferred field names, no confirmed schema.
 export interface CreateProgressPhotoRequest {
-  fileName: string;
-  takenAt?: string;
+  fileId: string;
+  takenAt: string;
+  note?: string;
 }
 export interface ProgressPhoto {
   id?: string;

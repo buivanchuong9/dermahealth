@@ -3,7 +3,7 @@ import { http } from "./http";
 export interface PresignUploadRequest {
   fileName: string;
   contentType: string;
-  size: number;
+  context: "clinical-document" | "progress-photo" | "avatar" | "intake-image";
 }
 
 export interface PresignedUpload {
@@ -61,21 +61,25 @@ export async function presignUpload(
 
 export async function confirmUpload(
   fileId: string,
+  fileHash: string,
 ): Promise<ConfirmedUpload> {
   const result = decode<Partial<ConfirmedUpload>>(
     await http.post<unknown>(
       `/api/v1/uploads/${encodeURIComponent(fileId)}/confirm`,
-      {},
+      { fileHash },
     ),
   );
   return { ...result, fileId: result.fileId ?? fileId };
 }
 
-export async function uploadFile(file: File): Promise<ConfirmedUpload> {
+export async function uploadFile(
+  file: File,
+  context: PresignUploadRequest["context"] = "clinical-document",
+): Promise<ConfirmedUpload> {
   const presigned = await presignUpload({
     fileName: file.name,
     contentType: file.type || "application/octet-stream",
-    size: file.size,
+    context,
   });
   const uploadResponse = await fetch(presigned.uploadUrl, {
     method: presigned.method ?? "PUT",
@@ -88,5 +92,9 @@ export async function uploadFile(file: File): Promise<ConfirmedUpload> {
   if (!uploadResponse.ok) {
     throw new Error(`Không tải được tệp lên kho lưu trữ (${uploadResponse.status}).`);
   }
-  return confirmUpload(presigned.fileId);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  const fileHash = Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return confirmUpload(presigned.fileId, fileHash);
 }
