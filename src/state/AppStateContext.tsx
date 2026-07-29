@@ -74,7 +74,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         .then(replaceRolePermissions)
         .catch(() => undefined);
     }
-    const refreshedDisplayName = typeof me.displayName === "string" ? me.displayName : String((me.displayName as any)?.name ?? "Bùi Văn Chương");
+    const refreshedDisplayName = typeof me.displayName === "string" && me.displayName.trim()
+      ? me.displayName
+      : String((me.displayName as any)?.name ?? me.email ?? "Bệnh nhân");
     setCurrentUser((previous) => ({
       id: me.id as UserId,
       name: refreshedDisplayName,
@@ -100,7 +102,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           .then(replaceRolePermissions)
           .catch(() => undefined);
       }
-      const rawDisplayName = typeof me.displayName === "string" ? me.displayName : String((me.displayName as any)?.name ?? "Bùi Văn Chương");
+      const rawDisplayName = typeof me.displayName === "string" && me.displayName.trim()
+        ? me.displayName
+        : String((me.displayName as any)?.name ?? me.email ?? "Bệnh nhân");
       const storedAvatar = localStorage.getItem(`user_avatar_${me.id}`) || me.avatarUrl || undefined;
       const user: User = {
         id: me.id as UserId,

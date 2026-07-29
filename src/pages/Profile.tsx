@@ -30,6 +30,7 @@ import {
   getHealthSummary,
   getPatientDetails,
   getReport,
+  getSelfPatientDetails,
   updatePatient,
   type ApiPatient,
   type HealthSummary,
@@ -204,30 +205,50 @@ export default function Profile() {
 
   useEffect(() => {
     let active = true;
+
+    // Fetch ONLY the self patient details (/api/v1/patients/me).
+    // Do NOT fall back to currentPatient.id because currentPatient might be another patient in the clinic.
+    const fetchPatientData = getSelfPatientDetails().catch(() => undefined);
+
     Promise.allSettled([
       getMe(),
-      getPatientDetails(currentPatient.id),
-      getHealthSummary(currentPatient.id),
-      getReport<Treatment[]>(currentPatient.id, "treatment-history"),
-      getReport<AiSummary>(currentPatient.id, "ai-summary"),
+      fetchPatientData,
+      currentPatient?.id ? getHealthSummary(currentPatient.id) : Promise.resolve(null),
+      currentPatient?.id ? getReport<Treatment[]>(currentPatient.id, "treatment-history") : Promise.resolve([]),
+      currentPatient?.id ? getReport<AiSummary>(currentPatient.id, "ai-summary") : Promise.resolve(null),
     ]).then(([userResult, patientResult, healthResult, historyResult, aiResult]) => {
       if (!active) return;
-      if (userResult.status === "fulfilled") setMe(userResult.value);
-      if (patientResult.status === "fulfilled") {
-        setPatient(patientResult.value);
+      const userObj = userResult.status === "fulfilled" ? userResult.value : undefined;
+      const patientObj = patientResult.status === "fulfilled" ? patientResult.value : undefined;
+
+      if (userObj) setMe(userObj);
+      if (patientObj) setPatient(patientObj);
+
+      const formName = safeString(userObj?.displayName || patientObj?.name || currentUser?.name, "");
+      const formPhone = safeString(userObj?.phone || patientObj?.phone, "");
+      const formEmail = safeString(userObj?.email || patientObj?.email, "");
+
+      if (patientObj) {
         form.setFieldsValue({
-          name: safeString(patientResult.value.name, ""),
-          dob: safeString(patientResult.value.dob, ""),
-          gender: safeString(patientResult.value.gender, "male"),
-          phone: safeString(patientResult.value.phone, ""),
-          email: safeString(patientResult.value.email, ""),
-          address: safeString(patientResult.value.address, ""),
-          bloodType: safeString(patientResult.value.bloodType, "unknown"),
-          heightCm: typeof patientResult.value.heightCm === "number" ? patientResult.value.heightCm : undefined,
-          weightKg: typeof patientResult.value.weightKg === "number" ? patientResult.value.weightKg : undefined,
+          name: formName,
+          dob: safeString(patientObj.dob, ""),
+          gender: safeString(patientObj.gender, "male"),
+          phone: formPhone,
+          email: formEmail,
+          address: safeString(patientObj.address, ""),
+          bloodType: safeString(patientObj.bloodType, "unknown"),
+          heightCm: typeof patientObj.heightCm === "number" ? patientObj.heightCm : undefined,
+          weightKg: typeof patientObj.weightKg === "number" ? patientObj.weightKg : undefined,
+        });
+      } else if (userObj) {
+        form.setFieldsValue({
+          name: formName,
+          phone: formPhone,
+          email: formEmail,
         });
       }
-      if (healthResult.status === "fulfilled") setHealth(healthResult.value);
+
+      if (healthResult.status === "fulfilled" && healthResult.value) setHealth(healthResult.value);
       if (historyResult.status === "fulfilled" && Array.isArray(historyResult.value)) {
         setHistory(historyResult.value);
       }
@@ -247,7 +268,7 @@ export default function Profile() {
     return () => {
       active = false;
     };
-  }, [currentPatient.id, form]);
+  }, [currentPatient?.id, currentUser?.name, form]);
 
   const age = calculateAge(patient?.dob);
   const bmi = useMemo(() => {
@@ -267,7 +288,7 @@ export default function Profile() {
   const saveProfile = async (values: ProfileForm) => {
     setSaving(true);
     try {
-      const targetPatientId = patient?.id || currentPatient.id;
+      const targetPatientId = patient?.id;
       const targetUserVersion = typeof me?.version === "number" ? me.version : 1;
       const targetPatientVersion = typeof patient?.version === "number" ? patient.version : 1;
 
@@ -282,21 +303,23 @@ export default function Profile() {
           })
         : Promise.resolve(null);
 
-      const patientUpdate = updatePatient(targetPatientId, {
-          name: String(values.name ?? "").trim(),
-          dob: String(values.dob ?? ""),
-          gender: String(values.gender ?? "male"),
-          phone: String(values.phone ?? "").trim(),
-          email: values.email ? String(values.email).trim() : null,
-          address: values.address ? String(values.address).trim() : null,
-          bloodType: String(values.bloodType ?? "unknown"),
-          heightCm: typeof values.heightCm === "number" ? values.heightCm : null,
-          weightKg: typeof values.weightKg === "number" ? values.weightKg : null,
-          version: targetPatientVersion,
-        }).catch((err: unknown) => {
-          console.warn("Backend updatePatient warning:", err);
-          return null;
-        });
+      const patientUpdate = targetPatientId
+        ? updatePatient(targetPatientId, {
+            name: String(values.name ?? "").trim(),
+            dob: String(values.dob ?? ""),
+            gender: String(values.gender ?? "male"),
+            phone: String(values.phone ?? "").trim(),
+            email: values.email ? String(values.email).trim() : null,
+            address: values.address ? String(values.address).trim() : null,
+            bloodType: String(values.bloodType ?? "unknown"),
+            heightCm: typeof values.heightCm === "number" ? values.heightCm : null,
+            weightKg: typeof values.weightKg === "number" ? values.weightKg : null,
+            version: targetPatientVersion,
+          }).catch((err: unknown) => {
+            console.warn("Backend updatePatient warning:", err);
+            throw err;
+          })
+        : Promise.resolve(null);
 
       const [updatedUser, updatedPatient] = await Promise.all([userUpdate, patientUpdate]);
       if (updatedUser) setMe(updatedUser);
@@ -395,10 +418,10 @@ export default function Profile() {
     }
   };
 
-  const displayName = safeString(me?.displayName || patient?.name || currentPatient.name, "Bệnh nhân");
-  const patientCode = safeString(patient?.code || currentPatient.code, "—");
-  const phoneText = safeString(patient?.phone, "Chưa cập nhật");
-  const emailText = safeString(patient?.email || me?.email, "Chưa cập nhật");
+  const displayName = safeString(me?.displayName || currentUser?.name || patient?.name, "Bệnh nhân");
+  const patientCode = safeString(patient?.code, "—");
+  const phoneText = safeString(me?.phone || patient?.phone, "Chưa cập nhật");
+  const emailText = safeString(me?.email || patient?.email, "Chưa cập nhật");
   const addressText = safeString(patient?.address, "Chưa cập nhật địa chỉ");
   const initialChar = displayName.trim().slice(0, 1).toUpperCase();
 

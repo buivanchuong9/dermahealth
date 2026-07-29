@@ -154,6 +154,9 @@ export async function getCurrentPatient(): Promise<Patient> {
   const row = await http.get<ApiPatient>("/api/v1/patients/me");
   return mapPatient(row);
 }
+export function getSelfPatientDetails(): Promise<ApiPatient> {
+  return http.get<ApiPatient>("/api/v1/patients/me");
+}
 export async function getPatient(patientId: string): Promise<Patient> {
   const row = await getPatientDetails(patientId);
   return mapPatient(row);
