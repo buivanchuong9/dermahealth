@@ -14,12 +14,16 @@ export function GlobalErrorListener() {
       showing.current = true;
       const error = reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : 'Lỗi không xác định');
       void logClientEvent({
+        action: 'CLIENT_RUNTIME_ERROR',
         entityType: 'Application',
-        entityId: 'client',
         reason: error.message,
         sourceModule: 'GlobalErrorListener',
         severity: 'critical',
         occurredAt: new Date().toISOString(),
+        newState: {
+          errorName: error.name,
+          stack: error.stack,
+        },
       }).catch(() => undefined);
       const instance = showError('Hệ thống chưa thể hoàn tất thao tác này. Vui lòng thử lại sau ít phút.');
       window.setTimeout(() => { showing.current = false; }, 800);

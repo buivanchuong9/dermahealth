@@ -74,9 +74,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         .then(replaceRolePermissions)
         .catch(() => undefined);
     }
+    const refreshedDisplayName = typeof me.displayName === "string" ? me.displayName : String((me.displayName as any)?.name ?? "Bùi Văn Chương");
     setCurrentUser((previous) => ({
       id: me.id as UserId,
-      name: me.displayName,
+      name: refreshedDisplayName,
       roles,
       role:
         (previous?.id === me.id && previous.roles.includes(previous.role)
@@ -99,9 +100,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           .then(replaceRolePermissions)
           .catch(() => undefined);
       }
+      const rawDisplayName = typeof me.displayName === "string" ? me.displayName : String((me.displayName as any)?.name ?? "Bùi Văn Chương");
+      const storedAvatar = localStorage.getItem(`user_avatar_${me.id}`) || me.avatarUrl || undefined;
       const user: User = {
         id: me.id as UserId,
-        name: me.displayName,
+        name: rawDisplayName,
+        avatarUrl: storedAvatar,
         roles,
         role: readStoredActiveRole(me.id, roles) ?? resolveOperationalRole(roles),
       };

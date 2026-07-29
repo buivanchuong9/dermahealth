@@ -1,0 +1,335 @@
+/* EMR Lifetime Medical Record Layout & Component Styling */
+
+.emr-container {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 16px 20px 40px;
+  background-color: #f8fafc;
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Header Action Toolbar */
+.emr-header-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+/* Clean Dark Line Icon Action Buttons */
+.emr-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 8px !important;
+  border: 1px solid #cbd5e1 !important;
+  background: #ffffff !important;
+  color: #1e293b !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+.emr-action-btn:hover {
+  background: #f8fafc !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+
+.emr-btn-icon {
+  color: #334155;
+  flex-shrink: 0;
+}
+
+/* Clean Neutral Status Tags */
+.emr-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #f8fafc !important;
+  color: #475569 !important;
+  font-weight: 500 !important;
+  font-size: 12.5px !important;
+}
+
+.emr-subtle-tag {
+  border-radius: 6px !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #f8fafc !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+}
+
+.emr-tag-icon {
+  color: #475569;
+}
+
+/* Generic Card Standard */
+.emr-card {
+  border-radius: 12px !important;
+  border: 1px solid #eaecf0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  background: #ffffff !important;
+  margin-bottom: 16px;
+}
+
+.emr-card .ant-card-head {
+  border-bottom: 1px solid #f1f5f9;
+  padding: 14px 20px;
+  min-height: auto;
+}
+
+.emr-card .ant-card-body {
+  padding: 18px 20px;
+}
+
+.emr-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emr-card-header__icon {
+  color: #334155;
+}
+
+/* Details Tabs Card */
+.emr-details-tabs-card {
+  margin-bottom: 16px;
+}
+
+.emr-details-tabs-card .ant-tabs-nav {
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.emr-details-tabs-card .ant-tabs-tab {
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.emr-details-tabs-card .ant-tabs-tab-active {
+  color: #0f172a !important;
+}
+
+.emr-details-tabs-card .emr-card {
+  border: none !important;
+  box-shadow: none !important;
+  margin-bottom: 0 !important;
+}
+
+.emr-details-tabs-card .emr-card .ant-card-head {
+  display: none;
+}
+
+/* Highcharts 3D Container */
+.emr-highcharts-container {
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Patient Header Card */
+.emr-patient-header-card {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.emr-patient-header-card .emr-patient-identity {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.emr-patient-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  font-size: 13px;
+}
+
+.emr-patient-detail-item {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.emr-detail-full {
+  grid-column: span 2;
+}
+
+.emr-detail-label {
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.emr-detail-val {
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.emr-clinical-summary-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.emr-summary-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #cbd5e1;
+}
+
+.emr-summary-icon {
+  color: #334155;
+}
+
+.emr-summary-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.emr-summary-row {
+  display: flex;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.emr-summary-label {
+  width: 140px;
+  flex-shrink: 0;
+  color: #475569;
+  font-weight: 600;
+}
+
+.emr-summary-value {
+  color: #1e293b;
+}
+
+.emr-summary-value.warning-text {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.emr-summary-footer {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* Clinical Alerts Stack */
+.emr-alerts-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  justify-content: space-between;
+}
+
+.emr-alert-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  flex: 1;
+}
+
+.emr-alert-banner--danger {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.emr-alert-banner--warning {
+  background-color: #fff7ed;
+  border-color: #ffedd5;
+  color: #9a3412;
+}
+
+.emr-alert-banner--info {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  color: #334155;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.emr-alert-banner--success {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  color: #334155;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.emr-alert-banner--contact {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  color: #334155;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.emr-alert-banner__icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #334155;
+}
+
+.emr-alert-banner__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.emr-alert-banner__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #334155;
+}
+
+.emr-alert-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.emr-alert-text--danger {
+  color: #dc2626;
+  font-size: 12.5px;
+  display: block;
+}
+
+.emr-alert-text--warning {
+  color: #ea580c;
+  font-size: 12.5px;
+  display: block;
+}
