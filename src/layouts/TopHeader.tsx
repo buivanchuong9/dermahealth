@@ -127,12 +127,29 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
     </div>
   );
 
+  const [userAvatar, setUserAvatar] = useState<string | undefined>(() =>
+    currentUser.avatarUrl || (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || localStorage.getItem('user_avatar_global') || undefined
+  );
+
+  useEffect(() => {
+    const handleAvatarUpdate = () => {
+      setUserAvatar(
+        currentUser.avatarUrl || (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || localStorage.getItem('user_avatar_global') || undefined
+      );
+    };
+    window.addEventListener('avatar_updated', handleAvatarUpdate);
+    return () => window.removeEventListener('avatar_updated', handleAvatarUpdate);
+  }, [currentUser.avatarUrl, currentUser.id]);
+
+  const userName = typeof currentUser.name === 'string' ? currentUser.name : String((currentUser.name as any)?.name ?? 'User');
+  const userInitial = userName.trim().slice(-1) || 'U';
+
   const accountContent = (
     <div className="top-header__account-menu">
       <div className="top-header__account-summary">
-        <Avatar size={40} style={{ background: 'var(--medical-blue-700)', flexShrink: 0 }}>{currentUser.name.trim().slice(-1)}</Avatar>
+        <Avatar size={40} src={userAvatar} style={{ background: '#334155', flexShrink: 0 }}>{!userAvatar && userInitial}</Avatar>
         <div style={{ minWidth: 0 }}>
-          <Text strong className="top-header__account-name">{currentUser.name}</Text>
+          <Text strong className="top-header__account-name">{userName}</Text>
           <Text type="secondary" className="top-header__account-meta">
             {ROLE_LABEL[currentUser.role]}{currentUser.department ? ` · ${currentUser.department}` : ''}
           </Text>
@@ -226,10 +243,10 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
         {!isNarrow && <Divider type="vertical" style={{ height: 24 }} />}
         <Popover content={accountContent} trigger="click" placement="bottomRight" open={accountOpen} onOpenChange={setAccountOpen}>
           <Button type="text" className="top-header__user" aria-label="Mở menu tài khoản">
-            <Avatar size={32} style={{ background: 'var(--medical-blue-700)', flexShrink: 0 }}>{currentUser.name.trim().slice(-1)}</Avatar>
+            <Avatar size={32} src={userAvatar} style={{ background: 'var(--medical-blue-700)', flexShrink: 0 }}>{!userAvatar && userInitial}</Avatar>
             {!isNarrow && (
               <div className="top-header__user-copy">
-                <Text className="top-header__user-name" title={currentUser.name}>{currentUser.name}</Text>
+                <Text className="top-header__user-name" title={userName}>{userName}</Text>
                 <Text className="top-header__user-role">{ROLE_LABEL[currentUser.role]}</Text>
               </div>
             )}

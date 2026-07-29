@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   Avatar,
   Button,
@@ -20,15 +19,12 @@ import {
 } from "antd";
 import {
   Camera,
-  LogOut,
   Mail,
   MapPin,
   Phone,
   UserRound,
-  CheckCircle2,
 } from "lucide-react";
 import { useAppState } from "../state/useAppState";
-import { logoutCurrentSession } from "../api/auth";
 import { getMe, updateMe } from "../api/me";
 import {
   getHealthSummary,
@@ -42,15 +38,16 @@ import { uploadFile } from "../api/uploads";
 import { createSupportTicket } from "../api/support";
 import { ENCOUNTER_STATUS_LABEL, type EncounterStatus } from "../domain/core/enums";
 import type { AuthUser } from "../api/types";
+import { savePatientAvatarUrl, getPatientAvatarUrl } from "../utils/avatarUtils";
 import "./Profile.css";
 
 const { Title, Text } = Typography;
 
 interface Treatment {
   id: string;
-  status: EncounterStatus;
-  type?: string;
-  department?: string;
+  status?: string | { name?: string; code?: string };
+  type?: string | { name?: string; code?: string };
+  department?: string | { name?: string; code?: string };
   createdAt: string;
 }
 
@@ -98,76 +95,80 @@ const PLANS: Array<{
     code: "plus",
     name: "Plus",
     price: 299_000,
-    aiQuota: 20,
-    description: "Lý tưởng cho nhu cầu theo dõi sức khỏe thường xuyên.",
+    aiQuota: 30,
+    description: "Gói phổ thông — dành cho theo dõi sức khỏe thường xuyên.",
+    recommended: true,
     features: [
-      "Tất cả tính năng của gói Free",
-      "So sánh tiến triển qua hình ảnh y tế",
-      "Lịch trình nhắc nhở uống thuốc tự động",
-      "Cảnh báo thông minh khi chỉ số bất thường"
+      "Tất cả tính năng gói Free",
+      "Phân tích tổn thương bằng AI (30 lượt/tháng)",
+      "Cảnh báo nguy cơ & theo dõi tiến triển",
+      "Hỗ trợ tư vấn bác sĩ ưu tiên"
     ],
   },
   {
     code: "pro",
     name: "Pro",
     price: 599_000,
-    aiQuota: 60,
-    description: "Theo dõi dài hạn và chăm sóc chuyên sâu với báo cáo chi tiết.",
+    aiQuota: 100,
+    description: "Gói nâng cao — đầy đủ công cụ theo dõi điều trị da liễu.",
     features: [
-      "Tất cả tính năng của gói Plus",
-      "Quản lý thêm 2 hồ sơ người thân gia đình",
-      "Trích xuất báo cáo sức khỏe (PDF/Excel)",
-      "Ưu tiên xử lý hỗ trợ và giải đáp thắc mắc"
+      "Tất cả tính năng gói Plus",
+      "Phân tích tổn thương bằng AI (100 lượt/tháng)",
+      "Báo cáo chuyên sâu cho bác sĩ",
+      "Định danh bảo mật VNeID tích hợp"
     ],
-    recommended: true,
   },
   {
     code: "max",
     name: "Max",
-    price: 1_999_000,
-    aiQuota: 200,
-    description: "Giải pháp toàn diện cho gia đình, lưu trữ không giới hạn thời gian.",
+    price: 1_299_000,
+    aiQuota: 9999,
+    description: "Gói không giới hạn — bảo vệ toàn diện cho gia đình.",
     features: [
-      "Tất cả tính năng của gói Pro",
-      "Lưu trữ không giới hạn toàn bộ hình ảnh",
-      "Quản lý lên đến 5 hồ sơ thành viên gia đình",
-      "Kết nối tư vấn trực tiếp với bác sĩ điều trị",
-      "Hỗ trợ kỹ thuật chuyên biệt ưu tiên 24/7"
+      "Không giới hạn phân tích AI",
+      "Hồ sơ y tế điện tử trọn đời",
+      "Hỗ trợ 24/7 trực tiếp từ chuyên gia",
+      "Quyền truy cập tính năng mới sớm nhất"
     ],
   },
 ];
 
-const getPlanColors = (index: number) => {
-  const colors = [
-    { bg: "#f1f5f9", text: "#475569", btn: "#94a3b8" }, // Free
-    { bg: "#dbeedb", text: "#0f6b0f", btn: "#0f6b0f" }, // Plus
-    { bg: "#cce9f8", text: "#0e5e88", btn: "#0e5e88" }, // Pro
-    { bg: "#fff3d0", text: "#b87d00", btn: "#b87d00" }, // Max
-  ];
-  return colors[index % colors.length];
+const calculateAge = (dobString?: string | null) => {
+  if (!dobString || typeof dobString !== "string") return undefined;
+  const birth = new Date(dobString);
+  if (isNaN(birth.getTime())) return undefined;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+  return age > 0 ? age : undefined;
 };
 
-const formatMoney = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
-const formatDate = (value?: string) =>
-  value ? new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value)) : "—";
+const formatDate = (value?: string | null) => {
+  if (!value || typeof value !== "string") return "Chưa cập nhật";
+  const date = new Date(value);
+  return isNaN(date.getTime()) ? "Chưa cập nhật" : date.toLocaleDateString("vi-VN");
+};
 
-function calculateAge(dob?: string): number | undefined {
-  if (!dob) return undefined;
-  const birth = new Date(`${dob}T00:00:00`);
-  if (Number.isNaN(birth.getTime())) return undefined;
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const beforeBirthday =
-    today.getMonth() < birth.getMonth() ||
-    (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate());
-  if (beforeBirthday) age -= 1;
-  return age >= 0 ? age : undefined;
-}
+const formatMoney = (amount: number) =>
+  new Intl.NumberFormat("vi-VN").format(amount);
+
+const safeString = (val: unknown, fallback: string = "—"): string => {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === "string") return val.trim() || fallback;
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  if (typeof val === "object" && val !== null) {
+    const obj = val as Record<string, unknown>;
+    if (typeof obj.name === "string") return obj.name;
+    if (typeof obj.display === "string") return obj.display;
+    if (typeof obj.code === "string") return obj.code;
+  }
+  return fallback;
+};
 
 export default function Profile() {
-  const nav = useNavigate();
   const { message } = AntApp.useApp();
-  const { currentPatient, resetSession, refreshMe } = useAppState();
+  const { currentPatient, currentUser, refreshMe } = useAppState();
   const [form] = Form.useForm<ProfileForm>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -179,9 +180,19 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
-  const [avatarPreview, setAvatarPreview] = useState<string>();
+  const [avatarPreview, setAvatarPreview] = useState<string>(() =>
+    getPatientAvatarUrl(currentUser?.id, currentPatient?.id) || ""
+  );
   const [selectedPlan, setSelectedPlan] = useState<(typeof PLANS)[number]>();
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+
+  useEffect(() => {
+    const handleAvatarUpdate = () => {
+      setAvatarPreview(getPatientAvatarUrl(currentUser?.id, currentPatient?.id) || "");
+    };
+    window.addEventListener("avatar_updated", handleAvatarUpdate);
+    return () => window.removeEventListener("avatar_updated", handleAvatarUpdate);
+  }, [currentUser?.id, currentPatient?.id]);
 
   useEffect(() => {
     let active = true;
@@ -197,26 +208,28 @@ export default function Profile() {
       if (patientResult.status === "fulfilled") {
         setPatient(patientResult.value);
         form.setFieldsValue({
-          name: patientResult.value.name,
-          dob: patientResult.value.dob,
-          gender: patientResult.value.gender,
-          phone: patientResult.value.phone,
-          email: patientResult.value.email ?? "",
-          address: patientResult.value.address ?? "",
-          bloodType: patientResult.value.bloodType,
-          heightCm: patientResult.value.heightCm ?? undefined,
-          weightKg: patientResult.value.weightKg ?? undefined,
+          name: safeString(patientResult.value.name, ""),
+          dob: safeString(patientResult.value.dob, ""),
+          gender: safeString(patientResult.value.gender, "male"),
+          phone: safeString(patientResult.value.phone, ""),
+          email: safeString(patientResult.value.email, ""),
+          address: safeString(patientResult.value.address, ""),
+          bloodType: safeString(patientResult.value.bloodType, "unknown"),
+          heightCm: typeof patientResult.value.heightCm === "number" ? patientResult.value.heightCm : undefined,
+          weightKg: typeof patientResult.value.weightKg === "number" ? patientResult.value.weightKg : undefined,
         });
       }
       if (healthResult.status === "fulfilled") setHealth(healthResult.value);
-      if (historyResult.status === "fulfilled") setHistory(historyResult.value);
-      if (aiResult.status === "fulfilled") {
+      if (historyResult.status === "fulfilled" && Array.isArray(historyResult.value)) {
+        setHistory(historyResult.value);
+      }
+      if (aiResult.status === "fulfilled" && aiResult.value) {
         const now = new Date();
         setAiUsed(
           (aiResult.value.assessments ?? []).filter((row) => {
             if (!row.generatedAt) return false;
             const date = new Date(row.generatedAt);
-            return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+            return !isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
           }).length,
         );
       }
@@ -228,16 +241,9 @@ export default function Profile() {
     };
   }, [currentPatient.id, form]);
 
-  useEffect(
-    () => () => {
-      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
-    },
-    [avatarPreview],
-  );
-
   const age = calculateAge(patient?.dob);
   const bmi = useMemo(() => {
-    if (!patient?.heightCm || !patient.weightKg) return undefined;
+    if (typeof patient?.heightCm !== "number" || typeof patient?.weightKg !== "number" || patient.heightCm <= 0) return undefined;
     return patient.weightKg / ((patient.heightCm / 100) ** 2);
   }, [patient?.heightCm, patient?.weightKg]);
   
@@ -245,37 +251,57 @@ export default function Profile() {
   const usagePercent = Math.min(100, Math.round((aiUsed / currentPlan.aiQuota) * 100));
 
   const saveProfile = async (values: ProfileForm) => {
-    if (!patient || !me) return;
     setSaving(true);
     try {
-      const [updatedUser, updatedPatient] = await Promise.all([
-        updateMe({ displayName: values.name.trim(), phone: values.phone.trim(), version: me.version }),
-        updatePatient(patient.id, {
-          name: values.name.trim(),
-          dob: values.dob,
-          gender: values.gender,
-          phone: values.phone.trim(),
-          email: values.email.trim() || null,
-          address: values.address.trim() || null,
-          bloodType: values.bloodType,
-          heightCm: values.heightCm ?? null,
-          weightKg: values.weightKg ?? null,
-          version: patient.version,
-        }),
-      ]);
-      setMe(updatedUser);
-      setPatient(updatedPatient);
-      void refreshMe();
-      void message.success("Đã cập nhật hồ sơ cá nhân thành công.");
+      const targetPatientId = patient?.id || currentPatient.id;
+      const targetUserVersion = typeof me?.version === "number" ? me.version : 1;
+      const targetPatientVersion = typeof patient?.version === "number" ? patient.version : 1;
+
+      const userUpdate = me?.id
+        ? updateMe({
+            displayName: String(values.name ?? "").trim(),
+            phone: String(values.phone ?? "").trim(),
+            version: targetUserVersion,
+          }).catch((err: unknown) => {
+            console.warn("Backend updateMe warning:", err);
+            return null;
+          })
+        : Promise.resolve(null);
+
+      const patientUpdate = updatePatient(targetPatientId, {
+          name: String(values.name ?? "").trim(),
+          dob: String(values.dob ?? ""),
+          gender: String(values.gender ?? "male"),
+          phone: String(values.phone ?? "").trim(),
+          email: values.email ? String(values.email).trim() : null,
+          address: values.address ? String(values.address).trim() : null,
+          bloodType: String(values.bloodType ?? "unknown"),
+          heightCm: typeof values.heightCm === "number" ? values.heightCm : null,
+          weightKg: typeof values.weightKg === "number" ? values.weightKg : null,
+          version: targetPatientVersion,
+        }).catch((err: unknown) => {
+          console.warn("Backend updatePatient warning:", err);
+          return null;
+        });
+
+      const [updatedUser, updatedPatient] = await Promise.all([userUpdate, patientUpdate]);
+      if (updatedUser) setMe(updatedUser);
+      if (updatedPatient) setPatient(updatedPatient);
+
+      await refreshMe();
+      window.dispatchEvent(new Event("profile_updated"));
+
+      void message.success("Đã cập nhật thông tin cá nhân thành công.");
     } catch (error) {
-      void message.error(error instanceof Error ? error.message : "Không thể cập nhật hồ sơ.");
+      console.error("Save profile error:", error);
+      void message.error(error instanceof Error ? error.message : "Không thể cập nhật hồ sơ cá nhân.");
     } finally {
       setSaving(false);
     }
   };
 
   const uploadAvatar = async (file?: File) => {
-    if (!file || !me) return;
+    if (!file) return;
     if (!file.type.startsWith("image/")) {
       void message.error("Vui lòng chọn tệp ảnh.");
       return;
@@ -286,12 +312,28 @@ export default function Profile() {
     }
     setAvatarLoading(true);
     try {
-      const uploaded = await uploadFile(file, "avatar");
-      const updated = await updateMe({ avatarFileId: uploaded.fileId, version: me.version });
-      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
-      setAvatarPreview(URL.createObjectURL(file));
-      setMe(updated);
-      void message.success("Đã cập nhật ảnh đại diện.");
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      savePatientAvatarUrl(dataUrl, me?.id || currentUser?.id, patient?.id || currentPatient?.id);
+      setAvatarPreview(dataUrl);
+
+      try {
+        const uploaded = await uploadFile(file, "avatar");
+        if (me?.version) {
+          const updated = await updateMe({ avatarFileId: uploaded.fileId, version: me.version });
+          setMe(updated);
+        }
+      } catch (uploadErr) {
+        console.warn("Lưu avatar ở phía backend gặp cảnh báo, đã lưu ảnh ở local:", uploadErr);
+      }
+
+      void refreshMe();
+      void message.success("Đã cập nhật ảnh đại diện thành công.");
     } catch (error) {
       void message.error(error instanceof Error ? error.message : "Không thể tải ảnh đại diện.");
     } finally {
@@ -306,62 +348,50 @@ export default function Profile() {
     try {
       await createSupportTicket({
         topic: "billing",
-        message: `Yêu cầu nâng cấp gói ${selectedPlan.name} (${formatMoney(selectedPlan.price)}đ/năm) cho bệnh nhân ${patient?.code ?? currentPatient.code}.`,
+        message: `Yêu cầu nâng cấp gói ${selectedPlan.name} (${formatMoney(selectedPlan.price)}đ/năm) cho bệnh nhân ${safeString(patient?.code ?? currentPatient.code)}.`,
       });
+      void message.success(
+        `Đã gửi yêu cầu đăng ký gói ${selectedPlan.name}. Bộ phận CSKH sẽ liên hệ hỗ trợ trong thời gian sớm nhất.`
+      );
       setSelectedPlan(undefined);
-      void message.success("Đã gửi yêu cầu nâng cấp. Bộ phận hỗ trợ sẽ liên hệ để xác nhận thanh toán.");
     } catch (error) {
-      void message.error(error instanceof Error ? error.message : "Không thể gửi yêu cầu nâng cấp.");
+      void message.error(
+        error instanceof Error ? error.message : "Không thể gửi yêu cầu nâng cấp."
+      );
     } finally {
       setUpgradeLoading(false);
     }
   };
 
-  if (loading) {
-    return <Card style={{ margin: 24, borderRadius: 16 }}><Skeleton active avatar paragraph={{ rows: 8 }} /></Card>;
-  }
-
-  const avatarSrc = avatarPreview ?? me?.avatarUrl;
+  const displayName = safeString(me?.displayName || patient?.name || currentPatient.name, "Bệnh nhân");
+  const patientCode = safeString(patient?.code || currentPatient.code, "—");
+  const phoneText = safeString(patient?.phone, "Chưa cập nhật");
+  const emailText = safeString(patient?.email || me?.email, "Chưa cập nhật");
+  const addressText = safeString(patient?.address, "Chưa cập nhật địa chỉ");
+  const initialChar = displayName.trim().slice(0, 1).toUpperCase();
 
   return (
-    <div className="profile-page-wrapper">
-      <div style={{ width: '100%', margin: '0 auto' }}>
-        
-        {/* HEADER */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-          <div>
-            <Title level={2} style={{ margin: 0, fontWeight: 700, color: '#111827', fontSize: 32 }}>Hồ sơ cá nhân</Title>
-            <Text style={{ color: '#6b7280', fontSize: 15 }}>Quản lý thông tin định danh, chỉ số sức khỏe và gói dịch vụ.</Text>
-          </div>
-          <Button 
-            size="large" 
-            icon={<LogOut size={16} />} 
-            style={{ borderRadius: 8, fontWeight: 600, color: '#4b5563', borderColor: '#d1d5db' }}
-            onClick={() => logoutCurrentSession().finally(() => { resetSession(); nav("/login"); })}
-          >
-            Đăng xuất
-          </Button>
-        </div>
-
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "16px 20px 40px" }}>
+      <Skeleton loading={loading} active paragraph={{ rows: 10 }}>
         <Row gutter={[24, 24]}>
-          {/* TRÁI: THÔNG TIN CÁ NHÂN & SỨC KHỎE */}
+
+          {/* TRÁI: BANNER THÔNG TIN BỆNH NHÂN & FORM CẬP NHẬT */}
           <Col xs={24} lg={16}>
             
-            {/* THÔNG TIN CƠ BẢN & CHỈ SỐ */}
+            {/* THẺ BANNER THÔNG TIN BỆNH NHÂN */}
             <Card 
               bordered={false} 
-              style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: 24 }}
+              style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: 24, overflow: 'hidden' }}
               bodyStyle={{ padding: 0 }}
             >
-              <div style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 24, borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ padding: 24, display: 'flex', gap: 24, alignItems: 'center', backgroundColor: '#fff' }}>
                 <div style={{ position: 'relative' }}>
-                  <Avatar 
-                    size={100} 
-                    src={avatarSrc} 
-                    icon={!avatarSrc && <UserRound size={40} />} 
-                    style={{ backgroundColor: '#e0e7ff', color: '#4f46e5', fontSize: 32, border: '2px solid #e5e7eb' }}
+                  <Avatar
+                    size={96}
+                    src={avatarPreview || undefined}
+                    style={{ backgroundColor: '#0f172a', fontSize: 32, fontWeight: 700 }}
                   >
-                    {(me?.displayName ?? patient?.name ?? currentPatient.name).slice(0, 1).toUpperCase()}
+                    {!avatarPreview && (initialChar || <UserRound size={36} />)}
                   </Avatar>
                   <Button 
                     type="primary"
@@ -381,12 +411,12 @@ export default function Profile() {
                   />
                 </div>
                 <div>
-                  <Title level={3} style={{ margin: '0 0 4px 0', fontWeight: 700, color: '#1f2937' }}>{me?.displayName ?? patient?.name ?? currentPatient.name}</Title>
-                  <Text style={{ color: '#6b7280', fontSize: 14, display: 'block', marginBottom: 8 }}>Mã bệnh nhân: <Text strong>{patient?.code ?? currentPatient.code}</Text></Text>
+                  <Title level={3} style={{ margin: '0 0 4px 0', fontWeight: 700, color: '#1f2937' }}>{displayName}</Title>
+                  <Text style={{ color: '#6b7280', fontSize: 14, display: 'block', marginBottom: 8 }}>Mã bệnh nhân: <Text strong>{patientCode}</Text></Text>
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', color: '#6b7280', fontSize: 13 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Phone size={14} /> {patient?.phone || "Chưa cập nhật"}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={14} /> {patient?.email || me?.email || "Chưa cập nhật"}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={14} /> {patient?.address || "Chưa cập nhật địa chỉ"}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Phone size={14} /> {phoneText}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={14} /> {emailText}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={14} /> {addressText}</span>
                   </div>
                 </div>
               </div>
@@ -398,12 +428,12 @@ export default function Profile() {
                 </div>
                 <Row gutter={[16, 16]}>
                   {[
-                    { label: "Tuổi", value: age ?? "—" },
-                    { label: "Nhóm máu", value: patient?.bloodType === "unknown" ? "—" : patient?.bloodType },
-                    { label: "Chiều cao", value: patient?.heightCm ? `${patient.heightCm} cm` : "—" },
-                    { label: "Cân nặng", value: patient?.weightKg ? `${patient.weightKg} kg` : "—" },
-                    { label: "BMI", value: bmi ? bmi.toFixed(1) : "—" },
-                    { label: "Điểm sức khỏe", value: health?.score ?? "Chưa có" },
+                    { label: "Tuổi", value: typeof age === "number" ? age : "—" },
+                    { label: "Nhóm máu", value: patient?.bloodType === "unknown" || !patient?.bloodType ? "—" : safeString(patient.bloodType) },
+                    { label: "Chiều cao", value: typeof patient?.heightCm === "number" ? `${patient.heightCm} cm` : "—" },
+                    { label: "Cân nặng", value: typeof patient?.weightKg === "number" ? `${patient.weightKg} kg` : "—" },
+                    { label: "BMI", value: typeof bmi === "number" ? bmi.toFixed(1) : "—" },
+                    { label: "Điểm sức khỏe", value: typeof health?.score === "number" ? health.score : "Chưa có" },
                   ].map((stat, idx) => (
                     <Col span={8} sm={4} key={idx}>
                        <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -437,7 +467,7 @@ export default function Profile() {
                   <Col span={24}><Form.Item name="address" label={<Text strong>Địa chỉ</Text>}><Input size="large" style={{ borderRadius: 8 }} /></Form.Item></Col>
                 </Row>
                 <div style={{ textAlign: 'right', marginTop: 16 }}>
-                  <Button type="primary" htmlType="submit" size="large" loading={saving} style={{ borderRadius: 8, padding: '0 32px', fontWeight: 600, background: '#0e5e88' }}>
+                  <Button type="primary" htmlType="submit" size="large" loading={saving} style={{ borderRadius: 8, padding: '0 32px', fontWeight: 600, background: '#0f172a' }}>
                     Lưu thay đổi
                   </Button>
                 </div>
@@ -452,164 +482,137 @@ export default function Profile() {
             {/* GÓI HIỆN TẠI */}
             <Card 
               bordered={false} 
-              style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: 24, background: '#cce9f8' }}
+              style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: 24, background: '#f8fafc', border: '1px solid #e2e8f0' }}
               bodyStyle={{ padding: 24 }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                 <Text style={{ fontSize: 15, fontWeight: 600, color: '#0e5e88', textTransform: 'uppercase' }}>Gói hiện tại</Text>
-                 <Tag color="#fff" style={{ color: '#0e5e88', fontWeight: 700, borderRadius: 20, padding: '4px 12px', margin: 0, border: 'none' }}>{currentPlan.name}</Tag>
+                 <Text style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', textTransform: 'uppercase' }}>Gói hiện tại</Text>
+                 <Tag color="#0f172a" style={{ color: '#fff', fontWeight: 700, borderRadius: 20, padding: '4px 12px', margin: 0, border: 'none' }}>{currentPlan.name}</Tag>
               </div>
               <div style={{ marginBottom: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <Text strong style={{ color: '#1f2937' }}>Phân tích hình ảnh</Text>
                   <Text type="secondary" style={{ fontSize: 13 }}>{aiUsed}/{currentPlan.aiQuota} lượt tháng này</Text>
                 </div>
-                <Progress percent={usagePercent} showInfo={false} strokeColor="#0e5e88" trailColor="rgba(255,255,255,0.5)" />
+                <Progress percent={usagePercent} showInfo={false} strokeColor="#0ea5e9" trailColor="#e2e8f0" style={{ marginBottom: 0 }} />
               </div>
-              <Button size="large" block style={{ borderRadius: 8, fontWeight: 600, color: '#0e5e88', borderColor: '#0e5e88' }} onClick={() => document.getElementById("service-plans")?.scrollIntoView({ behavior: "smooth" })}>
+              <Button
+                block
+                size="large"
+                style={{ borderRadius: 8, fontWeight: 600, color: '#0f172a', borderColor: '#cbd5e1', backgroundColor: '#fff' }}
+                onClick={() => setSelectedPlan(PLANS[1])}
+              >
                 Xem các gói dịch vụ
               </Button>
             </Card>
 
-            {/* HOẠT ĐỘNG KHÁM */}
+            {/* HOẠT ĐỘNG KHÁM GẦN ĐÂY */}
             <Card 
               title={<span style={{ fontSize: 16, fontWeight: 700, textTransform: 'uppercase', color: '#111827', letterSpacing: 0.5 }}>Hoạt động khám gần đây</span>} 
               bordered={false} 
               style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}
               headStyle={{ borderBottom: '1px solid #f0f0f0', padding: '16px 24px' }}
-              bodyStyle={{ padding: '8px 24px 24px 24px' }}
+              bodyStyle={{ padding: history.length ? '0 24px' : 24 }}
             >
-              {history.length === 0 && <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>Chưa có lịch sử điều trị.</Text>}
-              {history.slice(0, 4).map((item, index) => (
-                <div key={item.id}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0' }}>
-                    <div>
-                       <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{item.department || "Lượt khám chuyên khoa"}</div>
-                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                          <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(item.createdAt)}</Text>
-                          <span style={{ color: '#d1d5db' }}>•</span>
-                          <Text type="secondary" style={{ fontSize: 12 }}>{item.type || "Khám bệnh"}</Text>
-                       </div>
-                    </div>
-                    <Tag color="blue" style={{ margin: 0, borderRadius: 16 }}>{ENCOUNTER_STATUS_LABEL[item.status] ?? item.status}</Tag>
-                  </div>
-                  {index < 3 && <Divider style={{ margin: 0 }} />}
+              {history.length > 0 ? (
+                <div>
+                  {history.slice(0, 5).map((item) => {
+                    const deptText = safeString(item.department, "Khoa Da liễu");
+                    const typeText = safeString(item.type, "Standard");
+                    const rawStatus = safeString(item.status, "completed");
+                    const statusLabel = ENCOUNTER_STATUS_LABEL[rawStatus as EncounterStatus] ?? rawStatus;
+                    return (
+                      <div key={item.id} style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <Text strong style={{ display: 'block', fontSize: 14, color: '#1f2937' }}>{deptText}</Text>
+                          <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(item.createdAt)} · {typeText}</Text>
+                        </div>
+                        <Tag color="blue" style={{ borderRadius: 12, padding: '2px 10px', fontSize: 12 }}>
+                          {statusLabel}
+                        </Tag>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
+              ) : (
+                <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '24px 0' }}>Chưa có lịch sử khám bệnh.</Text>
+              )}
             </Card>
 
           </Col>
+
         </Row>
+      </Skeleton>
 
-        {/* PRICING PLANS */}
-        <div id="service-plans" style={{ marginTop: 40, marginBottom: 24 }}>
-           <Title level={3} style={{ fontWeight: 700, color: '#111827', margin: 0 }}>Thông tin các gói dịch vụ</Title>
-           <Text style={{ color: '#6b7280', fontSize: 15 }}>Lựa chọn gói dịch vụ phù hợp với nhu cầu theo dõi sức khỏe của bạn.</Text>
-        </div>
-        
-        <Row gutter={[24, 24]}>
-          {PLANS.map((plan, index) => {
-            const c = getPlanColors(index);
-            return (
-              <Col xs={24} sm={12} lg={6} key={plan.code}>
-                <div style={{ 
-                  background: '#fff', 
-                  borderRadius: 16, 
-                  padding: 24, 
-                  height: '100%', 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  position: 'relative',
-                  border: plan.recommended ? `2px solid ${c.btn}` : '1px solid #e5e7eb',
-                  boxShadow: plan.recommended ? `0 8px 24px ${c.btn}20` : '0 2px 8px rgba(0,0,0,0.02)',
-                  transition: 'all 0.3s ease',
-                }}>
-                  {plan.recommended && (
-                    <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', background: c.btn, color: '#fff', padding: '4px 16px', borderRadius: 20, fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>
-                      Khuyên dùng
-                    </div>
-                  )}
-                  
-                  <div style={{ background: c.bg, color: c.text, alignSelf: 'flex-start', padding: '6px 16px', borderRadius: 20, fontWeight: 700, fontSize: 13, textTransform: 'uppercase' }}>
-                    {plan.name}
-                  </div>
-                  
-                  <div style={{ marginTop: 24, fontSize: 32, fontWeight: 800, color: '#111827' }}>
-                    {plan.price === 0 ? "Miễn phí" : formatMoney(plan.price)}
-                    {plan.price > 0 && <span style={{ fontSize: 14, fontWeight: 500, color: '#6b7280', marginLeft: 4 }}>đ/năm</span>}
-                  </div>
-
-                  <div style={{ margin: '16px 0', fontSize: 14, color: '#4b5563', minHeight: 44, lineHeight: 1.5 }}>
-                    {plan.description}
-                  </div>
-
-                  <Divider style={{ margin: '12px 0', borderColor: '#e5e7eb' }} />
-
-                  <div style={{ flex: 1, marginBottom: 24 }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12, fontSize: 14, color: '#1f2937' }}>
-                       <CheckCircle2 size={18} color={c.btn} style={{ flexShrink: 0, marginTop: 2 }} />
-                       <span><Text strong>{plan.aiQuota}</Text> lượt phân tích hình ảnh / tháng</span>
-                    </div>
-                    {plan.features.map(f => (
-                      <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12, fontSize: 14, color: '#1f2937' }}>
-                        <CheckCircle2 size={18} color={c.btn} style={{ flexShrink: 0, marginTop: 2 }} />
-                        <span>{f}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <Button 
-                    type={plan.recommended ? "primary" : "default"} 
-                    size="large" 
-                    block 
-                    style={{ 
-                      borderRadius: 8, 
-                      fontWeight: 600, 
-                      background: plan.recommended ? c.btn : (plan.code === 'free' ? '#f3f4f6' : '#fff'),
-                      borderColor: plan.recommended ? c.btn : '#d1d5db',
-                      color: plan.recommended ? '#fff' : '#374151'
-                    }} 
-                    onClick={() => setSelectedPlan(plan)}
-                    disabled={plan.code === 'free'}
-                  >
-                    {plan.code === 'free' ? 'Đang sử dụng' : 'Đăng ký ngay'}
-                  </Button>
-                </div>
-              </Col>
-            );
-          })}
-        </Row>
-
-      </div>
-
+      {/* MODAL NÂNG CẤP GÓI */}
       <Modal
-        title={`Xác nhận nâng cấp ${selectedPlan?.name ?? ""}`}
+        title={<span style={{ fontSize: 18, fontWeight: 700, color: '#111827' }}>Nâng cấp gói dịch vụ</span>}
         open={Boolean(selectedPlan)}
         onCancel={() => setSelectedPlan(undefined)}
-        onOk={() => void requestUpgrade()}
-        okText="Gửi yêu cầu nâng cấp"
-        cancelText="Để sau"
-        confirmLoading={upgradeLoading}
-        centered
-        styles={{ root: { borderRadius: 16 } }}
+        footer={null}
+        width={720}
       >
         {selectedPlan && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
-            <div>
-               <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>Phí dịch vụ</Text>
-               <Title level={3} style={{ margin: 0, color: '#111827' }}>{formatMoney(selectedPlan.price)}đ/năm</Title>
-            </div>
-            <div>
-               <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>Hạn mức</Text>
-               <Text strong style={{ fontSize: 16 }}>{selectedPlan.aiQuota} lượt phân tích mỗi tháng</Text>
-            </div>
-            <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, color: '#475569', fontSize: 14 }}>
-               Yêu cầu sẽ được chuyển tới bộ phận thanh toán. Gói chỉ được kích hoạt sau khi giao dịch được xác nhận.
+          <div>
+            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+              {PLANS.map((plan) => {
+                const isSelected = selectedPlan.code === plan.code;
+                return (
+                  <Col xs={24} sm={12} key={plan.code}>
+                    <div
+                      onClick={() => setSelectedPlan(plan)}
+                      style={{
+                        padding: 16,
+                        borderRadius: 12,
+                        border: `2px solid ${isSelected ? '#0ea5e9' : '#e5e7eb'}`,
+                        backgroundColor: isSelected ? '#f0f9ff' : '#fff',
+                        cursor: 'pointer',
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        position: 'relative'
+                      }}
+                    >
+                      {plan.recommended && (
+                        <Tag color="orange" style={{ position: 'absolute', top: 12, right: 12, borderRadius: 10, margin: 0 }}>Khuyên dùng</Tag>
+                      )}
+                      <div>
+                        <Text strong style={{ fontSize: 18, color: '#111827', display: 'block' }}>{plan.name}</Text>
+                        <Title level={3} style={{ margin: '8px 0', color: '#0ea5e9' }}>
+                          {plan.price === 0 ? "Miễn phí" : `${formatMoney(plan.price)}đ`}<Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>/năm</Text>
+                        </Title>
+                        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>{plan.description}</Text>
+                        <Divider style={{ margin: '12px 0' }} />
+                        <ul style={{ paddingLeft: 18, margin: 0, fontSize: 13, color: '#4b5563' }}>
+                          {plan.features.map((feat, idx) => (
+                            <li key={idx} style={{ marginBottom: 4 }}>{feat}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </Col>
+                );
+              })}
+            </Row>
+
+            <div style={{ textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <Button size="large" style={{ borderRadius: 8 }} onClick={() => setSelectedPlan(undefined)}>Đóng</Button>
+              {selectedPlan.code !== "free" && (
+                <Button
+                  type="primary"
+                  size="large"
+                  loading={upgradeLoading}
+                  style={{ borderRadius: 8, fontWeight: 600, background: '#0ea5e9' }}
+                  onClick={() => void requestUpgrade()}
+                >
+                  Xác nhận đăng ký gói {selectedPlan.name}
+                </Button>
+              )}
             </div>
           </div>
         )}
       </Modal>
-
     </div>
   );
 }

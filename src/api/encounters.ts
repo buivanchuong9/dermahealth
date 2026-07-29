@@ -65,7 +65,7 @@ export const getActiveEncounter = () =>
 export const getEncounter = (encounterId: string) =>
   http.get<ApiEncounter>(encounterPath(encounterId));
 
-export const getEncounterEvents = (encounterId: string) =>
+export const getEncounterEvents = async (encounterId: string) =>
   http.get<ApiEncounterEvent[]>(`${encounterPath(encounterId)}/events`);
 
 export const transitionEncounter = (
