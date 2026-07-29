@@ -55,8 +55,9 @@ export const getPatientAuditTrail = async (patientId: string) =>
   (await http.get<AuditEventDto[]>(`/api/v1/audit/patients/${encodeURIComponent(patientId)}`)).map(mapEvent);
 
 export interface LogClientEventRequest {
+  action: string;
   entityType: string;
-  entityId: string;
+  entityId?: string;
   patientId?: string;
   encounterId?: string;
   previousState?: unknown;

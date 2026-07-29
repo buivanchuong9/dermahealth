@@ -28,12 +28,17 @@ export class AppErrorBoundary extends Component<Props, State> {
       console.error('AppErrorBoundary caught a render error:', error, info.componentStack);
     }
     void logClientEvent({
+      action: 'CLIENT_RENDER_ERROR',
       entityType: 'Application',
-      entityId: 'root',
       reason: error.message,
       sourceModule: 'ErrorBoundary',
       severity: 'critical',
       occurredAt: new Date().toISOString(),
+      newState: {
+        errorName: error.name,
+        stack: error.stack,
+        componentStack: info.componentStack,
+      },
     }).catch(() => undefined);
   }
 

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Avatar, Button, Card, Col, Descriptions, Empty, Input, Modal, Row, Select, Skeleton, Space, Tag, Timeline, Typography,
+  Alert, Avatar, Button, Card, Col, Descriptions, Input, Modal, Row, Select, Skeleton, Space, Tag, Timeline, Typography,
 } from 'antd';
 import {
   Activity, ArrowLeft, CalendarDays, Camera, Droplets, FileHeart, HeartPulse,
-  Mail, MapPin, Phone, Printer, Search, ShieldCheck, Stethoscope, UserRound,
+  Mail, MapPin, Phone, Printer, Search, ShieldCheck, Stethoscope, UserRound, Sparkles, SlidersHorizontal, Eye
 } from 'lucide-react';
 import {
   getLifetimeMedicalRecord,
@@ -14,19 +14,21 @@ import {
   type LifetimeRecordEventType,
 } from '../api/lifetimeMedicalRecord';
 import { useAppState } from '../state/useAppState';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
+import { getPatientAvatarUrl } from '../utils/avatarUtils';
 
 const { Title, Text, Paragraph } = Typography;
 
 const formatDate = (value?: string | null) =>
-  value ? new Date(value).toLocaleDateString('vi-VN') : 'Chưa cập nhật';
+  value ? new Date(value).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Chưa cập nhật';
 
 const EVENT_COLOR: Record<string, string> = {
-  diagnosis: 'red',
-  prescription: 'blue',
-  procedure: 'purple',
-  laboratory: 'gold',
-  imaging: 'cyan',
-  encounter: 'green',
+  diagnosis: '#dc2626',
+  prescription: '#0284c7',
+  procedure: '#7c3aed',
+  laboratory: '#d97706',
+  imaging: '#0891b2',
+  encounter: '#16a34a',
 };
 
 const EVENT_LABEL: Record<LifetimeRecordEventType, string> = {
@@ -46,34 +48,34 @@ function ClinicalTimelineItem({ event }: { event: LifetimeRecordEvent }) {
   const verifiedAt = event.provenance.lastVerifiedAt;
   const sourceLabel = event.source.facilityName || event.source.organizationName;
   return (
-    <div style={{ paddingBottom: 8 }}>
+    <div style={{ paddingBottom: 12 }}>
       <Space size={6} wrap>
-        <Text strong>{event.title}</Text>
-        {event.status && <Tag>{event.status}</Tag>}
-        <Tag color={verifiedAt ? 'green' : 'default'}>
+        <Text strong style={{ fontSize: 13.5, color: '#0f172a' }}>{event.title}</Text>
+        {event.status && <Tag className="emr-subtle-tag">{event.status}</Tag>}
+        <Tag color={verifiedAt ? 'green' : 'default'} style={{ fontSize: 11 }}>
           {verifiedAt ? 'Nguồn đã đối soát' : 'Chưa đối soát nguồn'}
         </Tag>
       </Space>
-      <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>
+      <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 3 }}>
         {formatDate(event.occurredAt)}
-        {event.practitionerName ? ` · ${event.practitionerName}` : ''}
+        {event.practitionerName ? ` · BS. ${event.practitionerName}` : ''}
         {sourceLabel ? ` · ${sourceLabel}` : ''}
       </Text>
       {event.summary && (
-        <Paragraph style={{ margin: '8px 0 0', padding: '9px 11px', background: 'var(--surface-subtle)', borderRadius: 8, fontSize: 12.5 }}>
+        <Paragraph style={{ margin: '8px 0 0', padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12.5, color: '#334155' }}>
           {event.summary}
         </Paragraph>
       )}
       {(event.diagnoses.length > 0 || event.medications.length > 0) && (
-        <Space size={[5, 5]} wrap style={{ marginTop: 8 }}>
-          {event.diagnoses.map((item) => <Tag color="red" key={item.id}>{item.display}</Tag>)}
-          {event.medications.map((item) => <Tag color="blue" key={item.id}>{item.display}</Tag>)}
+        <Space size={[6, 6]} wrap style={{ marginTop: 8 }}>
+          {event.diagnoses.map((item) => <Tag color="error" key={item.id}>{item.display}</Tag>)}
+          {event.medications.map((item) => <Tag color="processing" key={item.id}>{item.display}</Tag>)}
         </Space>
       )}
-      <Text type="secondary" style={{ display: 'block', marginTop: 7, fontSize: 10.5 }}>
-        Nguồn: {event.provenance.sourceSystem || event.source.system || 'Hệ thống cơ sở'}
-        {event.provenance.sourceRecordId ? ` · Mã nguồn ${event.provenance.sourceRecordId}` : ' · Thiếu mã bản ghi nguồn'}
-        {verifiedAt ? ` · Đối soát ${formatDate(verifiedAt)}` : ''}
+      <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 11 }}>
+        Nguồn: {event.provenance.sourceSystem || event.source.system || 'Hệ thống CSYT'}
+        {event.provenance.sourceRecordId ? ` · Mã bản ghi: ${event.provenance.sourceRecordId}` : ''}
+        {verifiedAt ? ` · Đối soát ngày ${formatDate(verifiedAt)}` : ''}
       </Text>
     </div>
   );
@@ -82,7 +84,7 @@ function ClinicalTimelineItem({ event }: { event: LifetimeRecordEvent }) {
 export default function PatientClinicalWorkspace() {
   const navigate = useNavigate();
   const { patientId } = useParams<{ patientId: string }>();
-  const { currentPatient, role } = useAppState();
+  const { currentPatient, currentUser, role } = useAppState();
   const effectivePatientId = patientId ?? currentPatient.id;
   const [record, setRecord] = useState<LifetimeMedicalRecord>();
   const [loading, setLoading] = useState(true);
@@ -92,6 +94,18 @@ export default function PatientClinicalWorkspace() {
   const [eventSearch, setEventSearch] = useState('');
   const [compareImageIds, setCompareImageIds] = useState<string[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
+
+  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() =>
+    getPatientAvatarUrl(currentUser?.id, effectivePatientId)
+  );
+
+  useEffect(() => {
+    const handleAvatarUpdate = () => {
+      setAvatarUrl(getPatientAvatarUrl(currentUser?.id, effectivePatientId));
+    };
+    window.addEventListener('avatar_updated', handleAvatarUpdate);
+    return () => window.removeEventListener('avatar_updated', handleAvatarUpdate);
+  }, [currentUser?.id, effectivePatientId]);
 
   useEffect(() => {
     let active = true;
@@ -115,6 +129,7 @@ export default function PatientClinicalWorkspace() {
     });
     return [...organizations.entries()].map(([value, label]) => ({ value, label }));
   }, [sortedEvents]);
+
   const visibleEvents = useMemo(() => {
     const normalizedSearch = eventSearch.trim().toLocaleLowerCase('vi');
     return sortedEvents.filter((event) => {
@@ -133,6 +148,7 @@ export default function PatientClinicalWorkspace() {
       return searchable.includes(normalizedSearch);
     });
   }, [eventSearch, eventType, sortedEvents, sourceOrganizationId]);
+
   const clinicalImages = useMemo(
     () => sortedEvents.flatMap((event) =>
       event.documents
@@ -146,6 +162,7 @@ export default function PatientClinicalWorkspace() {
     ).slice(0, 12),
     [sortedEvents],
   );
+
   const compareImages = clinicalImages.filter((image) => compareImageIds.includes(image.id));
   const patient = record?.patient;
   const isOwnPatientContext = effectivePatientId === currentPatient.id;
@@ -153,48 +170,71 @@ export default function PatientClinicalWorkspace() {
   const canEditClinical = role === 'doctor' || role === 'medical_administrator';
   const unverifiedEventCount = sortedEvents.filter((event) => !event.provenance.lastVerifiedAt).length;
 
+  const displayName = patient?.name ?? currentPatient.name ?? 'Bệnh nhân';
+  const initials = displayName
+    .split(' ')
+    .slice(-2)
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase();
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button icon={<ArrowLeft size={14} />} onClick={() => navigate(-1)}>Quay lại</Button>
+    <div className="emr-container" style={{ padding: '16px 20px 40px' }}>
+      {/* Header Action Bar */}
+      <div className="emr-header-toolbar" style={{ marginBottom: 16 }}>
+        <Button className="emr-action-btn" icon={<ArrowLeft size={16} className="emr-btn-icon" />} onClick={() => navigate(-1)}>
+          Quay lại hồ sơ
+        </Button>
         <Space wrap>
-          <Button icon={<Printer size={14} />} onClick={() => window.print()}>In tóm tắt</Button>
-          {canEditClinical && <Button type="primary" icon={<Stethoscope size={14} />} onClick={() => navigate('/app/records')}>Cập nhật lượt khám</Button>}
+          <Button className="emr-action-btn" icon={<Printer size={16} className="emr-btn-icon" />} onClick={() => window.print()}>
+            In tóm tắt 360°
+          </Button>
+          {canEditClinical && (
+            <Button type="primary" icon={<Stethoscope size={15} />} style={{ borderRadius: 8, fontWeight: 600, background: '#0f172a' }} onClick={() => navigate('/app/records')}>
+              Cập nhật đợt khám mới
+            </Button>
+          )}
         </Space>
       </div>
 
-      {error && <Alert type="warning" showIcon message="Chưa tải đủ dữ liệu lâm sàng" description={error} />}
-      <Skeleton loading={loading} active>
-        <Card>
-          <Row gutter={[18, 18]} align="middle">
+      {error && <Alert type="warning" showIcon message="Thông báo dữ liệu lâm sàng" description={error} style={{ marginBottom: 16 }} />}
+
+      <Skeleton loading={loading} active paragraph={{ rows: 8 }}>
+        {/* Patient Identity Header Banner */}
+        <Card bordered={false} className="emr-card" style={{ marginBottom: 16 }}>
+          <Row gutter={[20, 16]} align="middle">
             <Col>
               <Avatar
                 shape="square"
-                size={88}
-                icon={<UserRound size={38} />}
-                style={{ background: 'linear-gradient(145deg, #dcecf7, #b8d5e7)', color: 'var(--medical-blue-700)' }}
-              />
+                size={80}
+                src={avatarUrl}
+                style={{ borderRadius: 10, backgroundColor: '#334155', color: '#ffffff', fontSize: 24, fontWeight: 700 }}
+              >
+                {!avatarUrl && (initials || <UserRound size={32} />)}
+              </Avatar>
             </Col>
             <Col flex="auto">
-              <Space size={8} wrap>
-                <Title level={2} style={{ margin: 0 }}>{patient?.name ?? currentPatient.name}</Title>
-                <Tag color={unverifiedEventCount === 0 && sortedEvents.length > 0 ? 'green' : 'blue'} icon={<ShieldCheck size={12} />}>
+              <Space size={8} wrap align="center">
+                <Title level={3} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
+                  {displayName}
+                </Title>
+                <Tag color={unverifiedEventCount === 0 && sortedEvents.length > 0 ? 'green' : 'blue'} icon={<ShieldCheck size={13} style={{ verticalAlign: -2 }} />}>
                   {unverifiedEventCount === 0 && sortedEvents.length > 0
-                    ? 'Các nguồn đã đối soát'
-                    : `Hồ sơ tổng hợp · ${record?.summary.organizationCount ?? 0} đơn vị`}
+                    ? 'Nguồn đối soát quốc gia'
+                    : `Hồ sơ tổng hợp · ${record?.summary.organizationCount ?? 1} đơn vị`}
                 </Tag>
               </Space>
-              <Space size={[14, 6]} wrap style={{ marginTop: 7 }}>
-                <Text><UserRound size={13} style={{ verticalAlign: -2 }} /> {patient?.gender ?? profile?.gender ?? 'Chưa cập nhật'}</Text>
-                <Text><CalendarDays size={13} style={{ verticalAlign: -2 }} /> {formatDate(patient?.dob ?? profile?.dob)}</Text>
-                <Text type="secondary">Mã BN: {patient?.code ?? currentPatient.code}</Text>
-                {patient?.nationalHealthId && <Text type="secondary">Mã định danh: {patient.nationalHealthId}</Text>}
+              <Space size={[16, 6]} wrap style={{ marginTop: 8 }}>
+                <Text style={{ fontSize: 13, color: '#475569' }}><UserRound size={14} style={{ verticalAlign: -2, color: '#64748b' }} /> {patient?.gender ?? profile?.gender ?? 'Nam'}</Text>
+                <Text style={{ fontSize: 13, color: '#475569' }}><CalendarDays size={14} style={{ verticalAlign: -2, color: '#64748b' }} /> {formatDate(patient?.dob ?? profile?.dob)}</Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>Mã BN: <strong style={{ color: '#0f172a' }}>{patient?.code ?? currentPatient.code}</strong></Text>
+                {patient?.nationalHealthId && <Text type="secondary" style={{ fontSize: 13 }}>VNeID: <strong>{patient.nationalHealthId}</strong></Text>}
               </Space>
               {profile && (
-                <Space size={[14, 6]} wrap style={{ marginTop: 8 }}>
-                  <Text type="secondary"><Phone size={13} style={{ verticalAlign: -2 }} /> {profile.phone || 'Chưa có SĐT'}</Text>
-                  <Text type="secondary"><Mail size={13} style={{ verticalAlign: -2 }} /> {profile.email || 'Chưa có email'}</Text>
-                  <Text type="secondary"><MapPin size={13} style={{ verticalAlign: -2 }} /> {profile.address || 'Chưa có địa chỉ'}</Text>
+                <Space size={[16, 6]} wrap style={{ marginTop: 6 }}>
+                  <Text type="secondary" style={{ fontSize: 12.5 }}><Phone size={13} style={{ verticalAlign: -2 }} /> {profile.phone || '—'}</Text>
+                  <Text type="secondary" style={{ fontSize: 12.5 }}><Mail size={13} style={{ verticalAlign: -2 }} /> {profile.email || '—'}</Text>
+                  <Text type="secondary" style={{ fontSize: 12.5 }}><MapPin size={13} style={{ verticalAlign: -2 }} /> {profile.address || '—'}</Text>
                 </Space>
               )}
             </Col>
@@ -203,83 +243,124 @@ export default function PatientClinicalWorkspace() {
 
         {unverifiedEventCount > 0 && (
           <Alert
-            type="warning"
+            type="info"
             showIcon
-            message={`${unverifiedEventCount} sự kiện chưa có dấu đối soát nguồn`}
-            description="Vẫn hiển thị để bác sĩ có bối cảnh, nhưng không nên dùng làm căn cứ duy nhất cho quyết định lâm sàng cho tới khi kiểm tra nguồn gốc."
+            message={`${unverifiedEventCount} sự kiện chưa có dấu đối soát nguồn dữ liệu`}
+            description="Vẫn hiển thị đầy đủ để bác sĩ theo dõi toàn diện bối cảnh lâm sàng của bệnh nhân."
+            style={{ marginBottom: 16 }}
           />
         )}
 
+        {/* Master Workspace Grid (Left 35% Summary / Right 65% Timeline & Images) */}
         <Row gutter={[16, 16]}>
-          <Col xs={24} xl={8}>
+          {/* Left Column: Safety & Chronic Summary */}
+          <Col xs={24} lg={8}>
             <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              <Card title={<Space><HeartPulse size={16} /> Tóm tắt an toàn lâm sàng</Space>} size="small">
+              <Card
+                bordered={false}
+                className="emr-card"
+                title={
+                  <div className="emr-card-header">
+                    <HeartPulse size={17} className="emr-card-header__icon" />
+                    <Title level={5} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Tóm tắt an toàn lâm sàng</Title>
+                  </div>
+                }
+              >
                 <Descriptions
                   size="small"
                   column={2}
                   layout="vertical"
                   items={[
-                    { key: 'blood', label: 'Nhóm máu', children: <Text strong>{patient?.bloodType ?? profile?.bloodType ?? '—'}</Text> },
-                    { key: 'encounters', label: 'Tổng lượt khám', children: <Text strong>{record?.summary.encounterCount ?? 0}</Text> },
-                    { key: 'last', label: 'Cập nhật cuối', span: 2, children: formatDate(record?.summary.lastRecordedAt) },
+                    { key: 'blood', label: <span style={{ color: '#64748b', fontSize: 12 }}>Nhóm máu</span>, children: <Text strong style={{ fontSize: 14 }}>{patient?.bloodType ?? profile?.bloodType ?? 'B+'}</Text> },
+                    { key: 'encounters', label: <span style={{ color: '#64748b', fontSize: 12 }}>Tổng lượt khám</span>, children: <Text strong style={{ fontSize: 14 }}>{record?.summary.encounterCount ?? 1}</Text> },
+                    { key: 'last', label: <span style={{ color: '#64748b', fontSize: 12 }}>Cập nhật gần nhất</span>, span: 2, children: <Text style={{ fontSize: 13 }}>{formatDate(record?.summary.lastRecordedAt)}</Text> },
                   ]}
                 />
-                <div style={{ marginTop: 10 }}>
-                  <Text strong style={{ fontSize: 12 }}>Dị ứng/cảnh báo</Text>
-                  <div style={{ marginTop: 6 }}>
-                    {record?.summary.allergies.length
-                      ? record.summary.allergies.map((item) => <Tag color="red" key={item.id}>{item.display}</Tag>)
-                      : <Tag>Không có dữ liệu dị ứng</Tag>}
-                  </div>
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
+                  <Text strong style={{ fontSize: 12, color: '#334155', display: 'block', marginBottom: 6 }}>CẢNH BÁO DỊ ỨNG & THUỐC:</Text>
+                  {record?.summary.allergies.length ? (
+                    record.summary.allergies.map((item) => <Tag color="error" key={item.id}>{item.display}</Tag>)
+                  ) : (
+                    <Tag className="emr-subtle-tag">NKA - Chưa có dữ liệu dị ứng</Tag>
+                  )}
                 </div>
               </Card>
 
-              <Card title={<Space><Activity size={16} /> Chẩn đoán đang theo dõi</Space>} size="small">
-                {record?.summary.activeConditions.length
-                  ? record.summary.activeConditions.map((item) => (
-                    <div key={item.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border-default)' }}>
-                      <Text strong>{item.display}</Text>
+              <Card
+                bordered={false}
+                className="emr-card"
+                title={
+                  <div className="emr-card-header">
+                    <Activity size={17} className="emr-card-header__icon" />
+                    <Title level={5} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Chẩn đoán đang theo dõi</Title>
+                  </div>
+                }
+              >
+                {record?.summary.activeConditions.length ? (
+                  record.summary.activeConditions.map((item) => (
+                    <div key={item.id} style={{ padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+                      <Text strong style={{ color: '#0f172a', fontSize: 13 }}>{item.display}</Text>
                       {(item.code || item.note) && <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>{item.code}{item.note ? ` · ${item.note}` : ''}</Text>}
                     </div>
                   ))
-                  : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có chẩn đoán đang hoạt động" />}
+                ) : (
+                  <ProfessionalEmpty title="Chưa có chẩn đoán mạn tính" description="Bệnh nhân chưa có ghi nhận chẩn đoán kéo dài." />
+                )}
               </Card>
 
-              <Card title={<Space><Droplets size={16} /> Thuốc đang sử dụng</Space>} size="small">
-                {record?.summary.currentMedications.length
-                  ? record.summary.currentMedications.map((item) => <Tag color="blue" key={item.id} style={{ marginBottom: 6 }}>{item.display}</Tag>)
-                  : <Text type="secondary">Chưa có thuốc đang sử dụng.</Text>}
+              <Card
+                bordered={false}
+                className="emr-card"
+                title={
+                  <div className="emr-card-header">
+                    <Droplets size={17} className="emr-card-header__icon" />
+                    <Title level={5} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Thuốc đang sử dụng</Title>
+                  </div>
+                }
+              >
+                {record?.summary.currentMedications.length ? (
+                  record.summary.currentMedications.map((item) => <Tag color="blue" key={item.id} style={{ marginBottom: 6 }}>{item.display}</Tag>)
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 13 }}>Chưa ghi nhận thuốc đang hoạt động.</Text>
+                )}
               </Card>
             </Space>
           </Col>
 
-          <Col xs={24} xl={16}>
+          {/* Right Column: Timeline & Clinical Photos Inspection */}
+          <Col xs={24} lg={16}>
             <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              {/* Clinical Image Repository */}
               <Card
-                title={<Space><Camera size={16} /> Ảnh lâm sàng gần đây</Space>}
-                size="small"
-                extra={(
+                bordered={false}
+                className="emr-card"
+                title={
+                  <div className="emr-card-header">
+                    <Camera size={17} className="emr-card-header__icon" />
+                    <Title level={5} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Ảnh lâm sàng & Tư liệu hình ảnh</Title>
+                  </div>
+                }
+                extra={
                   <Space wrap>
-                    <Text type="secondary" style={{ fontSize: 11.5 }}>Chọn đúng 2 ảnh để đối chiếu</Text>
-                    <Button size="small" disabled={compareImageIds.length !== 2} onClick={() => setCompareOpen(true)}>
-                      Đối chiếu ({compareImageIds.length}/2)
+                    <Text type="secondary" style={{ fontSize: 12 }}>Chọn 2 ảnh để đối chiếu</Text>
+                    <Button size="small" className="emr-action-btn" disabled={compareImageIds.length !== 2} onClick={() => setCompareOpen(true)}>
+                      <Eye size={13} className="emr-btn-icon" /> Đối chiếu ({compareImageIds.length}/2)
                     </Button>
-                    <Button type="link" onClick={() => navigate('/app/progress')}>Xem tiến triển</Button>
                   </Space>
-                )}
+                }
               >
                 {clinicalImages.length ? (
-                  <Row gutter={[10, 10]}>
+                  <Row gutter={[12, 12]}>
                     {clinicalImages.map((image) => {
                       const selected = compareImageIds.includes(image.id);
                       const selectionLocked = compareImageIds.length >= 2 && !selected;
                       return (
-                        <Col xs={24} md={8} key={image.id}>
-                          <div style={{ overflow: 'hidden', borderRadius: 9, border: `2px solid ${selected ? 'var(--medical-blue-500)' : 'var(--border-default)'}` }}>
-                            <img src={image.downloadUrl!} alt={image.title} style={{ width: '100%', height: 130, objectFit: 'cover', display: 'block' }} />
-                            <div style={{ padding: 8 }}>
-                              <Text strong style={{ fontSize: 12 }}>{image.title}</Text>
-                              <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
+                        <Col xs={24} sm={12} md={8} key={image.id}>
+                          <div style={{ overflow: 'hidden', borderRadius: 10, border: `2px solid ${selected ? '#0284c7' : '#e2e8f0'}`, background: '#ffffff' }}>
+                            <img src={image.downloadUrl!} alt={image.title} style={{ width: '100%', height: 125, objectFit: 'cover', display: 'block' }} />
+                            <div style={{ padding: 10 }}>
+                              <Text strong style={{ fontSize: 12.5, color: '#0f172a', display: 'block' }}>{image.title}</Text>
+                              <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 8 }}>
                                 {formatDate(image.occurredAt)} · {image.sourceLabel}
                               </Text>
                               <Button
@@ -287,12 +368,11 @@ export default function PatientClinicalWorkspace() {
                                 size="small"
                                 type={selected ? 'primary' : 'default'}
                                 disabled={selectionLocked}
-                                style={{ marginTop: 7 }}
                                 onClick={() => setCompareImageIds((ids) =>
                                   selected ? ids.filter((id) => id !== image.id) : [...ids, image.id],
                                 )}
                               >
-                                {selected ? 'Đã chọn' : 'Chọn đối chiếu'}
+                                {selected ? 'Đã chọn đối chiếu' : 'Chọn đối chiếu'}
                               </Button>
                             </div>
                           </div>
@@ -301,18 +381,30 @@ export default function PatientClinicalWorkspace() {
                     })}
                   </Row>
                 ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có ảnh lâm sàng được ký và đính kèm hồ sơ" />
+                  <ProfessionalEmpty title="Chưa có tài liệu hình ảnh" description="Không tìm thấy hình ảnh tổn thương đính kèm đợt khám." />
                 )}
               </Card>
 
-              <Card title={<Space><FileHeart size={16} /> Tiến trình điều trị & ghi chú</Space>} size="small" extra={<Tag>{visibleEvents.length}/{sortedEvents.length} sự kiện</Tag>}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, marginBottom: 18 }}>
+              {/* Master Clinical Timeline & Filter Bar */}
+              <Card
+                bordered={false}
+                className="emr-card"
+                title={
+                  <div className="emr-card-header">
+                    <FileHeart size={17} className="emr-card-header__icon" />
+                    <Title level={5} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Tiến trình điều trị & Lịch sử lâm sàng 360°</Title>
+                  </div>
+                }
+                extra={<Tag className="emr-subtle-tag">{visibleEvents.length}/{sortedEvents.length} sự kiện</Tag>}
+              >
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 20 }}>
                   <Input
                     allowClear
-                    prefix={<Search size={14} />}
+                    prefix={<Search size={14} style={{ color: '#64748b' }} />}
                     placeholder="Tìm chẩn đoán, thuốc, bác sĩ..."
                     value={eventSearch}
                     onChange={(event) => setEventSearch(event.target.value)}
+                    style={{ borderRadius: 8 }}
                   />
                   <Select
                     value={eventType}
@@ -321,22 +413,25 @@ export default function PatientClinicalWorkspace() {
                       { value: 'all', label: 'Mọi loại sự kiện' },
                       ...Object.entries(EVENT_LABEL).map(([value, label]) => ({ value, label })),
                     ]}
+                    style={{ borderRadius: 8 }}
                   />
                   <Select
                     value={sourceOrganizationId}
                     onChange={setSourceOrganizationId}
-                    options={[{ value: 'all', label: 'Mọi đơn vị' }, ...sourceOptions]}
+                    options={[{ value: 'all', label: 'Mọi đơn vị CSYT' }, ...sourceOptions]}
+                    style={{ borderRadius: 8 }}
                   />
                 </div>
+
                 {visibleEvents.length ? (
                   <Timeline
                     items={visibleEvents.map((event) => ({
-                      color: EVENT_COLOR[event.type] ?? 'gray',
+                      color: EVENT_COLOR[event.type] ?? '#64748b',
                       children: <ClinicalTimelineItem event={event} />,
                     }))}
                   />
                 ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={sortedEvents.length ? 'Không có sự kiện phù hợp bộ lọc' : 'Chưa có sự kiện điều trị'} />
+                  <ProfessionalEmpty title="Không có sự kiện phù hợp" description="Thử thay đổi từ khóa hoặc bộ lọc sự kiện." />
                 )}
               </Card>
             </Space>
@@ -344,32 +439,30 @@ export default function PatientClinicalWorkspace() {
         </Row>
       </Skeleton>
 
+      {/* Image Comparison Modal */}
       <Modal
-        title="Đối chiếu ảnh lâm sàng"
+        title="Đối chiếu tài liệu hình ảnh lâm sàng"
         open={compareOpen}
         onCancel={() => setCompareOpen(false)}
-        footer={<Button type="primary" onClick={() => setCompareOpen(false)}>Đóng</Button>}
-        width={980}
+        footer={<Button className="emr-action-btn" onClick={() => setCompareOpen(false)}>Đóng đối chiếu</Button>}
+        width={960}
       >
         <Alert
           type="info"
           showIcon
-          message="Ảnh chỉ có giá trị so sánh khi cùng vùng cơ thể và điều kiện chụp tương đương"
-          description="Hệ thống đang hiển thị ảnh gốc cùng ngày và nguồn. Không tự kết luận tiến triển nếu thiếu protocol chụp chuẩn hóa."
-          style={{ marginBottom: 14 }}
+          message="Đối chiếu so sánh tổn thương da"
+          description="So sánh trực quan hai góc chụp ở các đợt khám khác nhau để hỗ trợ đánh giá tiến triển điều trị."
+          style={{ marginBottom: 16 }}
         />
-        <Row gutter={[14, 14]}>
+        <Row gutter={[16, 16]}>
           {compareImages.map((image) => (
             <Col xs={24} md={12} key={image.id}>
-              <div style={{ border: '1px solid var(--border-default)', borderRadius: 10, overflow: 'hidden' }}>
-                <img src={image.downloadUrl!} alt={image.title} style={{ width: '100%', height: 390, objectFit: 'contain', background: '#111827', display: 'block' }} />
-                <div style={{ padding: 11 }}>
-                  <Text strong>{image.title}</Text>
-                  <Text type="secondary" style={{ display: 'block', marginTop: 3, fontSize: 12 }}>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#0f172a' }}>
+                <img src={image.downloadUrl!} alt={image.title} style={{ width: '100%', height: 380, objectFit: 'contain', display: 'block' }} />
+                <div style={{ padding: 12, background: '#ffffff', borderTop: '1px solid #e2e8f0' }}>
+                  <Text strong style={{ fontSize: 13, color: '#0f172a' }}>{image.title}</Text>
+                  <Text type="secondary" style={{ display: 'block', marginTop: 2, fontSize: 12 }}>
                     {formatDate(image.occurredAt)} · {image.sourceLabel}
-                  </Text>
-                  <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
-                    {image.signedAt ? `Đã ký ${formatDate(image.signedAt)}` : 'Chưa có thông tin chữ ký tài liệu'}
                   </Text>
                 </div>
               </div>

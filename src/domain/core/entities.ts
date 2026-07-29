@@ -19,6 +19,7 @@ import type { UserRole } from './role';
 export interface User {
   id: UserId;
   name: string;
+  avatarUrl?: string;
   /** The currently active role for UI gating (nav, RoleProtectedRoute). */
   role: UserRole;
   /** Every role this account holds membership in — may be more than one;
@@ -44,6 +45,7 @@ export interface Patient {
   id: PatientId;
   code: string;
   name: string;
+  avatarUrl?: string;
   profile: PatientProfile;
   primaryDoctorId: UserId;
 }

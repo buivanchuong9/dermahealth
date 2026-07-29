@@ -4,7 +4,7 @@ import {
   isAccessTokenExpired,
   setAccessToken,
 } from "./authToken";
-import type { ApiEnvelope, AuthSession } from "./types";
+import type { AuthSession } from "./types";
 
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(
@@ -140,7 +140,10 @@ async function request<T>(
     throw new ApiError(message, res.status, json?.requestId);
   }
 
-  return (json as ApiEnvelope<T> | undefined)?.data as T;
+  if (json && typeof json === "object" && "data" in json && json.data !== undefined) {
+    return json.data as T;
+  }
+  return json as T;
 }
 
 export const http = {
