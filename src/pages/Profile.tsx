@@ -249,6 +249,12 @@ export default function Profile() {
   
   const currentPlan = PLANS[0];
   const usagePercent = Math.min(100, Math.round((aiUsed / currentPlan.aiQuota) * 100));
+  const scrollToUpgradePlans = () => {
+    document.getElementById("service-plans")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
   const saveProfile = async (values: ProfileForm) => {
     setSaving(true);
@@ -500,7 +506,7 @@ export default function Profile() {
                 block
                 size="large"
                 style={{ borderRadius: 8, fontWeight: 600, color: '#0f172a', borderColor: '#cbd5e1', backgroundColor: '#fff' }}
-                onClick={() => setSelectedPlan(PLANS[1])}
+                onClick={scrollToUpgradePlans}
               >
                 Xem các gói dịch vụ
               </Button>
@@ -544,72 +550,115 @@ export default function Profile() {
         </Row>
       </Skeleton>
 
-      {/* MODAL NÂNG CẤP GÓI */}
+      {/* CÁC GÓI DỊCH VỤ */}
+      <section id="service-plans" style={{ marginTop: 32, scrollMarginTop: 88 }}>
+        <div style={{ marginBottom: 20 }}>
+          <Title level={3} style={{ margin: 0, color: '#111827', fontWeight: 700 }}>
+            Nâng cấp gói dịch vụ
+          </Title>
+          <Text type="secondary">
+            So sánh quyền lợi và chọn gói phù hợp với nhu cầu theo dõi sức khỏe.
+          </Text>
+        </div>
+
+        <Row gutter={[20, 20]}>
+          {PLANS.map((plan) => {
+            const isCurrent = plan.code === currentPlan.code;
+            return (
+              <Col xs={24} sm={12} xl={6} key={plan.code}>
+                <Card
+                  bordered={false}
+                  style={{
+                    height: '100%',
+                    borderRadius: 16,
+                    border: plan.recommended ? '2px solid #0ea5e9' : '1px solid #e2e8f0',
+                    boxShadow: plan.recommended
+                      ? '0 10px 28px rgba(14, 165, 233, 0.14)'
+                      : '0 4px 18px rgba(15, 23, 42, 0.05)',
+                  }}
+                  bodyStyle={{
+                    padding: 22,
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div style={{ minHeight: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text strong style={{ fontSize: 18, color: '#111827' }}>{plan.name}</Text>
+                    {plan.recommended && (
+                      <Tag color="orange" style={{ margin: 0, borderRadius: 10 }}>Khuyên dùng</Tag>
+                    )}
+                  </div>
+
+                  <div style={{ margin: '12px 0 10px' }}>
+                    <Text style={{ color: '#0ea5e9', fontSize: 28, fontWeight: 800 }}>
+                      {plan.price === 0 ? "Miễn phí" : `${formatMoney(plan.price)}đ`}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 13 }}>/năm</Text>
+                  </div>
+
+                  <Text type="secondary" style={{ minHeight: 44, fontSize: 13 }}>
+                    {plan.description}
+                  </Text>
+
+                  <Divider style={{ margin: '16px 0' }} />
+
+                  <ul style={{ flex: 1, margin: '0 0 20px', paddingLeft: 18, color: '#4b5563', fontSize: 13 }}>
+                    {plan.features.map((feature) => (
+                      <li key={feature} style={{ marginBottom: 8 }}>{feature}</li>
+                    ))}
+                  </ul>
+
+                  <Button
+                    type={plan.recommended ? "primary" : "default"}
+                    block
+                    size="large"
+                    disabled={isCurrent}
+                    style={{
+                      borderRadius: 8,
+                      fontWeight: 600,
+                      ...(plan.recommended ? { background: '#0ea5e9' } : {}),
+                    }}
+                    onClick={() => setSelectedPlan(plan)}
+                  >
+                    {isCurrent ? "Đang sử dụng" : "Đăng ký ngay"}
+                  </Button>
+                </Card>
+              </Col>
+            );
+          })}
+        </Row>
+      </section>
+
+      {/* MODAL XÁC NHẬN NÂNG CẤP */}
       <Modal
-        title={<span style={{ fontSize: 18, fontWeight: 700, color: '#111827' }}>Nâng cấp gói dịch vụ</span>}
+        title={<span style={{ fontSize: 18, fontWeight: 700, color: '#111827' }}>Xác nhận nâng cấp gói</span>}
         open={Boolean(selectedPlan)}
         onCancel={() => setSelectedPlan(undefined)}
-        footer={null}
-        width={720}
+        onOk={() => void requestUpgrade()}
+        okText="Gửi yêu cầu nâng cấp"
+        cancelText="Để sau"
+        confirmLoading={upgradeLoading}
+        centered
+        width={520}
       >
         {selectedPlan && (
-          <div>
-            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-              {PLANS.map((plan) => {
-                const isSelected = selectedPlan.code === plan.code;
-                return (
-                  <Col xs={24} sm={12} key={plan.code}>
-                    <div
-                      onClick={() => setSelectedPlan(plan)}
-                      style={{
-                        padding: 16,
-                        borderRadius: 12,
-                        border: `2px solid ${isSelected ? '#0ea5e9' : '#e5e7eb'}`,
-                        backgroundColor: isSelected ? '#f0f9ff' : '#fff',
-                        cursor: 'pointer',
-                        height: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        position: 'relative'
-                      }}
-                    >
-                      {plan.recommended && (
-                        <Tag color="orange" style={{ position: 'absolute', top: 12, right: 12, borderRadius: 10, margin: 0 }}>Khuyên dùng</Tag>
-                      )}
-                      <div>
-                        <Text strong style={{ fontSize: 18, color: '#111827', display: 'block' }}>{plan.name}</Text>
-                        <Title level={3} style={{ margin: '8px 0', color: '#0ea5e9' }}>
-                          {plan.price === 0 ? "Miễn phí" : `${formatMoney(plan.price)}đ`}<Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>/năm</Text>
-                        </Title>
-                        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>{plan.description}</Text>
-                        <Divider style={{ margin: '12px 0' }} />
-                        <ul style={{ paddingLeft: 18, margin: 0, fontSize: 13, color: '#4b5563' }}>
-                          {plan.features.map((feat, idx) => (
-                            <li key={idx} style={{ marginBottom: 4 }}>{feat}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </Col>
-                );
-              })}
-            </Row>
-
-            <div style={{ textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-              <Button size="large" style={{ borderRadius: 8 }} onClick={() => setSelectedPlan(undefined)}>Đóng</Button>
-              {selectedPlan.code !== "free" && (
-                <Button
-                  type="primary"
-                  size="large"
-                  loading={upgradeLoading}
-                  style={{ borderRadius: 8, fontWeight: 600, background: '#0ea5e9' }}
-                  onClick={() => void requestUpgrade()}
-                >
-                  Xác nhận đăng ký gói {selectedPlan.name}
-                </Button>
-              )}
+          <div style={{ paddingTop: 8 }}>
+            <div style={{ padding: 18, borderRadius: 12, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+              <Text strong style={{ display: 'block', fontSize: 18, color: '#0f172a' }}>
+                Gói {selectedPlan.name}
+              </Text>
+              <Title level={3} style={{ margin: '8px 0 4px', color: '#0ea5e9' }}>
+                {formatMoney(selectedPlan.price)}đ
+                <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>/năm</Text>
+              </Title>
+              <Text type="secondary">
+                Hạn mức {selectedPlan.aiQuota >= 9999 ? "không giới hạn" : selectedPlan.aiQuota} lượt phân tích AI mỗi tháng.
+              </Text>
             </div>
+            <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>
+              Yêu cầu sẽ được chuyển tới bộ phận thanh toán. Gói chỉ được kích hoạt sau khi giao dịch được xác nhận.
+            </Text>
           </div>
         )}
       </Modal>
