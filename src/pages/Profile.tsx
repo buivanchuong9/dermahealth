@@ -137,6 +137,12 @@ const PLANS: Array<{
   },
 ];
 
+const AI_VISIT_PACKS = [
+  { visits: 30, price: 199_000 },
+  { visits: 50, price: 299_000 },
+  { visits: 100, price: 499_000 },
+] as const;
+
 const calculateAge = (dobString?: string | null) => {
   if (!dobString || typeof dobString !== "string") return undefined;
   const birth = new Date(dobString);
@@ -170,6 +176,18 @@ const safeString = (val: unknown, fallback: string = "—"): string => {
   return fallback;
 };
 
+const resolveProfileAvatar = (
+  userId?: string | null,
+  patientId?: string | null,
+  backendAvatarUrl?: string | null,
+): string =>
+  getPatientAvatarUrl(userId, patientId) ||
+  // This is the authenticated user's own profile, so falling back from the
+  // owned patient key to the user key cannot leak another patient's photo.
+  getPatientAvatarUrl(userId) ||
+  backendAvatarUrl ||
+  "";
+
 // "No patient yet" and "haven't finished loading" and "the load failed" are
 // three different situations that must never be conflated into one nullable
 // value — conflating them is what let a transient load error masquerade as
@@ -199,13 +217,14 @@ export default function Profile() {
   const [avatarPreview, setAvatarPreview] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<(typeof PLANS)[number]>();
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [selectedVisitIdx, setSelectedVisitIdx] = useState(0);
+  const [visitPurchaseLoading, setVisitPurchaseLoading] = useState(false);
+  const [visitModalOpen, setVisitModalOpen] = useState(false);
 
   useEffect(() => {
     const handleAvatarUpdate = () => {
       setAvatarPreview(
-        me?.avatarUrl ||
-          getPatientAvatarUrl(me?.id, patient?.id) ||
-          "",
+        resolveProfileAvatar(me?.id, patient?.id, me?.avatarUrl),
       );
     };
     window.addEventListener("avatar_updated", handleAvatarUpdate);
@@ -219,9 +238,7 @@ export default function Profile() {
       if (!active) return;
       setMe(userResult);
       setAvatarPreview(
-        userResult.avatarUrl ||
-          getPatientAvatarUrl(userResult.id) ||
-          "",
+        resolveProfileAvatar(userResult.id, undefined, userResult.avatarUrl),
       );
       form.setFieldsValue({
         name: safeString(userResult.displayName, ""),
@@ -275,9 +292,11 @@ export default function Profile() {
       }
       setPatientState({ status: "ready", patient: patientResult });
       setAvatarPreview(
-        userResult.avatarUrl ||
-          getPatientAvatarUrl(userResult.id, patientResult.id) ||
-          "",
+        resolveProfileAvatar(
+          userResult.id,
+          patientResult.id,
+          userResult.avatarUrl,
+        ),
       );
       form.setFieldsValue({
         name: safeString(patientResult.name || userResult.displayName, ""),
@@ -503,6 +522,30 @@ export default function Profile() {
     }
   };
 
+  const requestVisitPurchase = async () => {
+    const pack = AI_VISIT_PACKS[selectedVisitIdx];
+    if (!pack || !patient) return;
+    setVisitPurchaseLoading(true);
+    try {
+      await createSupportTicket({
+        topic: "billing",
+        message: `Yêu cầu mua thêm ${pack.visits} lượt phân tích da bằng AI (${formatMoney(pack.price)}đ) cho bệnh nhân ${safeString(patient.code)}. Giữ nguyên gói dịch vụ hiện tại.`,
+      });
+      void message.success(
+        "Đã gửi yêu cầu mua lượt AI. Bộ phận CSKH sẽ liên hệ xác nhận thanh toán sớm nhất.",
+      );
+      setVisitModalOpen(false);
+    } catch (error) {
+      void message.error(
+        error instanceof Error
+          ? error.message
+          : "Không thể gửi yêu cầu mua lượt AI.",
+      );
+    } finally {
+      setVisitPurchaseLoading(false);
+    }
+  };
+
   const displayName = safeString(patient?.name || me?.displayName, "Người dùng");
   const patientCode = safeString(patient?.code, "—");
   const phoneText = safeString(patient?.phone || me?.phone, "Chưa cập nhật");
@@ -690,6 +733,136 @@ export default function Profile() {
                 </Button>
               </Card>
 
+              {/* MUA THÊM LƯỢT AI - giữ nguyên gói dịch vụ hiện tại */}
+              <Card
+                bordered={false}
+                style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.04)', marginBottom: 24, border: '1px solid #e2e8f0' }}
+                bodyStyle={{ padding: 24 }}
+              >
+                <div style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                    Mua thêm lượt phân tích da bằng AI
+                  </Text>
+                  <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+                    Chọn số lượt — gói hiện tại không thay đổi
+                  </Text>
+                </div>
+
+                <div style={{ position: 'relative', padding: '8px 0 28px' }}>
+                  <div style={{ position: 'relative', height: 6, borderRadius: 3, background: '#e2e8f0', margin: '0 12px' }}>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
+                        height: '100%',
+                        borderRadius: 3,
+                        background: 'linear-gradient(90deg, #0ea5e9, #6366f1)',
+                        width: `${(selectedVisitIdx / (AI_VISIT_PACKS.length - 1)) * 100}%`,
+                        transition: 'width 0.2s ease',
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', marginTop: -9 }}>
+                    {AI_VISIT_PACKS.map((pack, index) => {
+                      const isActive = index === selectedVisitIdx;
+                      const isPassed = index <= selectedVisitIdx;
+                      return (
+                        <button
+                          key={pack.visits}
+                          type="button"
+                          aria-label={`Chọn gói ${pack.visits} lượt AI`}
+                          aria-pressed={isActive}
+                          onClick={() => setSelectedVisitIdx(index)}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: 8,
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: 0,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: isActive ? 22 : 14,
+                              height: isActive ? 22 : 14,
+                              borderRadius: '50%',
+                              background: isPassed
+                                ? 'linear-gradient(135deg, #0ea5e9, #6366f1)'
+                                : '#e2e8f0',
+                              border: isActive ? '3px solid #fff' : '2px solid #fff',
+                              boxShadow: isActive
+                                ? '0 0 0 3px #0ea5e920, 0 3px 10px rgba(99,102,241,0.35)'
+                                : isPassed
+                                  ? '0 2px 6px rgba(14,165,233,0.25)'
+                                  : 'none',
+                              transition: 'all 0.2s ease',
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span style={{ textAlign: 'center', lineHeight: 1.3 }}>
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: isActive ? 15 : 13,
+                                fontWeight: isActive ? 800 : 500,
+                                color: isActive ? '#0f172a' : '#94a3b8',
+                                transition: 'all 0.2s',
+                              }}
+                            >
+                              {pack.visits}
+                            </span>
+                            <span style={{ display: 'block', fontSize: 10, color: '#94a3b8' }}>
+                              lượt
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: 'linear-gradient(135deg, #f0f9ff 0%, #eff6ff 100%)',
+                    borderRadius: 10,
+                    padding: '12px 16px',
+                    marginBottom: 14,
+                    border: '1px solid #bae6fd',
+                  }}
+                >
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>Bạn chọn</Text>
+                    <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a' }}>
+                      {AI_VISIT_PACKS[selectedVisitIdx].visits} lượt
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>Thanh toán</Text>
+                    <div style={{ fontWeight: 800, fontSize: 20, color: '#0ea5e9' }}>
+                      {formatMoney(AI_VISIT_PACKS[selectedVisitIdx].price)}
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>đ</span>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  type="primary"
+                  block
+                  size="large"
+                  style={{ borderRadius: 8, fontWeight: 600, background: 'linear-gradient(135deg, #0ea5e9, #6366f1)', border: 'none' }}
+                  onClick={() => setVisitModalOpen(true)}
+                >
+                  Mua {AI_VISIT_PACKS[selectedVisitIdx].visits} lượt
+                </Button>
+              </Card>
+
               {/* HOẠT ĐỘNG KHÁM GẦN ĐÂY */}
               <Card
                 title={<span style={{ fontSize: 16, fontWeight: 700, textTransform: 'uppercase', color: '#111827', letterSpacing: 0.5 }}>Hoạt động khám gần đây</span>}
@@ -773,7 +946,7 @@ export default function Profile() {
                     <Text style={{ color: '#0ea5e9', fontSize: 28, fontWeight: 800 }}>
                       {plan.price === 0 ? "Miễn phí" : `${formatMoney(plan.price)}đ`}
                     </Text>
-                    <Text type="secondary" style={{ fontSize: 13 }}>/năm</Text>
+                    {plan.price > 0 && <Text type="secondary" style={{ fontSize: 13 }}>/năm</Text>}
                   </div>
 
                   <Text type="secondary" style={{ minHeight: 44, fontSize: 13 }}>
@@ -840,6 +1013,43 @@ export default function Profile() {
             </Text>
           </div>
         )}
+      </Modal>
+
+      {/* MODAL XÁC NHẬN MUA LƯỢT AI */}
+      <Modal
+        title={<span style={{ fontSize: 18, fontWeight: 700, color: '#111827' }}>Xác nhận mua lượt phân tích AI</span>}
+        open={visitModalOpen}
+        onCancel={() => setVisitModalOpen(false)}
+        onOk={() => void requestVisitPurchase()}
+        okText="Gửi yêu cầu mua"
+        cancelText="Để sau"
+        confirmLoading={visitPurchaseLoading}
+        centered
+        width={480}
+      >
+        <div style={{ paddingTop: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div style={{ padding: 16, borderRadius: 10, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                Số lượt
+              </Text>
+              <Text strong style={{ fontSize: 20, color: '#0f172a' }}>
+                {AI_VISIT_PACKS[selectedVisitIdx].visits} lượt
+              </Text>
+            </div>
+            <div style={{ padding: 16, borderRadius: 10, background: '#faf5ff', border: '1px solid #e9d5ff' }}>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                Thanh toán
+              </Text>
+              <Text strong style={{ fontSize: 20, color: '#6366f1' }}>
+                {formatMoney(AI_VISIT_PACKS[selectedVisitIdx].price)}đ
+              </Text>
+            </div>
+          </div>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Lượt phân tích AI sẽ được cộng sau khi giao dịch xác nhận. Gói dịch vụ hiện tại của bạn không thay đổi.
+          </Text>
+        </div>
       </Modal>
 
     </div>
