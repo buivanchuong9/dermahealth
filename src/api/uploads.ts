@@ -72,50 +72,18 @@ export async function confirmUpload(
   return { ...result, fileId: result.fileId ?? fileId };
 }
 
-function resolveContentType(file: File): string {
-  if (file.type && file.type !== "application/octet-stream") {
-    return file.type;
-  }
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".png")) return "image/png";
-  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
-  if (name.endsWith(".webp")) return "image/webp";
-  if (name.endsWith(".gif")) return "image/gif";
-  if (name.endsWith(".pdf")) return "application/pdf";
-  return "image/jpeg";
-}
-
 export async function uploadFile(
   file: File,
   context: PresignUploadRequest["context"] = "clinical-document",
 ): Promise<ConfirmedUpload> {
-  const contentType = resolveContentType(file);
-  const fileName = file.name || "upload.jpg";
-
-  const presigned = await presignUpload({
-    fileName,
-    contentType,
-    context,
-  });
-
-  const uploadResponse = await fetch(presigned.uploadUrl, {
-    method: presigned.method ?? "PUT",
-    headers: {
-      "Content-Type": contentType,
-      ...presigned.headers,
-    },
-    body: file,
-  });
-  if (!uploadResponse.ok) {
-    throw new Error(
-      `Không thể lưu tệp vào kho dữ liệu (HTTP ${uploadResponse.status}).`,
-    );
+  const form = new FormData();
+  form.append("context", context);
+  form.append("file", file, file.name || "upload.jpg");
+  const result = decode<Partial<ConfirmedUpload>>(
+    await http.post<unknown>("/api/v1/uploads", form),
+  );
+  if (!result.fileId) {
+    throw new Error("Backend upload không trả fileId.");
   }
-
-  const hashBuffer = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-  const fileHash = Array.from(new Uint8Array(hashBuffer))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-
-  return confirmUpload(presigned.fileId, fileHash);
+  return result as ConfirmedUpload;
 }
