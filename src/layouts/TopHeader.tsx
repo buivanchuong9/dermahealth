@@ -128,13 +128,13 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
   );
 
   const [userAvatar, setUserAvatar] = useState<string | undefined>(() =>
-    currentUser.avatarUrl || (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || undefined
+    (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || currentUser.avatarUrl || undefined
   );
 
   useEffect(() => {
     const handleAvatarUpdate = () => {
       setUserAvatar(
-        currentUser.avatarUrl || (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || undefined
+        (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || currentUser.avatarUrl || undefined
       );
     };
     window.addEventListener('avatar_updated', handleAvatarUpdate);

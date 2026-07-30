@@ -16,7 +16,12 @@ export function getPatientAvatarUrl(userId?: string | null, patientId?: string |
 }
 
 export function savePatientAvatarUrl(dataUrl: string, userId?: string | null, patientId?: string | null): void {
-  if (userId) localStorage.setItem(`user_avatar_${userId}`, dataUrl);
-  if (patientId) localStorage.setItem(`patient_avatar_${patientId}`, dataUrl);
+  try {
+    if (userId) localStorage.setItem(`user_avatar_${userId}`, dataUrl);
+    if (patientId) localStorage.setItem(`patient_avatar_${patientId}`, dataUrl);
+  } catch {
+    // Local storage is only a UI cache. The confirmed backend upload remains
+    // the source of truth when the browser quota is too small for a data URL.
+  }
   window.dispatchEvent(new Event('avatar_updated'));
 }

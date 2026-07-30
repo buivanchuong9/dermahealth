@@ -11,6 +11,7 @@ import {
   Progress,
   Row,
   Select,
+  Slider,
   Skeleton,
   Tag,
   Typography,
@@ -38,7 +39,13 @@ import {
   type HealthSummary,
 } from "../api/clinical";
 import { uploadFile } from "../api/uploads";
-import { createSupportTicket } from "../api/support";
+import {
+  createAiCreditPurchaseRequest,
+  createAiPlanChangeRequest,
+  getMyAiEntitlement,
+  type AiEntitlement,
+  type AiPlan,
+} from "../api/aiEntitlement";
 import { ENCOUNTER_STATUS_LABEL, type EncounterStatus } from "../domain/core/enums";
 import type { AuthUser } from "../api/types";
 import { savePatientAvatarUrl, getPatientAvatarUrl } from "../utils/avatarUtils";
@@ -55,10 +62,6 @@ interface Treatment {
   createdAt: string;
 }
 
-interface AiSummary {
-  assessments?: Array<{ generatedAt?: string }>;
-}
-
 interface ProfileForm {
   name: string;
   dob: string;
@@ -70,78 +73,6 @@ interface ProfileForm {
   heightCm?: number;
   weightKg?: number;
 }
-
-type PlanCode = "free" | "plus" | "pro" | "max";
-
-const PLANS: Array<{
-  code: PlanCode;
-  name: string;
-  price: number;
-  aiQuota: number;
-  description: string;
-  features: string[];
-  recommended?: boolean;
-}> = [
-  {
-    code: "free",
-    name: "Free",
-    price: 0,
-    aiQuota: 3,
-    description: "Bắt đầu miễn phí — phù hợp để trải nghiệm hệ thống cơ bản.",
-    features: [
-      "Quản lý hồ sơ sức khỏe cá nhân",
-      "Lưu trữ lịch sử khám và đơn thuốc",
-      "Cập nhật các chỉ số cơ thể cơ bản",
-      "Nhận thông báo nhắc lịch khám định kỳ"
-    ],
-  },
-  {
-    code: "plus",
-    name: "Plus",
-    price: 299_000,
-    aiQuota: 30,
-    description: "Gói phổ thông — dành cho theo dõi sức khỏe thường xuyên.",
-    recommended: true,
-    features: [
-      "Tất cả tính năng gói Free",
-      "Phân tích tổn thương bằng AI (30 lượt/tháng)",
-      "Cảnh báo nguy cơ & theo dõi tiến triển",
-      "Hỗ trợ tư vấn bác sĩ ưu tiên"
-    ],
-  },
-  {
-    code: "pro",
-    name: "Pro",
-    price: 599_000,
-    aiQuota: 100,
-    description: "Gói nâng cao — đầy đủ công cụ theo dõi điều trị da liễu.",
-    features: [
-      "Tất cả tính năng gói Plus",
-      "Phân tích tổn thương bằng AI (100 lượt/tháng)",
-      "Báo cáo chuyên sâu cho bác sĩ",
-      "Định danh bảo mật VNeID tích hợp"
-    ],
-  },
-  {
-    code: "max",
-    name: "Max",
-    price: 1_299_000,
-    aiQuota: 9999,
-    description: "Gói không giới hạn — bảo vệ toàn diện cho gia đình.",
-    features: [
-      "Không giới hạn phân tích AI",
-      "Hồ sơ y tế điện tử trọn đời",
-      "Hỗ trợ 24/7 trực tiếp từ chuyên gia",
-      "Quyền truy cập tính năng mới sớm nhất"
-    ],
-  },
-];
-
-const AI_VISIT_PACKS = [
-  { visits: 30, price: 199_000 },
-  { visits: 50, price: 299_000 },
-  { visits: 100, price: 499_000 },
-] as const;
 
 const calculateAge = (dobString?: string | null) => {
   if (!dobString || typeof dobString !== "string") return undefined;
@@ -158,6 +89,20 @@ const formatDate = (value?: string | null) => {
   if (!value || typeof value !== "string") return "Chưa cập nhật";
   const date = new Date(value);
   return isNaN(date.getTime()) ? "Chưa cập nhật" : date.toLocaleDateString("vi-VN");
+};
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) return "Không rõ thời gian";
+  const date = new Date(value);
+  return isNaN(date.getTime())
+    ? "Không rõ thời gian"
+    : date.toLocaleString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
 };
 
 const formatMoney = (amount: number) =>
@@ -210,14 +155,14 @@ export default function Profile() {
   const patient = patientState.status === "ready" ? patientState.patient : undefined;
   const [health, setHealth] = useState<HealthSummary>();
   const [history, setHistory] = useState<Treatment[]>([]);
-  const [aiUsed, setAiUsed] = useState(0);
+  const [aiEntitlement, setAiEntitlement] = useState<AiEntitlement>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState("");
-  const [selectedPlan, setSelectedPlan] = useState<(typeof PLANS)[number]>();
+  const [selectedPlan, setSelectedPlan] = useState<AiPlan>();
   const [upgradeLoading, setUpgradeLoading] = useState(false);
-  const [selectedVisitIdx, setSelectedVisitIdx] = useState(0);
+  const [selectedCredits, setSelectedCredits] = useState(30);
   const [visitPurchaseLoading, setVisitPurchaseLoading] = useState(false);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
 
@@ -316,26 +261,26 @@ export default function Profile() {
             : undefined,
       });
 
-      const [healthResult, historyResult, aiResult] = await Promise.allSettled([
+      const [healthResult, historyResult, entitlementResult] = await Promise.allSettled([
         getHealthSummary(patientResult.id),
         getReport<Treatment[]>(patientResult.id, "treatment-history"),
-        getReport<AiSummary>(patientResult.id, "ai-summary"),
+        getMyAiEntitlement(),
       ]);
       if (!active) return;
       if (healthResult.status === "fulfilled") setHealth(healthResult.value);
       if (historyResult.status === "fulfilled" && Array.isArray(historyResult.value)) {
         setHistory(historyResult.value);
       }
-      if (aiResult.status === "fulfilled" && aiResult.value) {
-        const now = new Date();
-        setAiUsed(
-          (aiResult.value.assessments ?? []).filter((row) => {
-            if (!row.generatedAt) return false;
-            const date = new Date(row.generatedAt);
-            return !isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-          }).length,
-        );
+      if (entitlementResult.status === "rejected") {
+        throw entitlementResult.reason;
       }
+      setAiEntitlement(entitlementResult.value);
+      setSelectedCredits((current) =>
+        Math.min(
+          entitlementResult.value.purchaseMaxCredits,
+          Math.max(entitlementResult.value.purchaseMinCredits, current),
+        ),
+      );
     };
     void loadSelfProfile()
       .catch((error: unknown) => {
@@ -358,8 +303,8 @@ export default function Profile() {
     return patient.weightKg / ((patient.heightCm / 100) ** 2);
   }, [patient?.heightCm, patient?.weightKg]);
   
-  const currentPlan = PLANS[0];
-  const usagePercent = Math.min(100, Math.round((aiUsed / currentPlan.aiQuota) * 100));
+  const currentPlan = aiEntitlement?.plan;
+  const usagePercent = aiEntitlement?.usagePercent ?? 0;
   const scrollToUpgradePlans = () => {
     document.getElementById("service-plans")?.scrollIntoView({
       behavior: "smooth",
@@ -424,6 +369,14 @@ export default function Profile() {
         const created = await createSelfPatient(patientPayload);
         setPatientState({ status: "ready", patient: created });
         patientRepository.upsert(mapApiPatient(created));
+        const createdEntitlement = await getMyAiEntitlement();
+        setAiEntitlement(createdEntitlement);
+        setSelectedCredits(
+          Math.min(
+            createdEntitlement.purchaseMaxCredits,
+            Math.max(createdEntitlement.purchaseMinCredits, selectedCredits),
+          ),
+        );
       }
 
       await refreshMe();
@@ -464,6 +417,7 @@ export default function Profile() {
       return;
     }
     setAvatarLoading(true);
+    const previousAvatar = avatarPreview;
     try {
       const reader = new FileReader();
       const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -476,22 +430,24 @@ export default function Profile() {
       if (patient && patient.userId !== me.id) {
         throw new Error("Đã chặn cập nhật vì hồ sơ không thuộc tài khoản này.");
       }
-      savePatientAvatarUrl(dataUrl, me.id, patient?.id);
       setAvatarPreview(dataUrl);
 
-      try {
-        const uploaded = await uploadFile(file, "avatar");
-        if (me.version) {
-          const updated = await updateMe({ avatarFileId: uploaded.fileId, version: me.version });
-          setMe(updated);
-        }
-      } catch (uploadErr) {
-        console.warn("Lưu avatar ở phía backend gặp cảnh báo, đã lưu ảnh ở local:", uploadErr);
+      const uploaded = await uploadFile(file, "avatar");
+      const updated = await updateMe({
+        avatarFileId: uploaded.fileId,
+        version: me.version,
+      });
+      if (!updated.avatarUrl) {
+        throw new Error("Backend đã nhận tệp nhưng không trả URL ảnh đại diện.");
       }
+      setMe(updated);
+      savePatientAvatarUrl(dataUrl, me.id, patient?.id);
+      setAvatarPreview(updated.avatarUrl);
 
-      void refreshMe();
+      await refreshMe();
       void message.success("Đã cập nhật ảnh đại diện thành công.");
     } catch (error) {
+      setAvatarPreview(previousAvatar);
       void message.error(error instanceof Error ? error.message : "Không thể tải ảnh đại diện.");
     } finally {
       setAvatarLoading(false);
@@ -500,17 +456,13 @@ export default function Profile() {
   };
 
   const requestUpgrade = async () => {
-    if (!selectedPlan || selectedPlan.code === "free") return;
+    if (!selectedPlan || selectedPlan.code === currentPlan?.code) return;
     setUpgradeLoading(true);
     try {
-      await createSupportTicket({
-        topic: "billing",
-        message: patient
-          ? `Yêu cầu nâng cấp gói ${selectedPlan.name} (${formatMoney(selectedPlan.price)}đ/năm) cho bệnh nhân ${safeString(patient.code)}.`
-          : `Yêu cầu nâng cấp gói ${selectedPlan.name} (${formatMoney(selectedPlan.price)}đ/năm) cho tài khoản ${safeString(me?.email)}.`,
-      });
+      await createAiPlanChangeRequest(selectedPlan.code);
+      setAiEntitlement(await getMyAiEntitlement());
       void message.success(
-        `Đã gửi yêu cầu đăng ký gói ${selectedPlan.name}. Bộ phận CSKH sẽ liên hệ hỗ trợ trong thời gian sớm nhất.`
+        `Đã ghi nhận yêu cầu chuyển sang gói ${selectedPlan.name}. Gói hiện tại chỉ thay đổi sau khi thanh toán được duyệt.`
       );
       setSelectedPlan(undefined);
     } catch (error) {
@@ -523,16 +475,13 @@ export default function Profile() {
   };
 
   const requestVisitPurchase = async () => {
-    const pack = AI_VISIT_PACKS[selectedVisitIdx];
-    if (!pack || !patient) return;
+    if (!aiEntitlement || !patient) return;
     setVisitPurchaseLoading(true);
     try {
-      await createSupportTicket({
-        topic: "billing",
-        message: `Yêu cầu mua thêm ${pack.visits} lượt phân tích da bằng AI (${formatMoney(pack.price)}đ) cho bệnh nhân ${safeString(patient.code)}. Giữ nguyên gói dịch vụ hiện tại.`,
-      });
+      await createAiCreditPurchaseRequest(selectedCredits);
+      setAiEntitlement(await getMyAiEntitlement());
       void message.success(
-        "Đã gửi yêu cầu mua lượt AI. Bộ phận CSKH sẽ liên hệ xác nhận thanh toán sớm nhất.",
+        "Đã ghi nhận yêu cầu mua lượt AI. Lượt chỉ được cộng sau khi thanh toán được duyệt.",
       );
       setVisitModalOpen(false);
     } catch (error) {
@@ -545,6 +494,33 @@ export default function Profile() {
       setVisitPurchaseLoading(false);
     }
   };
+
+  const recentActivities = useMemo(
+    () =>
+      [
+        ...history.map((item) => ({
+          kind: "encounter" as const,
+          id: item.id,
+          occurredAt: item.createdAt,
+          treatment: item,
+        })),
+        ...(aiEntitlement?.usageHistory ?? []).map((item) => ({
+          kind: "ai" as const,
+          id: item.id,
+          occurredAt: item.occurredAt,
+          usage: item,
+        })),
+      ]
+        .sort(
+          (left, right) =>
+            new Date(right.occurredAt).getTime() -
+            new Date(left.occurredAt).getTime(),
+        )
+        .slice(0, 10),
+    [aiEntitlement?.usageHistory, history],
+  );
+  const purchaseTotal =
+    selectedCredits * (aiEntitlement?.purchaseUnitPriceVnd ?? 0);
 
   const displayName = safeString(patient?.name || me?.displayName, "Người dùng");
   const patientCode = safeString(patient?.code, "—");
@@ -703,7 +679,7 @@ export default function Profile() {
           </Col>
 
           {/* PHẢI: GÓI HIỆN TẠI & LỊCH SỬ KHÁM (chỉ áp dụng cho tài khoản bệnh nhân) */}
-          {patient && (
+          {patient && aiEntitlement && currentPlan && (
             <Col xs={24} lg={8}>
 
               {/* GÓI HIỆN TẠI */}
@@ -719,9 +695,18 @@ export default function Profile() {
                 <div style={{ marginBottom: 24 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <Text strong style={{ color: '#1f2937' }}>Phân tích hình ảnh</Text>
-                    <Text type="secondary" style={{ fontSize: 13 }}>{aiUsed}/{currentPlan.aiQuota} lượt tháng này</Text>
+                    <Text type="secondary" style={{ fontSize: 13 }}>
+                      {aiEntitlement.includedQuota === null
+                        ? `${aiEntitlement.includedUsed} lượt đã dùng · Không giới hạn`
+                        : `${aiEntitlement.includedUsed}/${aiEntitlement.includedQuota} lượt trong gói`}
+                    </Text>
                   </div>
                   <Progress percent={usagePercent} showInfo={false} strokeColor="#0ea5e9" trailColor="#e2e8f0" style={{ marginBottom: 0 }} />
+                  {aiEntitlement.extraCreditBalance > 0 && (
+                    <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>
+                      Còn thêm {aiEntitlement.extraCreditBalance} lượt đã mua
+                    </Text>
+                  )}
                 </div>
                 <Button
                   block
@@ -748,82 +733,43 @@ export default function Profile() {
                   </Text>
                 </div>
 
-                <div style={{ position: 'relative', padding: '8px 0 28px' }}>
-                  <div style={{ position: 'relative', height: 6, borderRadius: 3, background: '#e2e8f0', margin: '0 12px' }}>
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        height: '100%',
-                        borderRadius: 3,
-                        background: 'linear-gradient(90deg, #0ea5e9, #6366f1)',
-                        width: `${(selectedVisitIdx / (AI_VISIT_PACKS.length - 1)) * 100}%`,
-                        transition: 'width 0.2s ease',
+                {aiEntitlement.includedQuota === null ? (
+                  <div style={{ padding: '14px 16px', marginBottom: 16, borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                    <Text style={{ color: '#166534', fontSize: 13 }}>
+                      Gói {currentPlan.name} đã có lượt AI không giới hạn, không cần mua thêm.
+                    </Text>
+                  </div>
+                ) : (
+                  <div style={{ padding: '4px 4px 22px' }}>
+                    <Slider
+                      min={aiEntitlement.purchaseMinCredits}
+                      max={aiEntitlement.purchaseMaxCredits}
+                      step={1}
+                      value={selectedCredits}
+                      onChange={setSelectedCredits}
+                      tooltip={{ formatter: (value) => `${value ?? selectedCredits} lượt` }}
+                      marks={{
+                        [aiEntitlement.purchaseMinCredits]: {
+                          label: `${aiEntitlement.purchaseMinCredits} lượt`,
+                        },
+                        [Math.round(
+                          (aiEntitlement.purchaseMinCredits +
+                            aiEntitlement.purchaseMaxCredits) /
+                            2,
+                        )]: {
+                          label: `${Math.round(
+                            (aiEntitlement.purchaseMinCredits +
+                              aiEntitlement.purchaseMaxCredits) /
+                              2,
+                          )} lượt`,
+                        },
+                        [aiEntitlement.purchaseMaxCredits]: {
+                          label: `${aiEntitlement.purchaseMaxCredits} lượt`,
+                        },
                       }}
                     />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', marginTop: -9 }}>
-                    {AI_VISIT_PACKS.map((pack, index) => {
-                      const isActive = index === selectedVisitIdx;
-                      const isPassed = index <= selectedVisitIdx;
-                      return (
-                        <button
-                          key={pack.visits}
-                          type="button"
-                          aria-label={`Chọn gói ${pack.visits} lượt AI`}
-                          aria-pressed={isActive}
-                          onClick={() => setSelectedVisitIdx(index)}
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: 8,
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            padding: 0,
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: isActive ? 22 : 14,
-                              height: isActive ? 22 : 14,
-                              borderRadius: '50%',
-                              background: isPassed
-                                ? 'linear-gradient(135deg, #0ea5e9, #6366f1)'
-                                : '#e2e8f0',
-                              border: isActive ? '3px solid #fff' : '2px solid #fff',
-                              boxShadow: isActive
-                                ? '0 0 0 3px #0ea5e920, 0 3px 10px rgba(99,102,241,0.35)'
-                                : isPassed
-                                  ? '0 2px 6px rgba(14,165,233,0.25)'
-                                  : 'none',
-                              transition: 'all 0.2s ease',
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span style={{ textAlign: 'center', lineHeight: 1.3 }}>
-                            <span
-                              style={{
-                                display: 'block',
-                                fontSize: isActive ? 15 : 13,
-                                fontWeight: isActive ? 800 : 500,
-                                color: isActive ? '#0f172a' : '#94a3b8',
-                                transition: 'all 0.2s',
-                              }}
-                            >
-                              {pack.visits}
-                            </span>
-                            <span style={{ display: 'block', fontSize: 10, color: '#94a3b8' }}>
-                              lượt
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                )}
 
                 <div
                   style={{
@@ -840,15 +786,18 @@ export default function Profile() {
                   <div>
                     <Text type="secondary" style={{ fontSize: 12 }}>Bạn chọn</Text>
                     <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a' }}>
-                      {AI_VISIT_PACKS[selectedVisitIdx].visits} lượt
+                      {selectedCredits} lượt
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <Text type="secondary" style={{ fontSize: 12 }}>Thanh toán</Text>
                     <div style={{ fontWeight: 800, fontSize: 20, color: '#0ea5e9' }}>
-                      {formatMoney(AI_VISIT_PACKS[selectedVisitIdx].price)}
+                      {formatMoney(purchaseTotal)}
                       <span style={{ fontSize: 13, fontWeight: 500 }}>đ</span>
                     </div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {formatMoney(aiEntitlement.purchaseUnitPriceVnd)}đ/lượt
+                    </Text>
                   </div>
                 </div>
 
@@ -857,34 +806,63 @@ export default function Profile() {
                   block
                   size="large"
                   style={{ borderRadius: 8, fontWeight: 600, background: 'linear-gradient(135deg, #0ea5e9, #6366f1)', border: 'none' }}
+                  disabled={aiEntitlement.includedQuota === null}
                   onClick={() => setVisitModalOpen(true)}
                 >
-                  Mua {AI_VISIT_PACKS[selectedVisitIdx].visits} lượt
+                  {aiEntitlement.includedQuota === null
+                    ? "Gói hiện tại không giới hạn"
+                    : `Mua ${selectedCredits} lượt`}
                 </Button>
+                {aiEntitlement.pendingRequests.some(
+                  (request) => request.type === "credit_purchase",
+                ) && (
+                  <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 10, textAlign: 'center' }}>
+                    Đang có yêu cầu mua lượt chờ xác nhận.
+                  </Text>
+                )}
               </Card>
 
-              {/* HOẠT ĐỘNG KHÁM GẦN ĐÂY */}
+              {/* LỊCH KHÁM VÀ LƯỢT DÙNG AI THỰC TẾ */}
               <Card
-                title={<span style={{ fontSize: 16, fontWeight: 700, textTransform: 'uppercase', color: '#111827', letterSpacing: 0.5 }}>Hoạt động khám gần đây</span>}
+                title={<span style={{ fontSize: 16, fontWeight: 700, textTransform: 'uppercase', color: '#111827', letterSpacing: 0.5 }}>Hoạt động gần đây</span>}
                 bordered={false}
                 style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}
                 headStyle={{ borderBottom: '1px solid #f0f0f0', padding: '16px 24px' }}
-                bodyStyle={{ padding: history.length ? '0 24px' : 24 }}
+                bodyStyle={{ padding: recentActivities.length ? '0 24px' : 24 }}
               >
-                {history.length > 0 ? (
+                {recentActivities.length > 0 ? (
                   <div>
-                    {history.slice(0, 5).map((item) => {
+                    {recentActivities.map((activity) => {
+                      if (activity.kind === "ai") {
+                        return (
+                          <div key={`ai-${activity.id}`} style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                            <div>
+                              <Text strong style={{ display: 'block', fontSize: 14, color: '#1f2937' }}>
+                                Phân tích da bằng AI
+                              </Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                {formatDateTime(activity.occurredAt)} · {safeString(activity.usage.bodyRegion, "Vùng da")}
+                              </Text>
+                            </div>
+                            <Tag color={activity.usage.allowanceKind === "purchased" ? "purple" : "cyan"} style={{ borderRadius: 12, padding: '2px 10px', fontSize: 12, margin: 0, flexShrink: 0 }}>
+                              {activity.usage.allowanceKind === "purchased" ? "Lượt mua thêm" : "Trong gói"}
+                            </Tag>
+                          </div>
+                        );
+                      }
+
+                      const item = activity.treatment;
                       const deptText = safeString(item.department, "Khoa Da liễu");
                       const typeText = safeString(item.type, "Standard");
                       const rawStatus = safeString(item.status, "completed");
                       const statusLabel = ENCOUNTER_STATUS_LABEL[rawStatus as EncounterStatus] ?? rawStatus;
                       return (
-                        <div key={item.id} style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div key={`encounter-${item.id}`} style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                           <div>
                             <Text strong style={{ display: 'block', fontSize: 14, color: '#1f2937' }}>{deptText}</Text>
-                            <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(item.createdAt)} · {typeText}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>{formatDateTime(item.createdAt)} · {typeText}</Text>
                           </div>
-                          <Tag color="blue" style={{ borderRadius: 12, padding: '2px 10px', fontSize: 12 }}>
+                          <Tag color="blue" style={{ borderRadius: 12, padding: '2px 10px', fontSize: 12, margin: 0, flexShrink: 0 }}>
                             {statusLabel}
                           </Tag>
                         </div>
@@ -892,7 +870,7 @@ export default function Profile() {
                     })}
                   </div>
                 ) : (
-                  <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '24px 0' }}>Chưa có lịch sử khám bệnh.</Text>
+                  <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '24px 0' }}>Chưa có lịch khám hoặc lượt phân tích AI.</Text>
                 )}
               </Card>
 
@@ -903,6 +881,7 @@ export default function Profile() {
       </Skeleton>
 
       {/* CÁC GÓI DỊCH VỤ */}
+      {aiEntitlement && currentPlan && (
       <section id="service-plans" style={{ marginTop: 32, scrollMarginTop: 88 }}>
         <div style={{ marginBottom: 20 }}>
           <Title level={3} style={{ margin: 0, color: '#111827', fontWeight: 700 }}>
@@ -914,8 +893,9 @@ export default function Profile() {
         </div>
 
         <Row gutter={[20, 20]}>
-          {PLANS.map((plan) => {
+          {aiEntitlement.availablePlans.map((plan) => {
             const isCurrent = plan.code === currentPlan.code;
+            const isRecommended = plan.code === "plus";
             return (
               <Col xs={24} sm={12} xl={6} key={plan.code}>
                 <Card
@@ -923,8 +903,8 @@ export default function Profile() {
                   style={{
                     height: '100%',
                     borderRadius: 16,
-                    border: plan.recommended ? '2px solid #0ea5e9' : '1px solid #e2e8f0',
-                    boxShadow: plan.recommended
+                    border: isRecommended ? '2px solid #0ea5e9' : '1px solid #e2e8f0',
+                    boxShadow: isRecommended
                       ? '0 10px 28px rgba(14, 165, 233, 0.14)'
                       : '0 4px 18px rgba(15, 23, 42, 0.05)',
                   }}
@@ -937,16 +917,16 @@ export default function Profile() {
                 >
                   <div style={{ minHeight: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text strong style={{ fontSize: 18, color: '#111827' }}>{plan.name}</Text>
-                    {plan.recommended && (
+                    {isRecommended && (
                       <Tag color="orange" style={{ margin: 0, borderRadius: 10 }}>Khuyên dùng</Tag>
                     )}
                   </div>
 
                   <div style={{ margin: '12px 0 10px' }}>
                     <Text style={{ color: '#0ea5e9', fontSize: 28, fontWeight: 800 }}>
-                      {plan.price === 0 ? "Miễn phí" : `${formatMoney(plan.price)}đ`}
+                      {plan.annualPriceVnd === 0 ? "Miễn phí" : `${formatMoney(plan.annualPriceVnd)}đ`}
                     </Text>
-                    {plan.price > 0 && <Text type="secondary" style={{ fontSize: 13 }}>/năm</Text>}
+                    {plan.annualPriceVnd > 0 && <Text type="secondary" style={{ fontSize: 13 }}>/năm</Text>}
                   </div>
 
                   <Text type="secondary" style={{ minHeight: 44, fontSize: 13 }}>
@@ -962,14 +942,14 @@ export default function Profile() {
                   </ul>
 
                   <Button
-                    type={plan.recommended ? "primary" : "default"}
+                    type={isRecommended ? "primary" : "default"}
                     block
                     size="large"
                     disabled={isCurrent}
                     style={{
                       borderRadius: 8,
                       fontWeight: 600,
-                      ...(plan.recommended ? { background: '#0ea5e9' } : {}),
+                      ...(isRecommended ? { background: '#0ea5e9' } : {}),
                     }}
                     onClick={() => setSelectedPlan(plan)}
                   >
@@ -981,6 +961,7 @@ export default function Profile() {
           })}
         </Row>
       </section>
+      )}
 
       {/* MODAL XÁC NHẬN NÂNG CẤP */}
       <Modal
@@ -1001,11 +982,17 @@ export default function Profile() {
                 Gói {selectedPlan.name}
               </Text>
               <Title level={3} style={{ margin: '8px 0 4px', color: '#0ea5e9' }}>
-                {formatMoney(selectedPlan.price)}đ
-                <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>/năm</Text>
+                {selectedPlan.annualPriceVnd === 0
+                  ? "Miễn phí"
+                  : `${formatMoney(selectedPlan.annualPriceVnd)}đ`}
+                {selectedPlan.annualPriceVnd > 0 && (
+                  <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>/năm</Text>
+                )}
               </Title>
               <Text type="secondary">
-                Hạn mức {selectedPlan.aiQuota >= 9999 ? "không giới hạn" : selectedPlan.aiQuota} lượt phân tích AI mỗi tháng.
+                Hạn mức {selectedPlan.monthlyIncludedCredits === null
+                  ? "không giới hạn"
+                  : selectedPlan.monthlyIncludedCredits} lượt phân tích AI mỗi tháng.
               </Text>
             </div>
             <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>
@@ -1034,7 +1021,7 @@ export default function Profile() {
                 Số lượt
               </Text>
               <Text strong style={{ fontSize: 20, color: '#0f172a' }}>
-                {AI_VISIT_PACKS[selectedVisitIdx].visits} lượt
+                {selectedCredits} lượt
               </Text>
             </div>
             <div style={{ padding: 16, borderRadius: 10, background: '#faf5ff', border: '1px solid #e9d5ff' }}>
@@ -1042,7 +1029,7 @@ export default function Profile() {
                 Thanh toán
               </Text>
               <Text strong style={{ fontSize: 20, color: '#6366f1' }}>
-                {formatMoney(AI_VISIT_PACKS[selectedVisitIdx].price)}đ
+                {formatMoney(purchaseTotal)}đ
               </Text>
             </div>
           </div>
