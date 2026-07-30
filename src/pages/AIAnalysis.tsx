@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Row, Col, Card, Upload, Button, Input, Checkbox, Progress, Result, Tag,
-  Alert, Typography, List, Space, Select,
+  Alert, Typography, List, Space, Select, Segmented,
 } from 'antd';
 import {
   Upload as UploadIcon,
@@ -17,6 +17,7 @@ import { aiAssessmentService, SYMPTOM_OPTIONS, type IntakeDraft, type SymptomKey
 import type { AIPreliminaryAssessment, ClinicalRedFlag } from '../domain/core/entities';
 import { analyzeDermatologyImage, type ImageQualityReport } from '../domain/imageQuality';
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
+import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 import { createEncounter, getActiveEncounter } from '../api/encounters';
 import { submitEncounterIntake } from '../api/aiAssessment';
 import {
@@ -26,11 +27,14 @@ import {
   type SkinCaseReviewDecision,
 } from '../api/skinAnalysis';
 import { ClinicalImageViewer } from '../components/image-viewer/ClinicalImageViewer';
+import { RecoveryComparison } from '../components/ai/RecoveryComparison';
 import { aiAssessmentRepository, encounterRepository } from '../domain/repositories';
+import { formatSkinLabel } from '../domain/skinLabels';
 
 const { Title, Text, Paragraph } = Typography;
 
 type Step = 'upload' | 'scan' | 'result' | 'emergency';
+type Workspace = 'screening' | 'recovery';
 
 const EMPTY_INTAKE: IntakeDraft = { chiefComplaint: '', severity: null, durationDays: null, symptoms: [], history: [], currentMedication: [] };
 
@@ -120,6 +124,7 @@ export default function AIAnalysis() {
   const { currentPatient, role } = useAppState();
   const clinicalMode = role === 'doctor' || role === 'nurse';
   const doctorMode = role === 'doctor';
+  const [workspace, setWorkspace] = useState<Workspace>('screening');
   const [step, setStep] = useState<Step>('upload');
   const [pct, setPct] = useState(0);
   const [stepIdx, setStepIdx] = useState(0);
@@ -147,6 +152,13 @@ export default function AIAnalysis() {
   const triageGuidance = skinAnalysis
     ? TRIAGE_GUIDANCE[skinAnalysis.triage.level]
     : null;
+  const displayedPredictions = skinAnalysis
+    ? (
+        skinAnalysis.aggregate.predictions.length
+          ? skinAnalysis.aggregate.predictions
+          : skinAnalysis.images.find((image) => image.role === 'closeup')?.predictions ?? []
+      )
+    : [];
 
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -157,6 +169,10 @@ export default function AIAnalysis() {
   useEffect(() => () => {
     if (alternatePreviewUrl) URL.revokeObjectURL(alternatePreviewUrl);
   }, [alternatePreviewUrl]);
+
+  if (!currentPatient) {
+    return <ProfessionalEmpty title="Chưa có hồ sơ bệnh nhân" description="Tài khoản này chưa được liên kết với hồ sơ bệnh nhân nào." />;
+  }
 
   const toggleSymptoms = (values: SymptomKey[]) => setIntake((p) => ({ ...p, symptoms: values }));
 
@@ -226,7 +242,13 @@ export default function AIAnalysis() {
           bodyRegion,
           durationDays: normalizedIntake.durationDays ?? undefined,
           symptoms: normalizedIntake.symptoms,
+          note: [
+            normalizedIntake.chiefComplaint,
+            normalizedIntake.history,
+            normalizedIntake.currentMedication,
+          ].filter(Boolean).join('. '),
           patientId: currentPatient.id,
+          encounterId: encounter.id,
         })
       : Promise.resolve(null);
     const analysisPromise = Promise.all([
@@ -326,27 +348,49 @@ export default function AIAnalysis() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <Title level={3} style={{ margin: '4px 0 0' }}>
-            {clinicalMode ? 'AI hỗ trợ đánh giá tổn thương da' : 'Kiểm tra tổn thương da'}
+            {workspace === 'recovery'
+              ? 'Theo dõi hồi phục bằng AI'
+              : clinicalMode
+                ? 'AI hỗ trợ đánh giá tổn thương da'
+                : 'Kiểm tra tổn thương da'}
           </Title>
           <Text type="secondary">
-            {clinicalMode
-              ? 'Kết hợp ảnh, triệu chứng và dấu hiệu cảnh báo để hỗ trợ phân luồng; không thay thế chẩn đoán lâm sàng.'
-              : 'Chụp ảnh và trả lời vài câu hỏi đơn giản để biết khi nào nên đi khám.'}
+            {workspace === 'recovery'
+              ? 'So sánh ảnh trước–sau, vùng AI chú ý và tín hiệu bất thường trên cùng pipeline.'
+              : clinicalMode
+                ? 'Kết hợp ảnh, triệu chứng và dấu hiệu cảnh báo để hỗ trợ phân luồng; không thay thế chẩn đoán lâm sàng.'
+                : 'Chụp ảnh và trả lời vài câu hỏi đơn giản để biết khi nào nên đi khám.'}
           </Text>
         </div>
-        {step === 'result' ? (
-          <Space wrap>
-            <Button onClick={resetAll}>Phân tích ca khác</Button>
-            <Button type="primary" href="/app/appointments">Đặt lịch khám</Button>
-          </Space>
-        ) : (
-          <Tag color="blue" style={{ padding: '4px 10px' }}>
-            {clinicalMode ? 'Chế độ nhân viên y tế' : 'Kết quả cần bác sĩ xác nhận'}
-          </Tag>
-        )}
+        <Space wrap>
+          <Segmented
+            value={workspace}
+            onChange={(value) => setWorkspace(value as Workspace)}
+            options={[
+              { label: 'Đánh giá tổn thương', value: 'screening' },
+              { label: 'So sánh hồi phục', value: 'recovery' },
+            ]}
+          />
+          {workspace === 'screening' && (
+            step === 'result' ? (
+              <>
+                <Button onClick={resetAll}>Phân tích ca khác</Button>
+                <Button type="primary" href="/app/appointments">Đặt lịch khám</Button>
+              </>
+            ) : (
+              <Tag color="blue" style={{ padding: '4px 10px' }}>
+                {clinicalMode ? 'Chế độ nhân viên y tế' : 'Kết quả cần bác sĩ xác nhận'}
+              </Tag>
+            )
+          )}
+        </Space>
       </div>
 
-      {step === 'upload' && (
+      {workspace === 'recovery' && (
+        <RecoveryComparison patientId={currentPatient.id} clinicalMode={clinicalMode} />
+      )}
+
+      {workspace === 'screening' && step === 'upload' && (
         <Row gutter={[16, 16]}>
           <Col xs={24} md={14}>
             <Card size="small" title="Ảnh vùng da">
@@ -580,7 +624,7 @@ export default function AIAnalysis() {
         </Row>
       )}
 
-      {step === 'scan' && (
+      {workspace === 'screening' && step === 'scan' && (
         <Card>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 16px', textAlign: 'center' }}>
             <Progress type="circle" percent={pct} size={110} strokeColor="var(--medical-blue-600)" />
@@ -598,7 +642,7 @@ export default function AIAnalysis() {
         </Card>
       )}
 
-      {step === 'emergency' && emergency && (
+      {workspace === 'screening' && step === 'emergency' && emergency && (
         <Card>
           <Result
             status="error"
@@ -617,7 +661,7 @@ export default function AIAnalysis() {
         </Card>
       )}
 
-      {step === 'result' && assessment && skinAnalysis && (
+      {workspace === 'screening' && step === 'result' && assessment && skinAnalysis && (
         <Row gutter={16}>
           <Col span={24}>
             <div className="ai-result-grid">
@@ -637,7 +681,7 @@ export default function AIAnalysis() {
 
               <Card
                 title={skinAnalysis.labelsConfigured
-                  ? (clinicalMode ? 'Top 3 chẩn đoán phân biệt từ model' : 'Top 3 khả năng phù hợp')
+                  ? (clinicalMode ? 'Top 3 tín hiệu phân loại từ model' : 'Top 3 khả năng phù hợp')
                   : 'Trạng thái model'}
                 extra={clinicalMode ? <Tag color="processing">{skinAnalysis.modelVersion}</Tag> : undefined}
                 size="small"
@@ -650,7 +694,7 @@ export default function AIAnalysis() {
                     message="Model chưa có bộ nhãn bệnh đã xác minh"
                     description="Hệ thống đã ẩn tên lớp để tránh trả sai tên bệnh."
                   />
-                ) : skinAnalysis.aggregate.predictions.length > 0 ? (
+                ) : displayedPredictions.length > 0 ? (
                   <>
                     <Alert
                       type={skinAnalysis.aggregate.abstained ? 'warning' : 'info'}
@@ -665,7 +709,7 @@ export default function AIAnalysis() {
                         : 'Model score thể hiện mức phù hợp với ảnh, không phải xác suất chẩn đoán chính xác.'}
                       style={{ marginBottom: 16 }}
                     />
-                    {[...skinAnalysis.aggregate.predictions]
+                    {[...displayedPredictions]
                       .sort((a, b) => b.probability - a.probability)
                       .slice(0, 3)
                       .map((prediction, index) => {
@@ -683,7 +727,9 @@ export default function AIAnalysis() {
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                               <Tag color={index === 0 ? 'blue' : 'default'} style={{ margin: 0 }}>#{index + 1}</Tag>
-                              <Text strong style={{ flex: 1, fontSize: index === 0 ? 15 : 14 }}>{prediction.label}</Text>
+                              <Text strong style={{ flex: 1, fontSize: index === 0 ? 15 : 14 }}>
+                                {formatSkinLabel(prediction.label)}
+                              </Text>
                               <Text strong={index === 0}>{score}%</Text>
                             </div>
                             <Progress

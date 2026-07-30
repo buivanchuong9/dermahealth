@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Typography, Space, Skeleton, List, Collapse } from 'antd';
-import { Brain, CheckCircle, ClipboardList, FlaskConical, FileCheck2, GitBranch, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Row, Col, Card, Select, Alert, Tag, Button, Input, Checkbox, Typography, Space, Skeleton, List, Image, Progress } from 'antd';
+import { Brain, CheckCircle, ClipboardList, FlaskConical, FileCheck2, GitBranch, RefreshCw, ShieldCheck, UserRound, Images } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
 import { encounterRepository, aiAssessmentRepository, clinicalOrderRepository, diagnosisRepository, workflowRepository } from '../domain/repositories';
@@ -31,6 +31,16 @@ import type { ClinicalOrder, ConfidenceBand } from '../domain/core/entities';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 import { AccessDenied } from '../components/feedback/AccessDenied';
 import { SYMPTOM_OPTIONS } from '../domain/services/aiAssessmentService';
+import { searchPatientDetails, type ApiPatient } from '../api/clinical';
+import {
+  getSkinAnalysisCase,
+  listSkinAnalysisCases,
+  reviewSkinCase,
+  type SkinAnalysisCaseDetail,
+  type SkinAnalysisCaseSummary,
+  type SkinPrediction,
+} from '../api/skinAnalysis';
+import { formatSkinLabel } from '../domain/skinLabels';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -51,11 +61,27 @@ function formatEncounterLabel(createdAt: string, status: keyof typeof ENCOUNTER_
   return `Ca da liễu · ${date} · ${ENCOUNTER_STATUS_LABEL[status]}`;
 }
 
+function formatCaseLabel(item: SkinAnalysisCaseSummary) {
+  const date = new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(item.generatedAt));
+  return `${item.bodyRegion} · ${date}${item.reviewedAt ? ' · Đã duyệt' : ' · Chờ duyệt'}`;
+}
+
+function predictionName(prediction: SkinPrediction) {
+  const label = formatSkinLabel(prediction.label);
+  return label === 'Chưa xác định' ? 'Chưa có tên bệnh trong bộ nhãn' : label;
+}
+
 export default function DoctorReview() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { currentUser, currentPatient, role } = useAppState();
-  const encounters = useStore(encounterRepository).filter((e) => e.patientId === currentPatient.id && e.status !== 'closed');
+  const allEncounters = useStore(encounterRepository).filter((e) => e.status !== 'closed');
   const assessments = useStore(aiAssessmentRepository);
   const orders = useStore(clinicalOrderRepository.orders());
   const clinicalResults = useStore(clinicalOrderRepository.results());
@@ -67,18 +93,30 @@ export default function DoctorReview() {
   const workflowInstances = useStore(workflowRepository.instances());
 
   const requestedEncounterId = searchParams.get('encounterId') as EncounterId | null;
+  const requestedEncounter = allEncounters.find((row) => row.id === requestedEncounterId);
   const requestedTemplateId = searchParams.get('templateId') ?? undefined;
   const returnTo = searchParams.get('returnTo');
-  const [selectedId, setSelectedId] = useState<EncounterId | undefined>(
-    encounters.some((row) => row.id === requestedEncounterId)
-      ? requestedEncounterId ?? undefined
-      : encounters[0]?.id,
+  const [patients, setPatients] = useState<ApiPatient[]>([]);
+  const patientSearchRequest = useRef(0);
+  const patientSearchTimer = useRef<number | undefined>(undefined);
+  const [patientLoading, setPatientLoading] = useState(true);
+  const [selectedPatientId, setSelectedPatientId] = useState<string>(
+    requestedEncounter?.patientId ?? currentPatient?.id ?? '',
   );
+  const encounters = allEncounters.filter((e) => e.patientId === selectedPatientId);
+  const [selectedId, setSelectedId] = useState<EncounterId | undefined>(
+    requestedEncounterId ?? encounters[0]?.id,
+  );
+  const [skinCases, setSkinCases] = useState<SkinAnalysisCaseSummary[]>([]);
+  const [selectedSkinCaseId, setSelectedSkinCaseId] = useState<string>();
+  const [skinCase, setSkinCase] = useState<SkinAnalysisCaseDetail | null>(null);
+  const [caseLoading, setCaseLoading] = useState(true);
   const [rationale, setRationale] = useState('');
   const [diagnosisName, setDiagnosisName] = useState('');
   const [diagnosisCode, setDiagnosisCode] = useState('');
   const [isAdditional, setIsAdditional] = useState(false);
   const [selectedCandidateCode, setSelectedCandidateCode] = useState<string>();
+  const [selectedSkinLabel, setSelectedSkinLabel] = useState<string>();
   const [planSummary, setPlanSummary] = useState('');
   const [orderType, setOrderType] = useState<ClinicalOrder['type']>('laboratory');
   const [orderJustification, setOrderJustification] = useState('');
@@ -92,6 +130,65 @@ export default function DoctorReview() {
   const [criticalAcknowledgementNotes, setCriticalAcknowledgementNotes] = useState<Record<string, string>>({});
 
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
+
+  useEffect(() => {
+    let active = true;
+    const request = ++patientSearchRequest.current;
+    searchPatientDetails()
+      .then((rows) => {
+        if (active && request === patientSearchRequest.current) setPatients(rows);
+      })
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof Error ? cause.message : 'Không tải được danh sách bệnh nhân.');
+      })
+      .finally(() => {
+        if (active) setPatientLoading(false);
+      });
+    return () => {
+      active = false;
+      if (patientSearchTimer.current) window.clearTimeout(patientSearchTimer.current);
+    };
+  }, [reloadKey]);
+
+  useEffect(() => {
+    if (!selectedPatientId) return;
+    let active = true;
+    listSkinAnalysisCases({ patientId: selectedPatientId })
+      .then((rows) => {
+        if (!active) return;
+        setSkinCases(rows);
+        const linked = rows.find((row) => row.encounterId === selectedId);
+        setSelectedSkinCaseId(linked?.caseId ?? rows[0]?.caseId);
+        if (!rows.length) setSkinCase(null);
+      })
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof Error ? cause.message : 'Không tải được ca phân tích ảnh.');
+      })
+      .finally(() => {
+        if (active) setCaseLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedPatientId, selectedId, reloadKey]);
+
+  useEffect(() => {
+    if (!selectedSkinCaseId) return;
+    let active = true;
+    getSkinAnalysisCase(selectedSkinCaseId)
+      .then((row) => {
+        if (active) setSkinCase(row);
+      })
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof Error ? cause.message : 'Không tải được ảnh của ca.');
+      })
+      .finally(() => {
+        if (active) setCaseLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedSkinCaseId, reloadKey]);
 
   useEffect(() => {
     if (!encounter) return;
@@ -177,8 +274,79 @@ export default function DoctorReview() {
     return <AccessDenied featureName="Xem xét và chẩn đoán" allowedRoles={['doctor']} />;
   }
 
+  const patientOptions = patients.map((patient) => ({
+    value: patient.id,
+    label: `${patient.name} · ${patient.code}${patient.userId ? ` · ID ${patient.userId}` : ''}`,
+  }));
+
+  const selectPatient = (patientId: string) => {
+    const firstEncounter = allEncounters.find((item) => item.patientId === patientId);
+    setSelectedPatientId(patientId);
+    setCaseLoading(true);
+    setSelectedId(firstEncounter?.id);
+    setSelectedSkinCaseId(undefined);
+    setSkinCase(null);
+    setSelectedTemplateId(undefined);
+    setSelectedCandidateCode(undefined);
+    setSelectedSkinLabel(undefined);
+    setDiagnosisName('');
+    setDiagnosisCode('');
+    setIsAdditional(false);
+    setRationale('');
+    setError(null);
+  };
+
+  const searchPatients = (query: string) => {
+    if (patientSearchTimer.current) window.clearTimeout(patientSearchTimer.current);
+    setPatientLoading(true);
+    patientSearchTimer.current = window.setTimeout(() => {
+      const request = ++patientSearchRequest.current;
+      searchPatientDetails(query)
+        .then((rows) => {
+          if (request === patientSearchRequest.current) setPatients(rows);
+        })
+        .catch((cause: unknown) => {
+          if (request === patientSearchRequest.current) {
+            setError(cause instanceof Error ? cause.message : 'Không tìm được bệnh nhân.');
+          }
+        })
+        .finally(() => {
+          if (request === patientSearchRequest.current) setPatientLoading(false);
+        });
+    }, 250);
+  };
+
   if (!encounter) {
-    return <Card><ProfessionalEmpty title="Không có lượt khám cần xem xét" description="Các lượt khám mới sẽ xuất hiện sau khi bệnh nhân check-in và hoàn thành đánh giá sơ bộ." primaryLabel="Mở hàng đợi" primaryHref="/app/work-queue" /></Card>;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <Title level={3} style={{ margin: '4px 0 0' }}>Xem xét AI và ra quyết định lâm sàng</Title>
+          <Text type="secondary">Tìm bệnh nhân theo tên, mã bệnh nhân hoặc ID tài khoản.</Text>
+        </div>
+        <Card size="small">
+          <Select
+            showSearch
+            filterOption={false}
+            onSearch={searchPatients}
+            loading={patientLoading}
+            value={selectedPatientId}
+            onChange={selectPatient}
+            options={patientOptions}
+            placeholder="Nhập tên hoặc ID tài khoản"
+            style={{ width: '100%', maxWidth: 620 }}
+            suffixIcon={<UserRound size={15} />}
+          />
+        </Card>
+        <Card>
+          <ProfessionalEmpty
+            title="Bệnh nhân chưa có lượt khám để bác sĩ kết luận"
+            description="Ca phân tích ảnh phải được gắn với một lượt khám đang hoạt động trước khi xác nhận chẩn đoán."
+            primaryLabel="Mở hàng đợi"
+            primaryHref="/app/work-queue"
+          />
+        </Card>
+      </div>
+    );
   }
 
   const assessment = assessments
@@ -212,6 +380,10 @@ export default function DoctorReview() {
     value: template.id,
     label: `${template.name} · ${template.specialty}`,
   }));
+  const skinPredictions = skinCase?.aggregate.predictions.slice(0, 3) ?? [];
+  const hasNamedSkinPredictions = skinPredictions.some(
+    (prediction) => predictionName(prediction) !== 'Chưa có tên bệnh trong bộ nhãn',
+  );
 
   const runGuarded = (fn: () => Promise<void>) => {
     setError(null);
@@ -227,13 +399,35 @@ export default function DoctorReview() {
       throw new Error('Cần ghi nhận định lâm sàng khi chẩn đoán nằm ngoài gợi ý của AI.');
     }
     if (
+      selectedSkinLabel &&
+      diagnosisName.trim().toLocaleLowerCase('vi') !== selectedSkinLabel.toLocaleLowerCase('vi') &&
+      !rationale.trim()
+    ) {
+      throw new Error('Cần ghi nhận định lâm sàng khi bác sĩ điều chỉnh chẩn đoán AI.');
+    }
+    if (
+      status === 'confirmed' &&
+      skinCase &&
+      !skinCase.reviewedAt &&
+      (!selectedSkinLabel ||
+        diagnosisName.trim().toLocaleLowerCase('vi') !== selectedSkinLabel.toLocaleLowerCase('vi')) &&
+      !rationale.trim()
+    ) {
+      throw new Error('Cần ghi nhận định lâm sàng khi kết luận khác với gợi ý AI.');
+    }
+    if (
       selectedCandidateCode &&
+      !selectedCandidateCode.startsWith('skin:') &&
       selectedCandidateCode !== assessment?.candidateConditions[0]?.code &&
       !rationale.trim()
     ) {
       throw new Error('Cần ghi nhận định lâm sàng khi chọn gợi ý không xếp hạng đầu tiên.');
     }
-    if (assessment && !reviews.some((review) => review.aiAssessmentId === assessment.id)) {
+    if (
+      assessment &&
+      !selectedCandidateCode?.startsWith('skin:') &&
+      !reviews.some((review) => review.aiAssessmentId === assessment.id)
+    ) {
       const review = await submitAssessmentReview(encounter.id, assessment.id, {
         action: selectedCandidateCode && !isAdditional ? 'accepted' : 'rejected',
         acceptedConditionCode: selectedCandidateCode && !isAdditional
@@ -244,15 +438,27 @@ export default function DoctorReview() {
       diagnosisRepository.reviews().upsert(review);
     }
     const diagnosis = await createEncounterDiagnosis(encounter.id, {
-      conditionName: diagnosisName, conditionCode: diagnosisCode || undefined, aiAssessmentId: assessment?.id,
+      conditionName: diagnosisName,
+      conditionCode: diagnosisCode || undefined,
+      aiAssessmentId: selectedCandidateCode?.startsWith('skin:') ? undefined : assessment?.id,
       isAdditionalToAI: isAdditional, rationale: rationale || undefined, status,
     });
     diagnosisRepository.diagnoses().upsert(diagnosis);
     if (status === 'confirmed') {
+      if (skinCase && !skinCase.reviewedAt) {
+        const accepted =
+          !!selectedSkinLabel &&
+          diagnosisName.trim().toLocaleLowerCase('vi') === selectedSkinLabel.toLocaleLowerCase('vi');
+        await reviewSkinCase(skinCase.caseId, {
+          decision: accepted ? 'accepted' : 'different_diagnosis',
+          diagnosis: accepted ? undefined : diagnosisName.trim(),
+          note: accepted ? undefined : rationale.trim(),
+        });
+      }
       const freshEncounter = mapEncounter(await getEncounter(encounter.id), encounter.events);
       encounterRepository.upsert(freshEncounter);
     }
-    setDiagnosisName(''); setDiagnosisCode(''); setIsAdditional(false); setSelectedCandidateCode(undefined); setRationale('');
+    setDiagnosisName(''); setDiagnosisCode(''); setIsAdditional(false); setSelectedCandidateCode(undefined); setSelectedSkinLabel(undefined); setRationale('');
   });
 
   const handleApprovePlan = () => runGuarded(async () => {
@@ -342,15 +548,56 @@ export default function DoctorReview() {
             Đối chiếu dữ liệu đầu vào, bằng chứng hình ảnh và nhận định AI trước khi xác nhận chẩn đoán.
           </Text>
         </div>
-        <Space wrap>
+        <Space wrap align="start">
+          <Select
+            showSearch
+            filterOption={false}
+            onSearch={searchPatients}
+            loading={patientLoading}
+            value={selectedPatientId}
+            onChange={selectPatient}
+            options={patientOptions}
+            placeholder="Tìm theo tên hoặc ID tài khoản"
+            style={{ minWidth: 360, maxWidth: 520 }}
+            suffixIcon={<UserRound size={15} />}
+            aria-label="Chọn bệnh nhân theo tên hoặc ID tài khoản"
+          />
+          <Select
+            loading={caseLoading}
+            value={selectedSkinCaseId}
+            onChange={(caseId) => {
+              const selectedCase = skinCases.find((item) => item.caseId === caseId);
+              setSelectedSkinCaseId(caseId);
+              setCaseLoading(true);
+              setSelectedCandidateCode(undefined);
+              setSelectedSkinLabel(undefined);
+              setDiagnosisName('');
+              setDiagnosisCode('');
+              setRationale('');
+              if (selectedCase?.encounterId) {
+                setSelectedId(selectedCase.encounterId as EncounterId);
+              }
+            }}
+            options={skinCases.map((item) => ({
+              value: item.caseId,
+              label: formatCaseLabel(item),
+            }))}
+            placeholder={skinCases.length ? 'Chọn ca AI' : 'Chưa có ca AI'}
+            style={{ minWidth: 280 }}
+            suffixIcon={<Images size={15} />}
+            aria-label="Chọn ca phân tích ảnh"
+            notFoundContent="Bệnh nhân chưa có ca phân tích ảnh"
+          />
           <Select
             style={{ minWidth: 260 }}
             value={encounter.id}
             onChange={(value) => {
               setDataLoading(true);
+              setCaseLoading(true);
               setError(null);
               setSelectedTemplateId(undefined);
               setSelectedCandidateCode(undefined);
+              setSelectedSkinLabel(undefined);
               setDiagnosisName('');
               setDiagnosisCode('');
               setIsAdditional(false);
@@ -388,21 +635,157 @@ export default function DoctorReview() {
         />
       )}
 
+      {skinCase && (
+        <Card
+          size="small"
+          title={<span><Images size={16} style={{ verticalAlign: -2, marginRight: 6 }} />Ảnh của ca đã chọn</span>}
+          extra={
+            <Space size={6}>
+              <Tag>{skinCase.bodyRegion}</Tag>
+              <Tag color={skinCase.reviewedAt ? 'success' : 'processing'}>
+                {skinCase.reviewedAt ? 'Đã được bác sĩ duyệt' : 'Chờ bác sĩ duyệt'}
+              </Tag>
+            </Space>
+          }
+        >
+          <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+            {skinCase.patient?.name} · {skinCase.patient?.code}
+            {skinCase.patient?.userId ? ` · ID tài khoản ${skinCase.patient.userId}` : ''}
+            {' · '}
+            {new Date(skinCase.generatedAt).toLocaleString('vi-VN')}
+          </Text>
+          {skinCase.images.some((item) => item.original?.dataUrl) ? (
+            <Image.PreviewGroup>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
+                {skinCase.images.map((item) => (
+                  <div key={item.role} style={{ border: '1px solid var(--border-default)', borderRadius: 8, overflow: 'hidden' }}>
+                    <div style={{ padding: '8px 10px', fontWeight: 600, fontSize: 13 }}>
+                      {item.role === 'closeup' ? 'Ảnh cận cảnh' : item.role === 'overview' ? 'Ảnh toàn vùng' : 'Ảnh góc khác'}
+                    </div>
+                    {item.original?.dataUrl ? (
+                      <Image
+                        src={item.original.dataUrl}
+                        alt={`Ảnh ${item.role} của ca da liễu`}
+                        width="100%"
+                        height={220}
+                        style={{ display: 'block', objectFit: 'contain', background: '#111827' }}
+                      />
+                    ) : (
+                      <div style={{ height: 220, display: 'grid', placeItems: 'center', color: 'var(--text-secondary)' }}>
+                        Không có ảnh xem xét
+                      </div>
+                    )}
+                    <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                      Chất lượng ảnh {Math.round(item.quality.score * 100)}%
+                      {item.quality.usable ? ' · Đạt' : ' · Cần chụp lại'}
+                    </div>
+                    {item.heatmap?.dataUrl && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 10px 10px' }}>
+                        <Image
+                          src={item.heatmap.dataUrl}
+                          alt={`Vùng AI tham chiếu trên ảnh ${item.role}`}
+                          width={54}
+                          height={54}
+                          style={{ objectFit: 'cover', borderRadius: 6 }}
+                        />
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Vùng hệ thống dùng để tham chiếu
+                        </Text>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Image.PreviewGroup>
+          ) : (
+            <Alert
+              type="warning"
+              showIcon
+              message="Ca cũ chưa lưu bản ảnh xem xét"
+              description="Các ca quét mới sẽ tự động gắn ảnh đã khử thông tin EXIF vào lượt khám."
+            />
+          )}
+        </Card>
+      )}
+
       <Skeleton active loading={dataLoading}>
       <Row gutter={16}>
         <Col xs={24} md={12}>
           <Card
             title={<span><Brain size={16} style={{ verticalAlign: -2, marginRight: 6 }} />Gợi ý từ AI</span>}
-            extra={assessment && <Tag color="warning">{assessment.status === 'completed' ? '3 khả năng tham khảo' : 'Không đủ dữ liệu'}</Tag>}
+            extra={(skinCase || assessment) && <Tag color="warning">3 khả năng tham khảo</Tag>}
             size="small"
           >
-            {!assessment && <Text type="secondary">Chưa có đánh giá AI cho lượt khám này.</Text>}
+            {skinCase && skinCase.triage.level !== 'routine' && (
+              <Alert
+                type={skinCase.triage.level === 'emergency' ? 'error' : 'warning'}
+                showIcon
+                style={{ marginBottom: 12 }}
+                message={skinCase.triage.level === 'emergency' ? 'Có dấu hiệu cần xử trí ngay' : 'Có dấu hiệu cần ưu tiên khám'}
+                description={skinCase.triage.reasons.join('; ')}
+              />
+            )}
 
-            {assessment?.redFlag.triggered && (
+            {skinCase && !hasNamedSkinPredictions && (
+              <Alert
+                type="error"
+                showIcon
+                message="Bộ nhãn bệnh chưa được cấu hình"
+                description="Hệ thống không hiển thị mã class kỹ thuật cho bác sĩ. Cần triển khai checkpoint có tên bệnh trước khi dùng kết quả này."
+              />
+            )}
+
+            {skinCase && hasNamedSkinPredictions && skinPredictions.map((prediction, index) => {
+              const name = predictionName(prediction);
+              const code = `skin:${prediction.classIndex}`;
+              if (name === 'Chưa có tên bệnh trong bộ nhãn') return null;
+              return (
+                <div
+                  key={code}
+                  style={{
+                    padding: 12,
+                    background: selectedCandidateCode === code ? 'var(--surface-selected)' : 'var(--surface-subtle)',
+                    borderRadius: 8,
+                    border: `1px solid ${selectedCandidateCode === code ? 'var(--medical-blue-500)' : 'var(--border-default)'}`,
+                    marginBottom: 10,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+                    <Text strong>{index + 1}. {name}</Text>
+                    <Text strong>{Math.round(prediction.probability * 100)}%</Text>
+                  </div>
+                  <Progress
+                    percent={Math.round(prediction.probability * 100)}
+                    showInfo={false}
+                    size="small"
+                    strokeColor="#2563eb"
+                  />
+                  <Button
+                    size="small"
+                    type={selectedCandidateCode === code ? 'primary' : 'default'}
+                    icon={<CheckCircle size={13} />}
+                    style={{ marginTop: 10 }}
+                    onClick={() => {
+                      setSelectedCandidateCode(code);
+                      setSelectedSkinLabel(name);
+                      setDiagnosisName(name);
+                      setDiagnosisCode('');
+                      setIsAdditional(false);
+                    }}
+                  >
+                    {selectedCandidateCode === code ? 'Đã chọn' : 'Dùng làm chẩn đoán'}
+                  </Button>
+                </div>
+              );
+            })}
+
+            {!skinCase && !assessment && <Text type="secondary">Ca này chưa có kết quả phân tích ảnh hoặc đánh giá triệu chứng.</Text>}
+
+            {!skinCase && assessment?.redFlag.triggered && (
               <Alert type="error" showIcon style={{ marginBottom: 12 }} message={`Cờ đỏ (${assessment.redFlag.urgency}): ${assessment.redFlag.reasons.join('; ')}`} />
             )}
 
-            {assessment?.status === 'completed' && assessment.candidateConditions.map((c) => (
+            {!skinCase && assessment?.status === 'completed' && assessment.candidateConditions.map((c) => (
               <div
                 key={c.code}
                 style={{
@@ -427,6 +810,7 @@ export default function DoctorReview() {
                   style={{ marginTop: 10 }}
                   onClick={() => {
                     setSelectedCandidateCode(c.code);
+                    setSelectedSkinLabel(undefined);
                     setDiagnosisName(c.name);
                     setDiagnosisCode(c.code);
                     setIsAdditional(false);
@@ -437,27 +821,10 @@ export default function DoctorReview() {
               </div>
             ))}
 
-            {assessment?.status === 'completed' && (
-              <Collapse
-                ghost
-                size="small"
-                items={[{
-                  key: 'technical',
-                  label: 'Thông tin kỹ thuật và lịch sử',
-                  children: (
-                    <>
-                      <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                        Model {assessment.modelVersion} · Tạo lúc {new Date(assessment.generatedAt).toLocaleString('vi-VN')}
-                      </Text>
-                      {reviews.length > 0 && (
-                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
-                          Đã ghi nhận {reviews.length} lần xem xét trước.
-                        </Text>
-                      )}
-                    </>
-                  ),
-                }]}
-              />
+            {!skinCase && assessment?.status === 'completed' && reviews.length > 0 && (
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+                Đã ghi nhận {reviews.length} lần xem xét trước.
+              </Text>
             )}
           </Card>
         </Col>
@@ -498,7 +865,10 @@ export default function DoctorReview() {
                 checked={isAdditional}
                 onChange={(e) => {
                   setIsAdditional(e.target.checked);
-                  if (e.target.checked) setSelectedCandidateCode(undefined);
+                  if (e.target.checked) {
+                    setSelectedCandidateCode(undefined);
+                    setSelectedSkinLabel(undefined);
+                  }
                 }}
                 style={{ marginBottom: 12, fontSize: 13 }}
               >

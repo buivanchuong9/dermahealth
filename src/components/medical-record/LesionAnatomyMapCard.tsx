@@ -1,9 +1,9 @@
 import React from 'react';
-import { Card, Typography, Row, Col, Statistic, Tag, Empty } from 'antd';
+import { Card, Typography, Row, Col } from 'antd';
 import { Activity, Building2, Stethoscope, FileText, CalendarDays } from 'lucide-react';
 import type { LifetimeMedicalRecord } from '../../api/lifetimeMedicalRecord';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 interface LesionAnatomyMapCardProps {
   record?: LifetimeMedicalRecord;

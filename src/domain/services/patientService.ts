@@ -3,13 +3,6 @@ import { nextId } from '../core/ids';
 import type { Patient, User, Consent } from '../core/entities';
 import type { PatientId } from '../core/ids';
 
-/** This is a single-tenant prototype: there is exactly one patient in the seed data. */
-function getCurrentPatient(): Patient {
-  const patient = patientRepository.getAll()[0];
-  if (!patient) throw new Error('Không có bệnh nhân nào trong dữ liệu mẫu');
-  return patient;
-}
-
 function getPatient(id: PatientId): Patient | undefined {
   return patientRepository.getById(id);
 }
@@ -39,4 +32,4 @@ function setConsent(patientId: PatientId, type: string, granted: boolean): Conse
   return consentRepository.upsert(consent);
 }
 
-export const patientService = { getCurrentPatient, getPatient, getPrimaryDoctor, getUser, listUsersByRole, listConsents, setConsent };
+export const patientService = { getPatient, getPrimaryDoctor, getUser, listUsersByRole, listConsents, setConsent };

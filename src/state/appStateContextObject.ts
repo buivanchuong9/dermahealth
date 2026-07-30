@@ -10,7 +10,7 @@ export interface AppStateValue {
   setActiveRole: (role: UserRole) => void;
   allUsers: User[];
   setCurrentUserId: (id: UserId) => void;
-  currentPatient: Patient;
+  currentPatient: Patient | null;
   resetToSeed: () => void;
   refreshMe: () => void;
   resetSession: () => void;

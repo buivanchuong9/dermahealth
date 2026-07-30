@@ -261,7 +261,7 @@ function EMRWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentPatient, role } = useAppState();
   const encounters = useStore(encounterRepository)
-    .filter((e) => e.patientId === currentPatient.id)
+    .filter((e) => e.patientId === currentPatient?.id)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const records = useStore(medicalRecordRepository.records());
   const documents = useStore(medicalRecordRepository.documents());
@@ -347,6 +347,7 @@ function EMRWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [encounter?.id]);
 
+  if (!currentPatient) return <Text type="secondary">Chưa có hồ sơ bệnh nhân liên kết với tài khoản này.</Text>;
   if (!encounter) return <Text type="secondary">Chưa có lượt khám nào.</Text>;
 
   const NORMAL_ACCESS_ROLES: UserRole[] = ['patient', 'doctor', 'medical_administrator'];
@@ -746,7 +747,7 @@ function TreatmentPlanKanban() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentPatient, role } = useAppState();
   const patientEncounters = useStore(encounterRepository)
-    .filter((row) => row.patientId === currentPatient.id)
+    .filter((row) => row.patientId === currentPatient?.id)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   const instances = useStore(workflowRepository.instances());
   const workflowTasks = useStore(workflowRepository.tasks());
@@ -906,6 +907,7 @@ function TreatmentPlanKanban() {
   };
 
   useEffect(() => {
+    if (!currentPatient) return;
     let active = true;
     const timer = window.setTimeout(() => {
       setLoading(true);
@@ -961,7 +963,7 @@ function TreatmentPlanKanban() {
       window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPatient.id]);
+  }, [currentPatient?.id]);
 
   useEffect(() => {
     if (!selectedEncounterId) return;
@@ -1421,6 +1423,17 @@ export default function Records() {
     if (key === 'lifetime') next.delete('encounterId');
     setSearchParams(next, { replace: true });
   };
+
+  if (!currentPatient) {
+    return (
+      <div className="records-page">
+        <div className="records-page-header">
+          <Title level={3}>Hồ sơ bệnh án</Title>
+        </div>
+        <Text type="secondary">Tài khoản này chưa được liên kết với hồ sơ bệnh nhân nào.</Text>
+      </div>
+    );
+  }
 
   return (
     <div className="records-page">

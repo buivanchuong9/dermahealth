@@ -71,6 +71,11 @@ export interface LifetimeMedicalRecord {
     dob?: string | null;
     gender?: string | null;
     bloodType?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+    heightCm?: number | null;
+    weightKg?: number | null;
   };
   summary: {
     encounterCount: number;
@@ -194,6 +199,17 @@ const mapLifetimeMedicalRecord = (value: unknown): LifetimeMedicalRecord => {
       dob: asNullableString(patient.dob),
       gender: asNullableString(patient.gender),
       bloodType: asNullableString(patient.bloodType),
+      phone: asNullableString(patient.phone),
+      email: asNullableString(patient.email),
+      address: asNullableString(patient.address),
+      heightCm:
+        typeof patient.heightCm === "number" && Number.isFinite(patient.heightCm)
+          ? patient.heightCm
+          : null,
+      weightKg:
+        typeof patient.weightKg === "number" && Number.isFinite(patient.weightKg)
+          ? patient.weightKg
+          : null,
     },
     summary: {
       encounterCount: asNumber(summary.encounterCount),

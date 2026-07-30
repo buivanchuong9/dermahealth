@@ -98,20 +98,18 @@ export async function uploadFile(
     context,
   });
 
-  try {
-    const uploadResponse = await fetch(presigned.uploadUrl, {
-      method: presigned.method ?? "PUT",
-      headers: {
-        "Content-Type": contentType,
-        ...presigned.headers,
-      },
-      body: file,
-    });
-    if (!uploadResponse.ok) {
-      console.warn("Storage upload response status:", uploadResponse.status);
-    }
-  } catch (err) {
-    console.warn("Storage endpoint fetch error (local dev fallback):", err);
+  const uploadResponse = await fetch(presigned.uploadUrl, {
+    method: presigned.method ?? "PUT",
+    headers: {
+      "Content-Type": contentType,
+      ...presigned.headers,
+    },
+    body: file,
+  });
+  if (!uploadResponse.ok) {
+    throw new Error(
+      `Không thể lưu tệp vào kho dữ liệu (HTTP ${uploadResponse.status}).`,
+    );
   }
 
   const hashBuffer = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());

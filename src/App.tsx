@@ -91,7 +91,7 @@ export default function App() {
                   <Route path="journey" element={<RoleProtectedRoute allowed={ALL_ROLES} permissions={['module.journey.access']} featureName="Tiến trình khám bệnh"><Journey /></RoleProtectedRoute>} />
                   <Route path="records" element={<RoleProtectedRoute allowed={ALL_ROLES} permissions={['module.records.access']} featureName="Bệnh án trọn đời"><Records /></RoleProtectedRoute>} />
                   <Route path="patients/:patientId/clinical-workspace" element={<RoleProtectedRoute allowed={ALL_ROLES} permissions={['module.records.access']} featureName="Bàn làm việc lâm sàng"><PatientClinicalWorkspace /></RoleProtectedRoute>} />
-                  <Route path="profile" element={<RoleProtectedRoute allowed={['patient']} permissions={['module.profile.access']} featureName="Hồ sơ bệnh nhân"><Profile /></RoleProtectedRoute>} />
+                  <Route path="profile" element={<RoleProtectedRoute allowed={ALL_ROLES} featureName="Hồ sơ cá nhân"><Profile /></RoleProtectedRoute>} />
                   <Route path="prescriptions" element={<RoleProtectedRoute allowed={['patient']} permissions={['module.prescriptions.access']} featureName="Đơn thuốc"><Prescriptions /></RoleProtectedRoute>} />
                   <Route path="progress" element={<RoleProtectedRoute allowed={['patient']} permissions={['module.progress.access']} featureName="Theo dõi tiến triển"><Progress /></RoleProtectedRoute>} />
                   <Route path="care" element={<RoleProtectedRoute allowed={['patient', 'care_coordinator', 'customer_care_employee', 'medical_administrator', 'super_administrator']} permissions={['module.care.access']} featureName="Chăm sóc sau khám"><Care /></RoleProtectedRoute>} />

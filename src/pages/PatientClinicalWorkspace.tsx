@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert, Avatar, Button, Card, Col, Descriptions, Input, Modal, Row, Select, Skeleton, Space, Tag, Timeline, Typography,
 } from 'antd';
 import {
   Activity, ArrowLeft, CalendarDays, Camera, Droplets, FileHeart, HeartPulse,
-  Mail, MapPin, Phone, Printer, Search, ShieldCheck, Stethoscope, UserRound, Sparkles, SlidersHorizontal, Eye
+  Mail, MapPin, Phone, Printer, Search, ShieldCheck, Stethoscope, UserRound, Eye
 } from 'lucide-react';
 import {
   getLifetimeMedicalRecord,
@@ -85,9 +85,9 @@ export default function PatientClinicalWorkspace() {
   const navigate = useNavigate();
   const { patientId } = useParams<{ patientId: string }>();
   const { currentPatient, currentUser, role } = useAppState();
-  const effectivePatientId = patientId ?? currentPatient.id;
+  const effectivePatientId = patientId ?? currentPatient?.id ?? '';
   const [record, setRecord] = useState<LifetimeMedicalRecord>();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(effectivePatientId));
   const [error, setError] = useState<string>();
   const [eventType, setEventType] = useState<LifetimeRecordEventType | 'all'>('all');
   const [sourceOrganizationId, setSourceOrganizationId] = useState('all');
@@ -108,6 +108,7 @@ export default function PatientClinicalWorkspace() {
   }, [currentUser?.id, effectivePatientId]);
 
   useEffect(() => {
+    if (!effectivePatientId) return;
     let active = true;
     getLifetimeMedicalRecord(effectivePatientId)
       .then((value) => { if (active) setRecord(value); })
@@ -165,12 +166,23 @@ export default function PatientClinicalWorkspace() {
 
   const compareImages = clinicalImages.filter((image) => compareImageIds.includes(image.id));
   const patient = record?.patient;
-  const isOwnPatientContext = effectivePatientId === currentPatient.id;
-  const profile = isOwnPatientContext ? currentPatient.profile : undefined;
+  const isOwnPatientContext = Boolean(currentPatient) && effectivePatientId === currentPatient?.id;
+  const livePatient =
+    isOwnPatientContext && currentPatient && (!patient?.id || patient.id === currentPatient.id)
+      ? currentPatient
+      : undefined;
+  const profile = livePatient?.profile;
   const canEditClinical = role === 'doctor' || role === 'medical_administrator';
   const unverifiedEventCount = sortedEvents.filter((event) => !event.provenance.lastVerifiedAt).length;
 
-  const displayName = patient?.name ?? currentPatient.name ?? 'Bệnh nhân';
+  const displayName = livePatient?.name || patient?.name || 'Bệnh nhân';
+  const patientCode = livePatient?.code || patient?.code || '—';
+  const patientGender = profile?.gender || patient?.gender || 'Chưa cập nhật';
+  const patientDob = profile?.dob || patient?.dob;
+  const patientBloodType = profile?.bloodType || patient?.bloodType || 'Chưa cập nhật';
+  const patientPhone = profile?.phone || patient?.phone || '—';
+  const patientEmail = profile?.email || patient?.email || '—';
+  const patientAddress = profile?.address || patient?.address || '—';
   const initials = displayName
     .split(' ')
     .slice(-2)
@@ -225,18 +237,16 @@ export default function PatientClinicalWorkspace() {
                 </Tag>
               </Space>
               <Space size={[16, 6]} wrap style={{ marginTop: 8 }}>
-                <Text style={{ fontSize: 13, color: '#475569' }}><UserRound size={14} style={{ verticalAlign: -2, color: '#64748b' }} /> {patient?.gender ?? profile?.gender ?? 'Nam'}</Text>
-                <Text style={{ fontSize: 13, color: '#475569' }}><CalendarDays size={14} style={{ verticalAlign: -2, color: '#64748b' }} /> {formatDate(patient?.dob ?? profile?.dob)}</Text>
-                <Text type="secondary" style={{ fontSize: 13 }}>Mã BN: <strong style={{ color: '#0f172a' }}>{patient?.code ?? currentPatient.code}</strong></Text>
+                <Text style={{ fontSize: 13, color: '#475569' }}><UserRound size={14} style={{ verticalAlign: -2, color: '#64748b' }} /> {patientGender}</Text>
+                <Text style={{ fontSize: 13, color: '#475569' }}><CalendarDays size={14} style={{ verticalAlign: -2, color: '#64748b' }} /> {formatDate(patientDob)}</Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>Mã BN: <strong style={{ color: '#0f172a' }}>{patientCode}</strong></Text>
                 {patient?.nationalHealthId && <Text type="secondary" style={{ fontSize: 13 }}>VNeID: <strong>{patient.nationalHealthId}</strong></Text>}
               </Space>
-              {profile && (
-                <Space size={[16, 6]} wrap style={{ marginTop: 6 }}>
-                  <Text type="secondary" style={{ fontSize: 12.5 }}><Phone size={13} style={{ verticalAlign: -2 }} /> {profile.phone || '—'}</Text>
-                  <Text type="secondary" style={{ fontSize: 12.5 }}><Mail size={13} style={{ verticalAlign: -2 }} /> {profile.email || '—'}</Text>
-                  <Text type="secondary" style={{ fontSize: 12.5 }}><MapPin size={13} style={{ verticalAlign: -2 }} /> {profile.address || '—'}</Text>
-                </Space>
-              )}
+              <Space size={[16, 6]} wrap style={{ marginTop: 6 }}>
+                <Text type="secondary" style={{ fontSize: 12.5 }}><Phone size={13} style={{ verticalAlign: -2 }} /> {patientPhone}</Text>
+                <Text type="secondary" style={{ fontSize: 12.5 }}><Mail size={13} style={{ verticalAlign: -2 }} /> {patientEmail}</Text>
+                <Text type="secondary" style={{ fontSize: 12.5 }}><MapPin size={13} style={{ verticalAlign: -2 }} /> {patientAddress}</Text>
+              </Space>
             </Col>
           </Row>
         </Card>
@@ -271,7 +281,7 @@ export default function PatientClinicalWorkspace() {
                   column={2}
                   layout="vertical"
                   items={[
-                    { key: 'blood', label: <span style={{ color: '#64748b', fontSize: 12 }}>Nhóm máu</span>, children: <Text strong style={{ fontSize: 14 }}>{patient?.bloodType ?? profile?.bloodType ?? 'B+'}</Text> },
+                    { key: 'blood', label: <span style={{ color: '#64748b', fontSize: 12 }}>Nhóm máu</span>, children: <Text strong style={{ fontSize: 14 }}>{patientBloodType}</Text> },
                     { key: 'encounters', label: <span style={{ color: '#64748b', fontSize: 12 }}>Tổng lượt khám</span>, children: <Text strong style={{ fontSize: 14 }}>{record?.summary.encounterCount ?? 1}</Text> },
                     { key: 'last', label: <span style={{ color: '#64748b', fontSize: 12 }}>Cập nhật gần nhất</span>, span: 2, children: <Text style={{ fontSize: 13 }}>{formatDate(record?.summary.lastRecordedAt)}</Text> },
                   ]}

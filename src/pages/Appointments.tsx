@@ -90,10 +90,10 @@ export default function Appointments() {
   const { message, modal } = App.useApp();
   const { currentPatient } = useAppState();
   const appointments = useStore(appointmentRepository).filter(
-    (item) => item.patientId === currentPatient.id,
+    (item) => item.patientId === currentPatient?.id,
   );
   const queueTickets = useStore(queueRepository).filter(
-    (item) => item.patientId === currentPatient.id,
+    (item) => item.patientId === currentPatient?.id,
   );
   const doctors = useStore(userRepository).filter(
     (item) => item.role === "doctor",
@@ -280,6 +280,8 @@ export default function Appointments() {
       )
       .finally(() => setActionLoading(false));
   }, [doctors, message, rescheduleDate, rescheduleTarget]);
+
+  if (!currentPatient) return <Empty description="Chưa có hồ sơ bệnh nhân liên kết với tài khoản này" />;
 
   const submit = async () => {
     if (!slotId || !doctor?.clinicLocationId || !date) return;

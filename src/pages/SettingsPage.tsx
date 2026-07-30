@@ -5,6 +5,7 @@ import { App as AntApp, Row, Col, Card, Menu, Switch, Input, Select, Button, Ale
 import { useAppState } from '../state/useAppState';
 import { logoutCurrentSession } from '../api/auth';
 import { enableMfa, getMe, getMyPreferences, updateMe, updateMyPreferences } from '../api/me';
+import { ApiError } from '../api/http';
 import type { AuthUser, UserPreferences } from '../api/types';
 import { requestUserDeletion } from '../api/users';
 import {
@@ -14,10 +15,10 @@ import {
   type OwnerFeatureFlag,
 } from '../api/ownerFeatureFlags';
 import {
+  getCurrentPatientDetails,
   getPatientConsents,
-  getPatientDetails,
   grantPatientConsent,
-  updatePatient,
+  updateCurrentPatient,
   withdrawPatientConsent,
   type ApiConsent,
   type ApiPatient,
@@ -60,7 +61,7 @@ export default function SettingsPage() {
   const [active, setActive] = useState('notif');
   const nav = useNavigate();
   const { modal, message } = AntApp.useApp();
-  const { currentPatient, resetToSeed, resetSession, role } = useAppState();
+  const { refreshMe, resetToSeed, resetSession, role } = useAppState();
   const [me, setMe] = useState<AuthUser>();
   const [patient, setPatient] = useState<ApiPatient>();
   const [consents, setConsents] = useState<ApiConsent[]>([]);
@@ -73,23 +74,62 @@ export default function SettingsPage() {
   const [featureLoading, setFeatureLoading] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      getMe(),
-      getMyPreferences(),
-      getPatientDetails(currentPatient.id),
-      getPatientConsents(currentPatient.id),
-    ])
-      .then(([user, prefs, patientDetails, consentRows]) => {
-        setMe(user);
-        setPreferences(prefs);
-        setPatient(patientDetails);
-        setConsents(consentRows);
-      })
+    let activeRequest = true;
+    const loadSettings = async () => {
+      const [user, prefs] = await Promise.all([getMe(), getMyPreferences()]);
+      if (!activeRequest) return;
+      setMe(user);
+      setPreferences(prefs);
+
+      const hasPatientMembership = user.memberships.some(
+        (membership) => membership.role === 'patient',
+      );
+      if (!hasPatientMembership) {
+        setPatient(undefined);
+        setConsents([]);
+        return;
+      }
+
+      try {
+        const selfPatient = await getCurrentPatientDetails();
+        if (selfPatient.userId !== user.id) {
+          throw new Error(
+            'Backend trả về hồ sơ bệnh nhân không thuộc tài khoản đang đăng nhập.',
+          );
+        }
+        if (!activeRequest) return;
+        setPatient(selfPatient);
+        const consentRows = await getPatientConsents(selfPatient.id);
+        if (activeRequest) setConsents(consentRows);
+      } catch (error) {
+        // A mixed-role staff account may carry the patient role without having
+        // a linked patient record. That is an account-only settings screen,
+        // not a reason to fall back to whichever patient is currently open.
+        if (
+          error instanceof ApiError &&
+          (error.status === 403 || error.status === 404)
+        ) {
+          if (activeRequest) {
+            setPatient(undefined);
+            setConsents([]);
+          }
+          return;
+        }
+        throw error;
+      }
+    };
+    void loadSettings()
       .catch((error) => {
+        if (!activeRequest) return;
         void message.error(error instanceof Error ? error.message : 'Không tải được cài đặt.');
       })
-      .finally(() => setApiLoading(false));
-  }, [currentPatient.id, message]);
+      .finally(() => {
+        if (activeRequest) setApiLoading(false);
+      });
+    return () => {
+      activeRequest = false;
+    };
+  }, [message]);
 
   useEffect(() => {
     if (active !== 'features' || role !== 'super_administrator') return;
@@ -108,16 +148,23 @@ export default function SettingsPage() {
   }, [active, message, role]);
 
   const saveAccount = async () => {
-    if (!me || !patient) return;
+    if (!me) return;
+    if (patient && patient.userId !== me.id) {
+      void message.error('Đã chặn cập nhật vì hồ sơ không thuộc tài khoản này.');
+      return;
+    }
     setSaving(true);
     try {
-      const [updatedUser, updatedPatient] = await Promise.all([
-        updateMe({
-          displayName: me.displayName,
-          phone: patient.phone,
-          version: me.version,
-        }),
-        updatePatient(patient.id, {
+      const phone = patient?.phone ?? me.phone ?? '';
+      const updatedUser = await updateMe({
+        displayName: me.displayName,
+        phone,
+        version: me.version,
+      });
+      setMe(updatedUser);
+
+      if (patient) {
+        const updatedPatient = await updateCurrentPatient({
           name: patient.name,
           dob: patient.dob,
           gender: patient.gender,
@@ -127,10 +174,16 @@ export default function SettingsPage() {
           bloodType: patient.bloodType,
           primaryDoctorId: patient.primaryDoctor?.id ?? null,
           version: patient.version,
-        }),
-      ]);
-      setMe(updatedUser);
-      setPatient(updatedPatient);
+        });
+        if (updatedPatient.userId !== updatedUser.id) {
+          throw new Error(
+            'Phản hồi cập nhật không khớp tài khoản; cần kiểm tra backend ngay.',
+          );
+        }
+        setPatient(updatedPatient);
+      }
+
+      await refreshMe();
       void message.success('Đã cập nhật thông tin tài khoản.');
     } catch (error) {
       void message.error(error instanceof Error ? error.message : 'Cập nhật thất bại.');
@@ -149,13 +202,16 @@ export default function SettingsPage() {
       okButtonProps: { danger: !granted },
       cancelText: 'Hủy',
       onOk: async () => {
+        if (!patient || !me || patient.userId !== me.id) {
+          throw new Error('Không xác định được hồ sơ bệnh nhân của tài khoản này.');
+        }
         const updated = granted
-          ? await grantPatientConsent(currentPatient.id, {
+          ? await grantPatientConsent(patient.id, {
               type: consent.type,
               policyVersion: consent.policyVersion,
               grantedAt: new Date().toISOString(),
             })
-          : await withdrawPatientConsent(currentPatient.id, {
+          : await withdrawPatientConsent(patient.id, {
               type: consent.type,
               reason: 'Người dùng rút lại đồng ý trong phần cài đặt',
               version: consent.version,
@@ -334,7 +390,14 @@ export default function SettingsPage() {
                 </Col>
                 <Col xs={24} md={12} style={{ marginBottom: 16 }}>
                   <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Số điện thoại</Text>
-                  <Input value={patient?.phone ?? ''} onChange={(event) => patient && setPatient({ ...patient, phone: event.target.value })} />
+                  <Input
+                    value={patient?.phone ?? me?.phone ?? ''}
+                    onChange={(event) => {
+                      const phone = event.target.value;
+                      if (patient) setPatient({ ...patient, phone });
+                      if (me) setMe({ ...me, phone });
+                    }}
+                  />
                 </Col>
                 <Col xs={24} md={12} style={{ marginBottom: 16 }}>
                   <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email</Text>
@@ -344,30 +407,34 @@ export default function SettingsPage() {
                   <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Trạng thái</Text>
                   <Input value={me?.status} disabled />
                 </Col>
-                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tên hồ sơ bệnh nhân</Text>
-                  <Input value={patient?.name} onChange={(event) => patient && setPatient({ ...patient, name: event.target.value })} />
-                </Col>
-                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Ngày sinh</Text>
-                  <Input type="date" value={patient?.dob} onChange={(event) => patient && setPatient({ ...patient, dob: event.target.value })} />
-                </Col>
-                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Giới tính</Text>
-                  <Select style={{ width: '100%' }} value={patient?.gender} onChange={(gender) => patient && setPatient({ ...patient, gender })} options={[{ value: 'male', label: 'Nam' }, { value: 'female', label: 'Nữ' }, { value: 'other', label: 'Khác' }]} />
-                </Col>
-                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Nhóm máu</Text>
-                  <Select style={{ width: '100%' }} value={patient?.bloodType} onChange={(bloodType) => patient && setPatient({ ...patient, bloodType })} options={['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((value) => ({ value, label: value }))} />
-                </Col>
-                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email liên hệ</Text>
-                  <Input value={patient?.email ?? ''} onChange={(event) => patient && setPatient({ ...patient, email: event.target.value || null })} />
-                </Col>
-                <Col xs={24} md={12} style={{ marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Địa chỉ</Text>
-                  <Input value={patient?.address ?? ''} onChange={(event) => patient && setPatient({ ...patient, address: event.target.value || null })} />
-                </Col>
+                {patient && (
+                  <>
+                    <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                      <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Tên hồ sơ bệnh nhân của tôi</Text>
+                      <Input value={patient.name} onChange={(event) => setPatient({ ...patient, name: event.target.value })} />
+                    </Col>
+                    <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                      <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Ngày sinh</Text>
+                      <Input type="date" value={patient.dob} onChange={(event) => setPatient({ ...patient, dob: event.target.value })} />
+                    </Col>
+                    <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                      <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Giới tính</Text>
+                      <Select style={{ width: '100%' }} value={patient.gender} onChange={(gender) => setPatient({ ...patient, gender })} options={[{ value: 'male', label: 'Nam' }, { value: 'female', label: 'Nữ' }, { value: 'other', label: 'Khác' }]} />
+                    </Col>
+                    <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                      <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Nhóm máu</Text>
+                      <Select style={{ width: '100%' }} value={patient.bloodType} onChange={(bloodType) => setPatient({ ...patient, bloodType })} options={['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((value) => ({ value, label: value }))} />
+                    </Col>
+                    <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                      <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email liên hệ</Text>
+                      <Input value={patient.email ?? ''} onChange={(event) => setPatient({ ...patient, email: event.target.value || null })} />
+                    </Col>
+                    <Col xs={24} md={12} style={{ marginBottom: 16 }}>
+                      <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Địa chỉ</Text>
+                      <Input value={patient.address ?? ''} onChange={(event) => setPatient({ ...patient, address: event.target.value || null })} />
+                    </Col>
+                  </>
+                )}
               </Row>
               <div style={{ display: 'flex', gap: 8 }}>
                 <Button type="primary" loading={saving} onClick={saveAccount}>Lưu thay đổi</Button>
@@ -389,18 +456,20 @@ export default function SettingsPage() {
                 </Button>
               </div>
 
-              <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-default)' }}>
-                <Text strong style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}><FileCheck size={15} /> Trạng thái đồng ý (Consent)</Text>
-                {consents.map((c) => (
-                  <ToggleRow
-                    key={c.id}
-                    label={CONSENT_LABEL[c.type] ?? c.type}
-                    desc={c.granted ? `Đã đồng ý lúc ${c.grantedAt ? new Date(c.grantedAt.replace(' ', 'T')).toLocaleString('vi-VN') : ''}` : `Đã rút lại lúc ${c.withdrawnAt ? new Date(c.withdrawnAt.replace(' ', 'T')).toLocaleString('vi-VN') : ''}`}
-                    val={c.granted}
-                    onChange={(value) => setConsent(c, value)}
-                  />
-                ))}
-              </div>
+              {patient && (
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-default)' }}>
+                  <Text strong style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}><FileCheck size={15} /> Trạng thái đồng ý của tôi (Consent)</Text>
+                  {consents.map((c) => (
+                    <ToggleRow
+                      key={c.id}
+                      label={CONSENT_LABEL[c.type] ?? c.type}
+                      desc={c.granted ? `Đã đồng ý lúc ${c.grantedAt ? new Date(c.grantedAt.replace(' ', 'T')).toLocaleString('vi-VN') : ''}` : `Đã rút lại lúc ${c.withdrawnAt ? new Date(c.withdrawnAt.replace(' ', 'T')).toLocaleString('vi-VN') : ''}`}
+                      val={c.granted}
+                      onChange={(value) => setConsent(c, value)}
+                    />
+                  ))}
+                </div>
+              )}
 
               <Alert
                 type="error"

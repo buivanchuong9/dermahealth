@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Typography, Empty, Tag } from 'antd';
+import { Card, Typography, Empty } from 'antd';
 import { Image as ImageIcon } from 'lucide-react';
 import type { LifetimeMedicalRecord } from '../../api/lifetimeMedicalRecord';
 
