@@ -43,6 +43,7 @@ export interface PatientProfile {
 
 export interface Patient {
   id: PatientId;
+  userId?: UserId;
   code: string;
   name: string;
   avatarUrl?: string;

@@ -26,11 +26,14 @@ import {
 } from "lucide-react";
 import { useAppState } from "../state/useAppState";
 import { getMe, updateMe } from "../api/me";
+import { ApiError } from "../api/http";
 import {
   getHealthSummary,
-  getPatientDetails,
+  getCurrentPatientDetails,
   getReport,
-  updatePatient,
+  mapApiPatient,
+  updateCurrentPatient,
+  createSelfPatient,
   type ApiPatient,
   type HealthSummary,
 } from "../api/clinical";
@@ -39,6 +42,7 @@ import { createSupportTicket } from "../api/support";
 import { ENCOUNTER_STATUS_LABEL, type EncounterStatus } from "../domain/core/enums";
 import type { AuthUser } from "../api/types";
 import { savePatientAvatarUrl, getPatientAvatarUrl } from "../utils/avatarUtils";
+import { patientRepository } from "../domain/repositories";
 import "./Profile.css";
 
 const { Title, Text } = Typography;
@@ -166,59 +170,139 @@ const safeString = (val: unknown, fallback: string = "—"): string => {
   return fallback;
 };
 
+// "No patient yet" and "haven't finished loading" and "the load failed" are
+// three different situations that must never be conflated into one nullable
+// value — conflating them is what let a transient load error masquerade as
+// "you have no profile, click here to create one", inviting an unnecessary
+// (and, if a create bug is ever reintroduced, unsafe) create attempt.
+type PatientLoadState =
+  | { status: "loading" }
+  | { status: "ready"; patient: ApiPatient }
+  | { status: "missing" }
+  | { status: "error" };
+
 export default function Profile() {
   const { message } = AntApp.useApp();
-  const { currentPatient, currentUser, refreshMe } = useAppState();
+  const { refreshMe } = useAppState();
   const [form] = Form.useForm<ProfileForm>();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [me, setMe] = useState<AuthUser>();
-  const [patient, setPatient] = useState<ApiPatient>();
+  const [patientState, setPatientState] = useState<PatientLoadState>({ status: "loading" });
+  const patient = patientState.status === "ready" ? patientState.patient : undefined;
   const [health, setHealth] = useState<HealthSummary>();
   const [history, setHistory] = useState<Treatment[]>([]);
   const [aiUsed, setAiUsed] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
-  const [avatarPreview, setAvatarPreview] = useState<string>(() =>
-    getPatientAvatarUrl(currentUser?.id, currentPatient?.id) || ""
-  );
+  const [avatarPreview, setAvatarPreview] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<(typeof PLANS)[number]>();
   const [upgradeLoading, setUpgradeLoading] = useState(false);
 
   useEffect(() => {
     const handleAvatarUpdate = () => {
-      setAvatarPreview(getPatientAvatarUrl(currentUser?.id, currentPatient?.id) || "");
+      setAvatarPreview(
+        me?.avatarUrl ||
+          getPatientAvatarUrl(me?.id, patient?.id) ||
+          "",
+      );
     };
     window.addEventListener("avatar_updated", handleAvatarUpdate);
     return () => window.removeEventListener("avatar_updated", handleAvatarUpdate);
-  }, [currentUser?.id, currentPatient?.id]);
+  }, [me?.avatarUrl, me?.id, patient?.id]);
 
   useEffect(() => {
     let active = true;
-    Promise.allSettled([
-      getMe(),
-      getPatientDetails(currentPatient.id),
-      getHealthSummary(currentPatient.id),
-      getReport<Treatment[]>(currentPatient.id, "treatment-history"),
-      getReport<AiSummary>(currentPatient.id, "ai-summary"),
-    ]).then(([userResult, patientResult, healthResult, historyResult, aiResult]) => {
+    const loadSelfProfile = async () => {
+      const userResult = await getMe();
       if (!active) return;
-      if (userResult.status === "fulfilled") setMe(userResult.value);
-      if (patientResult.status === "fulfilled") {
-        setPatient(patientResult.value);
-        form.setFieldsValue({
-          name: safeString(patientResult.value.name, ""),
-          dob: safeString(patientResult.value.dob, ""),
-          gender: safeString(patientResult.value.gender, "male"),
-          phone: safeString(patientResult.value.phone, ""),
-          email: safeString(patientResult.value.email, ""),
-          address: safeString(patientResult.value.address, ""),
-          bloodType: safeString(patientResult.value.bloodType, "unknown"),
-          heightCm: typeof patientResult.value.heightCm === "number" ? patientResult.value.heightCm : undefined,
-          weightKg: typeof patientResult.value.weightKg === "number" ? patientResult.value.weightKg : undefined,
-        });
+      setMe(userResult);
+      setAvatarPreview(
+        userResult.avatarUrl ||
+          getPatientAvatarUrl(userResult.id) ||
+          "",
+      );
+      form.setFieldsValue({
+        name: safeString(userResult.displayName, ""),
+        phone: safeString(userResult.phone, ""),
+        email: safeString(userResult.email, ""),
+      });
+
+      const hasPatientMembership = userResult.memberships.some(
+        (membership) => membership.role === "patient",
+      );
+      if (!hasPatientMembership) {
+        setPatientState({ status: "missing" });
+        form.setFieldsValue({ gender: "unknown", bloodType: "unknown" });
+        return;
       }
+
+      let patientResult: ApiPatient;
+      try {
+        patientResult = await getCurrentPatientDetails();
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 403 || error.status === 404)
+        ) {
+          setPatientState({ status: "missing" });
+          form.setFieldsValue({ gender: "unknown", bloodType: "unknown" });
+          return;
+        }
+        // A transient failure (network, 5xx, unexpected shape) is not the
+        // same as "no patient" — treating it as "missing" would offer the
+        // create-profile CTA over data that may well already exist,
+        // reintroducing the exact false-conflict class of bug this flow was
+        // built to eliminate.
+        setPatientState({ status: "error" });
+        throw error;
+      }
+      if (!active) return;
+      if (patientResult.userId !== userResult.id) {
+        // Never fall back to currentPatient/listPatients here. A mismatched
+        // record is omitted while the authenticated account profile remains
+        // fully usable. This is a real (if unexpected) record, not an
+        // absence of one, so it must not present as "missing" either.
+        console.error(
+          "Self-patient ownership mismatch",
+          patientResult.id,
+          patientResult.userId,
+          userResult.id,
+        );
+        setPatientState({ status: "error" });
+        return;
+      }
+      setPatientState({ status: "ready", patient: patientResult });
+      setAvatarPreview(
+        userResult.avatarUrl ||
+          getPatientAvatarUrl(userResult.id, patientResult.id) ||
+          "",
+      );
+      form.setFieldsValue({
+        name: safeString(patientResult.name || userResult.displayName, ""),
+        dob: safeString(patientResult.dob, ""),
+        gender: safeString(patientResult.gender, "male"),
+        phone: safeString(patientResult.phone || userResult.phone, ""),
+        email: safeString(patientResult.email || userResult.email, ""),
+        address: safeString(patientResult.address, ""),
+        bloodType: safeString(patientResult.bloodType, "unknown"),
+        heightCm:
+          typeof patientResult.heightCm === "number"
+            ? patientResult.heightCm
+            : undefined,
+        weightKg:
+          typeof patientResult.weightKg === "number"
+            ? patientResult.weightKg
+            : undefined,
+      });
+
+      const [healthResult, historyResult, aiResult] = await Promise.allSettled([
+        getHealthSummary(patientResult.id),
+        getReport<Treatment[]>(patientResult.id, "treatment-history"),
+        getReport<AiSummary>(patientResult.id, "ai-summary"),
+      ]);
+      if (!active) return;
       if (healthResult.status === "fulfilled") setHealth(healthResult.value);
       if (historyResult.status === "fulfilled" && Array.isArray(historyResult.value)) {
         setHistory(historyResult.value);
@@ -233,13 +317,21 @@ export default function Profile() {
           }).length,
         );
       }
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
+    };
+    void loadSelfProfile()
+      .catch((error: unknown) => {
+        if (!active) return;
+        void message.error(
+          error instanceof Error ? error.message : "Không tải được hồ sơ cá nhân.",
+        );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
-  }, [currentPatient.id, form]);
+  }, [form, message]);
 
   const age = calculateAge(patient?.dob);
   const bmi = useMemo(() => {
@@ -257,48 +349,84 @@ export default function Profile() {
   };
 
   const saveProfile = async (values: ProfileForm) => {
+    if (!me) return;
+    if (patient && patient.userId !== me.id) {
+      void message.error("Đã chặn cập nhật vì hồ sơ không thuộc tài khoản này.");
+      return;
+    }
+    if (patientState.status === "error") {
+      void message.error(
+        "Chưa xác định được trạng thái hồ sơ bệnh nhân do lỗi tải trước đó. Vui lòng tải lại trang trước khi lưu.",
+      );
+      return;
+    }
     setSaving(true);
     try {
-      const targetPatientId = patient?.id || currentPatient.id;
-      const targetUserVersion = typeof me?.version === "number" ? me.version : 1;
-      const targetPatientVersion = typeof patient?.version === "number" ? patient.version : 1;
+      const updatedUser = await updateMe({
+        displayName: String(values.name ?? "").trim(),
+        phone: String(values.phone ?? "").trim(),
+        version: me.version,
+      });
+      setMe(updatedUser);
 
-      const userUpdate = me?.id
-        ? updateMe({
-            displayName: String(values.name ?? "").trim(),
-            phone: String(values.phone ?? "").trim(),
-            version: targetUserVersion,
-          }).catch((err: unknown) => {
-            console.warn("Backend updateMe warning:", err);
-            return null;
-          })
-        : Promise.resolve(null);
+      const patientPayload = {
+        dob: String(values.dob ?? ""),
+        gender: String(values.gender ?? "unknown"),
+        phone: String(values.phone ?? "").trim(),
+        address: values.address ? String(values.address).trim() : null,
+        bloodType: String(values.bloodType ?? "unknown"),
+        heightCm: typeof values.heightCm === "number" ? values.heightCm : null,
+        weightKg: typeof values.weightKg === "number" ? values.weightKg : null,
+      };
 
-      const patientUpdate = updatePatient(targetPatientId, {
+      if (patientState.status === "ready") {
+        // A patient row already exists for this account — this must always
+        // be an UPDATE. Never re-enter a create flow here: that is exactly
+        // the bug (edit silently turning into create, tripping a spurious
+        // 409) this screen was rebuilt to eliminate.
+        const updatedPatient = await updateCurrentPatient({
           name: String(values.name ?? "").trim(),
-          dob: String(values.dob ?? ""),
-          gender: String(values.gender ?? "male"),
-          phone: String(values.phone ?? "").trim(),
+          ...patientPayload,
           email: values.email ? String(values.email).trim() : null,
-          address: values.address ? String(values.address).trim() : null,
-          bloodType: String(values.bloodType ?? "unknown"),
-          heightCm: typeof values.heightCm === "number" ? values.heightCm : null,
-          weightKg: typeof values.weightKg === "number" ? values.weightKg : null,
-          version: targetPatientVersion,
-        }).catch((err: unknown) => {
-          console.warn("Backend updatePatient warning:", err);
-          return null;
+          version: patientState.patient.version,
         });
-
-      const [updatedUser, updatedPatient] = await Promise.all([userUpdate, patientUpdate]);
-      if (updatedUser) setMe(updatedUser);
-      if (updatedPatient) setPatient(updatedPatient);
+        if (updatedPatient.userId !== updatedUser.id) {
+          throw new Error(
+            "Phản hồi cập nhật không khớp tài khoản; cần kiểm tra backend ngay.",
+          );
+        }
+        setPatientState({ status: "ready", patient: updatedPatient });
+        patientRepository.upsert(mapApiPatient(updatedPatient));
+      } else {
+        // No patient row yet for this account — this, and only this, is a
+        // CREATE. It runs once, transparently, from the same Save action;
+        // every subsequent Save (patientState.status === "ready") always
+        // takes the update branch above instead.
+        const created = await createSelfPatient(patientPayload);
+        setPatientState({ status: "ready", patient: created });
+        patientRepository.upsert(mapApiPatient(created));
+      }
 
       await refreshMe();
-      window.dispatchEvent(new Event("profile_updated"));
-
       void message.success("Đã cập nhật thông tin cá nhân thành công.");
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        // The account already has a linked patient record that this screen
+        // hadn't loaded yet (e.g. created from another tab/session) —
+        // recover by loading it instead of leaving the user on a raw error.
+        try {
+          const existing = await getCurrentPatientDetails();
+          setPatientState({ status: "ready", patient: existing });
+          patientRepository.upsert(mapApiPatient(existing));
+          await refreshMe();
+          void message.info(
+            "Tài khoản này đã có hồ sơ bệnh nhân — đã tải lại dữ liệu mới nhất, vui lòng kiểm tra và lưu lại.",
+          );
+          return;
+        } catch {
+          // fall through to the generic error message below
+        }
+      }
       console.error("Save profile error:", error);
       void message.error(error instanceof Error ? error.message : "Không thể cập nhật hồ sơ cá nhân.");
     } finally {
@@ -325,12 +453,16 @@ export default function Profile() {
         reader.readAsDataURL(file);
       });
 
-      savePatientAvatarUrl(dataUrl, me?.id || currentUser?.id, patient?.id || currentPatient?.id);
+      if (!me) throw new Error("Không xác định được tài khoản đang đăng nhập.");
+      if (patient && patient.userId !== me.id) {
+        throw new Error("Đã chặn cập nhật vì hồ sơ không thuộc tài khoản này.");
+      }
+      savePatientAvatarUrl(dataUrl, me.id, patient?.id);
       setAvatarPreview(dataUrl);
 
       try {
         const uploaded = await uploadFile(file, "avatar");
-        if (me?.version) {
+        if (me.version) {
           const updated = await updateMe({ avatarFileId: uploaded.fileId, version: me.version });
           setMe(updated);
         }
@@ -354,7 +486,9 @@ export default function Profile() {
     try {
       await createSupportTicket({
         topic: "billing",
-        message: `Yêu cầu nâng cấp gói ${selectedPlan.name} (${formatMoney(selectedPlan.price)}đ/năm) cho bệnh nhân ${safeString(patient?.code ?? currentPatient.code)}.`,
+        message: patient
+          ? `Yêu cầu nâng cấp gói ${selectedPlan.name} (${formatMoney(selectedPlan.price)}đ/năm) cho bệnh nhân ${safeString(patient.code)}.`
+          : `Yêu cầu nâng cấp gói ${selectedPlan.name} (${formatMoney(selectedPlan.price)}đ/năm) cho tài khoản ${safeString(me?.email)}.`,
       });
       void message.success(
         `Đã gửi yêu cầu đăng ký gói ${selectedPlan.name}. Bộ phận CSKH sẽ liên hệ hỗ trợ trong thời gian sớm nhất.`
@@ -369,11 +503,16 @@ export default function Profile() {
     }
   };
 
-  const displayName = safeString(me?.displayName || patient?.name || currentPatient.name, "Bệnh nhân");
-  const patientCode = safeString(patient?.code || currentPatient.code, "—");
-  const phoneText = safeString(patient?.phone, "Chưa cập nhật");
-  const emailText = safeString(patient?.email || me?.email, "Chưa cập nhật");
-  const addressText = safeString(patient?.address, "Chưa cập nhật địa chỉ");
+  const displayName = safeString(patient?.name || me?.displayName, "Người dùng");
+  const patientCode = safeString(patient?.code, "—");
+  const phoneText = safeString(patient?.phone || me?.phone, "Chưa cập nhật");
+  const emailText = safeString(
+    patient?.email || me?.email,
+    "Chưa cập nhật",
+  );
+  const addressText = patient
+    ? safeString(patient.address, "Chưa cập nhật địa chỉ")
+    : "Hồ sơ tài khoản";
   const initialChar = displayName.trim().slice(0, 1).toUpperCase();
 
   return (
@@ -418,7 +557,13 @@ export default function Profile() {
                 </div>
                 <div>
                   <Title level={3} style={{ margin: '0 0 4px 0', fontWeight: 700, color: '#1f2937' }}>{displayName}</Title>
-                  <Text style={{ color: '#6b7280', fontSize: 14, display: 'block', marginBottom: 8 }}>Mã bệnh nhân: <Text strong>{patientCode}</Text></Text>
+                  <Text style={{ color: '#6b7280', fontSize: 14, display: 'block', marginBottom: 8 }}>
+                    {patient ? (
+                      <>Mã bệnh nhân: <Text strong>{patientCode}</Text></>
+                    ) : (
+                      <>Tài khoản: <Text strong>{safeString(me?.email)}</Text></>
+                    )}
+                  </Text>
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', color: '#6b7280', fontSize: 13 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Phone size={14} /> {phoneText}</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={14} /> {emailText}</span>
@@ -427,35 +572,37 @@ export default function Profile() {
                 </div>
               </div>
 
-              <div style={{ padding: '20px 24px', backgroundColor: '#f8fafc', borderBottomLeftRadius: 16, borderBottomRightRadius: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                   <Text strong style={{ fontSize: 15, color: '#374151' }}>Tình trạng sức khỏe cơ bản</Text>
-                   <Text type="secondary" style={{ fontSize: 13 }}>Cập nhật gần nhất {formatDate(patient?.updatedAt)}</Text>
+              {patient && (
+                <div style={{ padding: '20px 24px', backgroundColor: '#f8fafc', borderBottomLeftRadius: 16, borderBottomRightRadius: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                     <Text strong style={{ fontSize: 15, color: '#374151' }}>Tình trạng sức khỏe cơ bản</Text>
+                     <Text type="secondary" style={{ fontSize: 13 }}>Cập nhật gần nhất {formatDate(patient.updatedAt)}</Text>
+                  </div>
+                  <Row gutter={[16, 16]}>
+                    {[
+                      { label: "Tuổi", value: typeof age === "number" ? age : "—" },
+                      { label: "Nhóm máu", value: patient.bloodType === "unknown" || !patient.bloodType ? "—" : safeString(patient.bloodType) },
+                      { label: "Chiều cao", value: typeof patient.heightCm === "number" ? `${patient.heightCm} cm` : "—" },
+                      { label: "Cân nặng", value: typeof patient.weightKg === "number" ? `${patient.weightKg} kg` : "—" },
+                      { label: "BMI", value: typeof bmi === "number" ? bmi.toFixed(1) : "—" },
+                      { label: "Điểm sức khỏe", value: typeof health?.score === "number" ? health.score : "Chưa có" },
+                    ].map((stat, idx) => (
+                      <Col span={8} sm={4} key={idx}>
+                         <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <Text strong style={{ fontSize: 20, color: '#111827', lineHeight: 1.2 }}>{stat.value}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>{stat.label}</Text>
+                         </div>
+                      </Col>
+                    ))}
+                  </Row>
                 </div>
-                <Row gutter={[16, 16]}>
-                  {[
-                    { label: "Tuổi", value: typeof age === "number" ? age : "—" },
-                    { label: "Nhóm máu", value: patient?.bloodType === "unknown" || !patient?.bloodType ? "—" : safeString(patient.bloodType) },
-                    { label: "Chiều cao", value: typeof patient?.heightCm === "number" ? `${patient.heightCm} cm` : "—" },
-                    { label: "Cân nặng", value: typeof patient?.weightKg === "number" ? `${patient.weightKg} kg` : "—" },
-                    { label: "BMI", value: typeof bmi === "number" ? bmi.toFixed(1) : "—" },
-                    { label: "Điểm sức khỏe", value: typeof health?.score === "number" ? health.score : "Chưa có" },
-                  ].map((stat, idx) => (
-                    <Col span={8} sm={4} key={idx}>
-                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <Text strong style={{ fontSize: 20, color: '#111827', lineHeight: 1.2 }}>{stat.value}</Text>
-                          <Text type="secondary" style={{ fontSize: 12 }}>{stat.label}</Text>
-                       </div>
-                    </Col>
-                  ))}
-                </Row>
-              </div>
+              )}
             </Card>
 
             {/* THÔNG TIN CÁ NHÂN (FORM) */}
-            <Card 
-              title={<span style={{ fontSize: 16, fontWeight: 700, textTransform: 'uppercase', color: '#111827', letterSpacing: 0.5 }}>Thông tin cá nhân</span>} 
-              bordered={false} 
+            <Card
+              title={<span style={{ fontSize: 16, fontWeight: 700, textTransform: 'uppercase', color: '#111827', letterSpacing: 0.5 }}>Thông tin cá nhân</span>}
+              bordered={false}
               style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}
               headStyle={{ borderBottom: '1px solid #f0f0f0', padding: '16px 24px' }}
               bodyStyle={{ padding: 24 }}
@@ -463,13 +610,13 @@ export default function Profile() {
               <Form form={form} layout="vertical" onFinish={saveProfile}>
                 <Row gutter={24}>
                   <Col xs={24} md={12}><Form.Item name="name" label={<Text strong>Họ và tên</Text>} rules={[{ required: true, message: "Vui lòng nhập họ tên" }]}><Input size="large" style={{ borderRadius: 8 }} /></Form.Item></Col>
+                  <Col xs={24} md={12}><Form.Item name="phone" label={<Text strong>Điện thoại</Text>} rules={[{ required: true, message: "Vui lòng nhập số điện thoại" }]}><Input size="large" style={{ borderRadius: 8 }} /></Form.Item></Col>
+                  <Col xs={24} md={12}><Form.Item name="email" label={<Text strong>Email</Text>}><Input type="email" size="large" style={{ borderRadius: 8 }} /></Form.Item></Col>
                   <Col xs={24} md={12}><Form.Item name="dob" label={<Text strong>Ngày sinh</Text>} rules={[{ required: true, message: "Vui lòng nhập ngày sinh" }]}><Input type="date" size="large" style={{ borderRadius: 8 }} /></Form.Item></Col>
                   <Col xs={24} md={12}><Form.Item name="gender" label={<Text strong>Giới tính</Text>}><Select size="large" style={{ borderRadius: 8 }} options={[{ value: "male", label: "Nam" }, { value: "female", label: "Nữ" }, { value: "other", label: "Khác" }, { value: "unknown", label: "Chưa cập nhật" }]} /></Form.Item></Col>
                   <Col xs={24} md={12}><Form.Item name="bloodType" label={<Text strong>Nhóm máu</Text>}><Select size="large" style={{ borderRadius: 8 }} options={["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"].map((value) => ({ value, label: value === "unknown" ? "Chưa biết" : value }))} /></Form.Item></Col>
                   <Col xs={24} md={12}><Form.Item name="heightCm" label={<Text strong>Chiều cao (cm)</Text>}><InputNumber size="large" min={50} max={250} precision={1} style={{ width: "100%", borderRadius: 8 }} /></Form.Item></Col>
                   <Col xs={24} md={12}><Form.Item name="weightKg" label={<Text strong>Cân nặng (kg)</Text>}><InputNumber size="large" min={2} max={500} precision={1} style={{ width: "100%", borderRadius: 8 }} /></Form.Item></Col>
-                  <Col xs={24} md={12}><Form.Item name="phone" label={<Text strong>Điện thoại</Text>} rules={[{ required: true, message: "Vui lòng nhập số điện thoại" }]}><Input size="large" style={{ borderRadius: 8 }} /></Form.Item></Col>
-                  <Col xs={24} md={12}><Form.Item name="email" label={<Text strong>Email</Text>}><Input type="email" size="large" style={{ borderRadius: 8 }} /></Form.Item></Col>
                   <Col span={24}><Form.Item name="address" label={<Text strong>Địa chỉ</Text>}><Input size="large" style={{ borderRadius: 8 }} /></Form.Item></Col>
                 </Row>
                 <div style={{ textAlign: 'right', marginTop: 16 }}>
@@ -480,72 +627,104 @@ export default function Profile() {
               </Form>
             </Card>
 
-          </Col>
-
-          {/* PHẢI: GÓI HIỆN TẠI & LỊCH SỬ KHÁM */}
-          <Col xs={24} lg={8}>
-            
-            {/* GÓI HIỆN TẠI */}
-            <Card 
-              bordered={false} 
-              style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: 24, background: '#f8fafc', border: '1px solid #e2e8f0' }}
-              bodyStyle={{ padding: 24 }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                 <Text style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', textTransform: 'uppercase' }}>Gói hiện tại</Text>
-                 <Tag color="#0f172a" style={{ color: '#fff', fontWeight: 700, borderRadius: 20, padding: '4px 12px', margin: 0, border: 'none' }}>{currentPlan.name}</Tag>
-              </div>
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text strong style={{ color: '#1f2937' }}>Phân tích hình ảnh</Text>
-                  <Text type="secondary" style={{ fontSize: 13 }}>{aiUsed}/{currentPlan.aiQuota} lượt tháng này</Text>
-                </div>
-                <Progress percent={usagePercent} showInfo={false} strokeColor="#0ea5e9" trailColor="#e2e8f0" style={{ marginBottom: 0 }} />
-              </div>
-              <Button
-                block
-                size="large"
-                style={{ borderRadius: 8, fontWeight: 600, color: '#0f172a', borderColor: '#cbd5e1', backgroundColor: '#fff' }}
-                onClick={scrollToUpgradePlans}
+            {patientState.status === "missing" && (
+              <Card
+                bordered={false}
+                style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginTop: 24, background: '#f0f9ff', border: '1px solid #bae6fd' }}
+                bodyStyle={{ padding: 24 }}
               >
-                Xem các gói dịch vụ
-              </Button>
-            </Card>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  Tài khoản này hiện chỉ quản lý hệ thống. Điền thông tin bên trên và bấm "Lưu thay đổi" để tạo hồ sơ bệnh nhân của chính bạn — hồ sơ này tách biệt với tài khoản quản trị, chỉ bạn mới xem/sửa được.
+                </Text>
+              </Card>
+            )}
 
-            {/* HOẠT ĐỘNG KHÁM GẦN ĐÂY */}
-            <Card 
-              title={<span style={{ fontSize: 16, fontWeight: 700, textTransform: 'uppercase', color: '#111827', letterSpacing: 0.5 }}>Hoạt động khám gần đây</span>} 
-              bordered={false} 
-              style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}
-              headStyle={{ borderBottom: '1px solid #f0f0f0', padding: '16px 24px' }}
-              bodyStyle={{ padding: history.length ? '0 24px' : 24 }}
-            >
-              {history.length > 0 ? (
+            {patientState.status === "error" && (
+              <Card
+                bordered={false}
+                style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginTop: 24, background: '#fef2f2', border: '1px solid #fecaca' }}
+                bodyStyle={{ padding: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}
+              >
                 <div>
-                  {history.slice(0, 5).map((item) => {
-                    const deptText = safeString(item.department, "Khoa Da liễu");
-                    const typeText = safeString(item.type, "Standard");
-                    const rawStatus = safeString(item.status, "completed");
-                    const statusLabel = ENCOUNTER_STATUS_LABEL[rawStatus as EncounterStatus] ?? rawStatus;
-                    return (
-                      <div key={item.id} style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <Text strong style={{ display: 'block', fontSize: 14, color: '#1f2937' }}>{deptText}</Text>
-                          <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(item.createdAt)} · {typeText}</Text>
-                        </div>
-                        <Tag color="blue" style={{ borderRadius: 12, padding: '2px 10px', fontSize: 12 }}>
-                          {statusLabel}
-                        </Tag>
-                      </div>
-                    );
-                  })}
+                  <Text strong style={{ display: 'block', fontSize: 15, color: '#0f172a', marginBottom: 4 }}>Không tải được hồ sơ bệnh nhân</Text>
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    Có lỗi khi tải hồ sơ bệnh nhân của bạn. Đây có thể chỉ là sự cố tạm thời — vui lòng tải lại trang thay vì tạo hồ sơ mới.
+                  </Text>
                 </div>
-              ) : (
-                <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '24px 0' }}>Chưa có lịch sử khám bệnh.</Text>
-              )}
-            </Card>
+                <Button size="large" style={{ borderRadius: 8, fontWeight: 600, flexShrink: 0 }} onClick={() => window.location.reload()}>
+                  Tải lại trang
+                </Button>
+              </Card>
+            )}
 
           </Col>
+
+          {/* PHẢI: GÓI HIỆN TẠI & LỊCH SỬ KHÁM (chỉ áp dụng cho tài khoản bệnh nhân) */}
+          {patient && (
+            <Col xs={24} lg={8}>
+
+              {/* GÓI HIỆN TẠI */}
+              <Card
+                bordered={false}
+                style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: 24, background: '#f8fafc', border: '1px solid #e2e8f0' }}
+                bodyStyle={{ padding: 24 }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                   <Text style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', textTransform: 'uppercase' }}>Gói hiện tại</Text>
+                   <Tag color="#0f172a" style={{ color: '#fff', fontWeight: 700, borderRadius: 20, padding: '4px 12px', margin: 0, border: 'none' }}>{currentPlan.name}</Tag>
+                </div>
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text strong style={{ color: '#1f2937' }}>Phân tích hình ảnh</Text>
+                    <Text type="secondary" style={{ fontSize: 13 }}>{aiUsed}/{currentPlan.aiQuota} lượt tháng này</Text>
+                  </div>
+                  <Progress percent={usagePercent} showInfo={false} strokeColor="#0ea5e9" trailColor="#e2e8f0" style={{ marginBottom: 0 }} />
+                </div>
+                <Button
+                  block
+                  size="large"
+                  style={{ borderRadius: 8, fontWeight: 600, color: '#0f172a', borderColor: '#cbd5e1', backgroundColor: '#fff' }}
+                  onClick={scrollToUpgradePlans}
+                >
+                  Xem các gói dịch vụ
+                </Button>
+              </Card>
+
+              {/* HOẠT ĐỘNG KHÁM GẦN ĐÂY */}
+              <Card
+                title={<span style={{ fontSize: 16, fontWeight: 700, textTransform: 'uppercase', color: '#111827', letterSpacing: 0.5 }}>Hoạt động khám gần đây</span>}
+                bordered={false}
+                style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}
+                headStyle={{ borderBottom: '1px solid #f0f0f0', padding: '16px 24px' }}
+                bodyStyle={{ padding: history.length ? '0 24px' : 24 }}
+              >
+                {history.length > 0 ? (
+                  <div>
+                    {history.slice(0, 5).map((item) => {
+                      const deptText = safeString(item.department, "Khoa Da liễu");
+                      const typeText = safeString(item.type, "Standard");
+                      const rawStatus = safeString(item.status, "completed");
+                      const statusLabel = ENCOUNTER_STATUS_LABEL[rawStatus as EncounterStatus] ?? rawStatus;
+                      return (
+                        <div key={item.id} style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <Text strong style={{ display: 'block', fontSize: 14, color: '#1f2937' }}>{deptText}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(item.createdAt)} · {typeText}</Text>
+                          </div>
+                          <Tag color="blue" style={{ borderRadius: 12, padding: '2px 10px', fontSize: 12 }}>
+                            {statusLabel}
+                          </Tag>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '24px 0' }}>Chưa có lịch sử khám bệnh.</Text>
+                )}
+              </Card>
+
+            </Col>
+          )}
 
         </Row>
       </Skeleton>
@@ -662,6 +841,7 @@ export default function Profile() {
           </div>
         )}
       </Modal>
+
     </div>
   );
 }

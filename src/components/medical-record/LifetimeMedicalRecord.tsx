@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Row, Col, Alert, Spin, App as AntApp } from 'antd';
 import { useAppState } from '../../state/useAppState';
 import { getLifetimeMedicalRecord, type LifetimeMedicalRecord as LifetimeMedicalRecordData } from '../../api/lifetimeMedicalRecord';
+import { getPatientAvatarUrl } from '../../utils/avatarUtils';
 
 // Modular EMR Components
 import { HeaderToolbar } from './HeaderToolbar';
@@ -17,33 +18,47 @@ import './LifetimeMedicalRecord.css';
 
 export function LifetimeMedicalRecord() {
   const { message } = AntApp.useApp();
-  const { currentPatient, currentUser } = useAppState();
+  const { currentPatient } = useAppState();
   const [record, setRecord] = useState<LifetimeMedicalRecordData>();
-  const [loading, setLoading] = useState(true);
+  const [loadedPatientId, setLoadedPatientId] = useState<string>();
   const [error, setError] = useState<string>();
-
-  const loadData = useCallback(async () => {
-    if (!currentPatient?.id) return;
-    setLoading(true);
-    setError(undefined);
-    try {
-      const result = await getLifetimeMedicalRecord(currentPatient.id);
-      setRecord(result);
-    } catch (cause) {
-      console.warn('Lifetime medical record API status:', cause);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPatient?.id]);
+  const patientId = currentPatient?.id;
+  const loading = Boolean(patientId) && loadedPatientId !== patientId;
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    if (!patientId) return;
+    let active = true;
+    void getLifetimeMedicalRecord(patientId)
+      .then((result) => {
+        if (!active) return;
+        setRecord(result);
+        setError(undefined);
+      })
+      .catch((cause: unknown) => {
+        if (!active) return;
+        console.warn('Lifetime medical record API status:', cause);
+        setError('Không thể tải đầy đủ hồ sơ bệnh án. Vui lòng thử lại.');
+      })
+      .finally(() => {
+        if (active) setLoadedPatientId(patientId);
+      });
+    return () => {
+      active = false;
+    };
+  }, [patientId]);
 
-  const avatarUrl =
-    currentUser?.avatarUrl ||
-    (currentUser?.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) ||
-    undefined;
+  const avatarUrl = getPatientAvatarUrl(undefined, currentPatient?.id);
+
+  if (!currentPatient) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        message="Chưa có hồ sơ bệnh nhân"
+        description="Tài khoản này chưa được liên kết với hồ sơ bệnh nhân nào."
+      />
+    );
+  }
 
   const handlePrint = () => {
     window.print();

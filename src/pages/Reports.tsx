@@ -22,9 +22,10 @@ export default function Reports() {
   const [treatments, setTreatments] = useState<RecordRow[]>([]);
   const [medicines, setMedicines] = useState<RecordRow[]>([]);
   const [assessments, setAssessments] = useState<RecordRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(currentPatient));
   const [exporting, setExporting] = useState(false);
   useEffect(() => {
+    if (!currentPatient) return;
     Promise.all([
       getReport<Overview>(currentPatient.id, "overview"),
       getReport<RecordRow[]>(currentPatient.id, "treatment-history"),
@@ -38,8 +39,10 @@ export default function Reports() {
         setAssessments(a.assessments);
       })
       .finally(() => setLoading(false));
-  }, [currentPatient.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPatient?.id]);
   if (loading) return <Spin />;
+  if (!currentPatient) return <Empty description="Chưa có hồ sơ bệnh nhân liên kết với tài khoản này" />;
   const exportReport = async () => {
     setExporting(true);
     try {

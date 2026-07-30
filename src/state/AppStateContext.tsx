@@ -15,7 +15,7 @@ import {
   userRepository,
 } from "../domain/repositories";
 import { AppStateContext, type AppStateValue } from "./appStateContextObject";
-import type { Patient, User } from "../domain/core/entities";
+import type { User } from "../domain/core/entities";
 import type { UserId } from "../domain/core/ids";
 import { getMe } from "../api/me";
 import { refreshSession } from "../api/auth";
@@ -23,10 +23,12 @@ import { ApiError } from "../api/http";
 import { clearAccessToken } from "../api/authToken";
 import {
   getCurrentPatient,
+  getPatient,
   listAppointments,
   listPatients,
   listPractitioners,
 } from "../api/clinical";
+import { useStore } from "./useStore";
 import { listEncounters } from "../api/encounters";
 import {
   listQueueTickets,
@@ -61,7 +63,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const { notification } = AntApp.useApp();
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
+  const patients = useStore(patientRepository);
+  const [currentPatientId, setCurrentPatientId] = useState<string | null>(null);
+  const currentPatient =
+    patients.find((patient) => patient.id === currentPatientId) ?? null;
   const [loading, setLoading] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
 
@@ -74,7 +79,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         .then(replaceRolePermissions)
         .catch(() => undefined);
     }
-    const refreshedDisplayName = typeof me.displayName === "string" ? me.displayName : String((me.displayName as any)?.name ?? "Bùi Văn Chương");
+    const refreshedDisplayName =
+      me.displayName.trim() || me.email.split("@")[0]?.trim() || "Người dùng";
     setCurrentUser((previous) => ({
       id: me.id as UserId,
       name: refreshedDisplayName,
@@ -86,7 +92,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         readStoredActiveRole(me.id, roles) ??
         resolveOperationalRole(roles),
     }));
-  }, []);
+    if (currentPatientId) {
+      const latestPatient = await getPatient(currentPatientId);
+      patientRepository.upsert(latestPatient);
+    }
+  }, [currentPatientId]);
 
   const refreshMe = useCallback(async () => {
     setLoading(true);
@@ -100,7 +110,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           .then(replaceRolePermissions)
           .catch(() => undefined);
       }
-      const rawDisplayName = typeof me.displayName === "string" ? me.displayName : String((me.displayName as any)?.name ?? "Bùi Văn Chương");
+      const rawDisplayName =
+        me.displayName.trim() || me.email.split("@")[0]?.trim() || "Người dùng";
       const storedAvatar = localStorage.getItem(`user_avatar_${me.id}`) || me.avatarUrl || undefined;
       const user: User = {
         id: me.id as UserId,
@@ -120,15 +131,23 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         await Promise.allSettled([
           listPractitioners(),
           listAppointments(),
-          // A UAT Owner can deliberately hold every role, including
-          // `patient`. Treating "has patient role" as "is a patient-only
-          // account" makes that Owner call /patients/me and the whole app
-          // boots with an empty patient repository. Only a genuinely
-          // patient-only principal should use the self endpoint; mixed-role
-          // staff accounts must use the organization-scoped patient list.
           roles.length === 1 && roles[0] === "patient"
             ? getCurrentPatient().then((patient) => [patient])
-            : listPatients(),
+            : roles.includes("patient")
+              ? Promise.all([
+                  listPatients().catch(() => []),
+                  getCurrentPatient().catch(() => null),
+                ]).then(([visiblePatients, selfPatient]) =>
+                  selfPatient
+                    ? [
+                        selfPatient,
+                        ...visiblePatients.filter(
+                          (patient) => patient.id !== selfPatient.id,
+                        ),
+                      ]
+                    : visiblePatients,
+                )
+              : listPatients(),
           listEncounters(),
           listQueueTickets(),
         ]);
@@ -159,10 +178,24 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       patientRepository.replaceAll(patients);
       encounterRepository.replaceAll(encounters);
       queueRepository.replaceAll(queueTickets);
-      setCurrentPatient(patients[0] ?? null);
+      setCurrentPatientId(() => {
+        // Never bind to an arbitrary patient (e.g. plain patients[0]) — not
+        // even for accounts that carry a "patient" membership claim. A
+        // membership claim without a matching Patient row (e.g. self-patient
+        // creation never completed) must resolve to "no patient", not to
+        // whichever patient happens to sort first in the org-wide list —
+        // that previously caused staff/admin accounts to silently alias
+        // onto, and read/write into, a random unrelated patient's chart,
+        // with every such account converging on the *same* patient.
+        // `userId` is always echoed on the patient response
+        // (patient-response.mapper.ts), so this match is reliable whenever a
+        // real self-patient exists.
+        if (!roles.includes("patient")) return null;
+        return patients.find((patient) => patient.userId === me.id)?.id ?? null;
+      });
     } catch (error) {
       setCurrentUser(null);
-      setCurrentPatient(null);
+      setCurrentPatientId(null);
       if (error instanceof ApiError && error.status === 401) {
         navigate("/login", { replace: true });
       } else {
@@ -219,7 +252,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
       return null;
     });
-    setCurrentPatient(null);
+    setCurrentPatientId(null);
     userRepository.replaceAll([]);
     patientRepository.replaceAll([]);
     appointmentRepository.replaceAll([]);
@@ -240,7 +273,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppStateValue | null>(
     () =>
-      currentUser && currentPatient
+      currentUser
         ? {
             currentUserId: currentUser.id,
             currentUser,
@@ -272,7 +305,19 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         <Spin size="large" tip="Đang tải dữ liệu từ hệ thống…" />
       </div>
     );
-  if (currentUser && !currentPatient)
+  // Only pure-patient accounts (no staff/admin role) get hard-blocked here —
+  // for them, "patient" role without a linked Patient row is unrecoverable
+  // from inside the app (there's no other screen to reach). A staff/admin
+  // account that *also* carries a "patient" claim but hasn't finished
+  // self-service patient creation yet (see Profile's "Tạo hồ sơ bệnh nhân")
+  // must still be able to reach Profile to create it — gating the whole app
+  // here would make that flow unreachable.
+  if (
+    currentUser &&
+    currentUser.roles.length === 1 &&
+    currentUser.roles[0] === "patient" &&
+    !currentPatient
+  )
     return (
       <Result
         status="info"

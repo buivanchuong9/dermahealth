@@ -20,7 +20,7 @@ export interface ApiPatient {
   bloodType: string;
   heightCm: number | null;
   weightKg: number | null;
-  primaryDoctor: { id: string; code: string; name: string } | null;
+  primaryDoctor: { id: string; code?: string; name: string } | null;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -133,8 +133,9 @@ export interface Practitioner extends User {
   clinicName?: string;
 }
 
-const mapPatient = (row: ApiPatient): Patient => ({
+export const mapApiPatient = (row: ApiPatient): Patient => ({
   id: row.id as Patient["id"],
+  userId: row.userId ? (row.userId as Patient["userId"]) : undefined,
   code: row.code,
   name: row.name,
   primaryDoctorId: (row.primaryDoctor?.id ?? "") as Patient["primaryDoctorId"],
@@ -151,12 +152,15 @@ const mapPatient = (row: ApiPatient): Patient => ({
 });
 
 export async function getCurrentPatient(): Promise<Patient> {
-  const row = await http.get<ApiPatient>("/api/v1/patients/me");
-  return mapPatient(row);
+  const row = await getCurrentPatientDetails();
+  return mapApiPatient(row);
+}
+export function getCurrentPatientDetails(): Promise<ApiPatient> {
+  return http.get<ApiPatient>("/api/v1/patients/me");
 }
 export async function getPatient(patientId: string): Promise<Patient> {
   const row = await getPatientDetails(patientId);
-  return mapPatient(row);
+  return mapApiPatient(row);
 }
 export function getPatientDetails(patientId: string): Promise<ApiPatient> {
   return http.get<ApiPatient>(
@@ -172,9 +176,35 @@ export function updatePatient(
     payload,
   );
 }
+export function updateCurrentPatient(
+  payload: UpdatePatientRequest,
+): Promise<ApiPatient> {
+  return http.patch<ApiPatient>("/api/v1/patients/me", payload);
+}
+
+export interface CreateSelfPatientRequest {
+  dob: string;
+  gender: string;
+  phone: string;
+  address?: string | null;
+  bloodType?: string;
+  heightCm?: number | null;
+  weightKg?: number | null;
+}
+export function createSelfPatient(
+  payload: CreateSelfPatientRequest,
+): Promise<ApiPatient> {
+  return http.post<ApiPatient>("/api/v1/patients/me", payload);
+}
 export async function listPatients(): Promise<Patient[]> {
   const rows = await http.get<ApiPatient[]>("/api/v1/patients");
-  return rows.map(mapPatient);
+  return rows.map(mapApiPatient);
+}
+
+export function searchPatientDetails(search?: string): Promise<ApiPatient[]> {
+  const params = new URLSearchParams({ page: "1", limit: "100" });
+  if (search?.trim()) params.set("search", search.trim());
+  return http.get<ApiPatient[]>(`/api/v1/patients?${params.toString()}`);
 }
 
 export function getPatientConsents(patientId: string): Promise<ApiConsent[]> {

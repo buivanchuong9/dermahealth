@@ -53,6 +53,31 @@ export default function Care() {
   const [activityDueDate, setActivityDueDate] = useState('');
   const [activityPriority, setActivityPriority] = useState<'low' | 'medium' | 'high'>('medium');
 
+  useEffect(() => {
+    if (!currentPatient) return;
+    const refreshAlerts = () =>
+      listPatientAlerts(currentPatient.id).then((rows) => rows.forEach((row) => carePlanRepository.alerts().upsert(row)));
+    const refreshRequests = () =>
+      listEncounterRequests('requested').then((rows) => rows.forEach((row) => carePlanRepository.encounterRequests().upsert(row)));
+    const refreshCarePlan = async () => {
+      const serverPlan = await getPatientCarePlan(currentPatient.id);
+      carePlanRepository.plans().upsert(serverPlan);
+      const serverActivities = await listCarePlanActivities(serverPlan.id);
+      const otherActivities = carePlanRepository.activities().getAll().filter((item) => item.carePlanId !== serverPlan.id);
+      carePlanRepository.activities().replaceAll([...otherActivities, ...serverActivities]);
+    };
+    refreshCarePlan().catch((err: unknown) => { showError(err); });
+    refreshAlerts().catch((err: unknown) => { showError(err); });
+    refreshRequests().catch((err: unknown) => { showError(err); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPatient?.id]);
+
+  // No patient record is linked to this account — nothing below is scoped
+  // safely without one, so stop before any patient-specific read/write.
+  if (!currentPatient) {
+    return <ProfessionalEmpty title="Chưa có hồ sơ bệnh nhân" description="Tài khoản này chưa được liên kết với hồ sơ bệnh nhân nào." />;
+  }
+
   const plan = plans.find((p) => p.patientId === currentPatient.id);
   const rows = plan ? activities.filter((a) => a.carePlanId === plan.id) : [];
   const automatic = rows.filter((a) => AUTO_TYPES.has(a.type) && ['scheduled', 'due'].includes(a.status));
@@ -70,20 +95,6 @@ export default function Care() {
     listPatientAlerts(currentPatient.id).then((rows) => rows.forEach((row) => carePlanRepository.alerts().upsert(row)));
   const refreshRequests = () =>
     listEncounterRequests('requested').then((rows) => rows.forEach((row) => carePlanRepository.encounterRequests().upsert(row)));
-  const refreshCarePlan = async () => {
-    const serverPlan = await getPatientCarePlan(currentPatient.id);
-    carePlanRepository.plans().upsert(serverPlan);
-    const serverActivities = await listCarePlanActivities(serverPlan.id);
-    const otherActivities = carePlanRepository.activities().getAll().filter((item) => item.carePlanId !== serverPlan.id);
-    carePlanRepository.activities().replaceAll([...otherActivities, ...serverActivities]);
-  };
-
-  useEffect(() => {
-    refreshCarePlan().catch((err: unknown) => { showError(err); });
-    refreshAlerts().catch((err: unknown) => { showError(err); });
-    refreshRequests().catch((err: unknown) => { showError(err); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPatient.id]);
 
   const guardAsync = (fn: () => Promise<void>, success?: string) => {
     fn().then(() => { if (success) message.success(success); }).catch((e: unknown) => { showError(e); });

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, Typography, Tag, Divider } from 'antd';
-import { ShieldCheck, Link2, CheckCircle2, FileSignature } from 'lucide-react';
+import { ShieldCheck, Link2, CheckCircle2 } from 'lucide-react';
 import type { LifetimeMedicalRecord } from '../../api/lifetimeMedicalRecord';
 
 const { Title, Text } = Typography;

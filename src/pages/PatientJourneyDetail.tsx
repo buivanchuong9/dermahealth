@@ -178,7 +178,7 @@ export default function PatientJourneyDetail() {
       />
     );
   }
-  if (role === 'patient' && encounter.patientId !== currentPatient.id) {
+  if (role === 'patient' && encounter.patientId !== currentPatient?.id) {
     return <AccessDenied featureName="tiến trình của bệnh nhân khác" />;
   }
   if (!view) return null;
@@ -204,7 +204,7 @@ export default function PatientJourneyDetail() {
           </Button>
           <Space size={8} wrap>
             <Title level={3} style={{ margin: 0 }}>
-              Hành trình khám của {journeyPatient?.name ?? currentPatient.name}
+              Hành trình khám của {journeyPatient?.name ?? currentPatient?.name ?? 'bệnh nhân'}
             </Title>
             <Tag color={statusTone}>{ENCOUNTER_STATUS_LABEL[encounter.status]}</Tag>
           </Space>

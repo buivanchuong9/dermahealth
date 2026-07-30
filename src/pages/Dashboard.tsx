@@ -24,8 +24,6 @@ import {
   FileText,
   HeartHandshake,
   HelpCircle,
-  Image as ImageIcon,
-  MapPin,
   Pill,
   Plug,
   Plus,
@@ -50,6 +48,7 @@ import {
   type MedicationReminder,
   type OperationalKpis,
 } from "../api/clinical";
+import { getPatientAvatarUrl } from "../utils/avatarUtils";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -122,7 +121,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (role === "patient") {
+    if (role === "patient" && currentPatient) {
       Promise.all([
         getHealthSummary(currentPatient.id).then(setHealth),
         getHealthHistory(currentPatient.id).then(setHealthHistory).catch(() => []),
@@ -131,7 +130,8 @@ export default function Dashboard() {
     } else {
       getOperationalKpis().then(setKpis).finally(() => setLoading(false));
     }
-  }, [currentPatient.id, role]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPatient?.id, role]);
 
   const workloadOptions = useMemo<Highcharts.Options>(
     () => ({
@@ -478,6 +478,11 @@ export default function Dashboard() {
       </Space>
     );
 
+  // role === "patient" here always implies a resolved currentPatient — the
+  // app-level provider blocks rendering otherwise — but this keeps the rest
+  // of the patient dashboard type-safe against the null case.
+  if (!currentPatient) return null;
+
   // Patient Dashboard Data Prep
   const patientAppointments = appointments
     .filter((item) => item.patientId === currentPatient.id)
@@ -491,7 +496,7 @@ export default function Dashboard() {
     return rawRisk;
   };
 
-  const patientAvatar = currentUser?.avatarUrl || (currentUser?.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || undefined;
+  const patientAvatar = getPatientAvatarUrl(undefined, currentPatient.id);
 
   return (
     <Space direction="vertical" size={20} style={{ width: "100%" }}>
@@ -687,7 +692,7 @@ export default function Dashboard() {
                   <Button
                     key="detail"
                     size="small"
-                    type="outline"
+                    type="default"
                     icon={<Video size={14} />}
                     onClick={() => navigate(`/app/appointments/${item.id}`)}
                   >

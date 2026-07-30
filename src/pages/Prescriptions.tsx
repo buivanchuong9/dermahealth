@@ -136,20 +136,22 @@ export default function Prescriptions() {
   const [endDate, setEndDate] = useState("");
   const [times, setTimes] = useState("08:00");
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
-  const reload = useCallback(
-    () =>
-      Promise.all([
-        getMedicationReminders(currentPatient.id),
-        getReport<Prescription[]>(currentPatient.id, "medicine-history"),
-      ]).then(([r, p]) => {
-        setReminders(r);
-        setPrescriptions(p);
-      }),
-    [currentPatient.id],
-  );
+  const reload = useCallback(() => {
+    if (!currentPatient) return Promise.resolve();
+    return Promise.all([
+      getMedicationReminders(currentPatient.id),
+      getReport<Prescription[]>(currentPatient.id, "medicine-history"),
+    ]).then(([r, p]) => {
+      setReminders(r);
+      setPrescriptions(p);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPatient?.id]);
   useEffect(() => {
     reload().finally(() => setLoading(false));
   }, [reload]);
+  if (loading) return <Spin />;
+  if (!currentPatient) return <Empty description="Chưa có hồ sơ bệnh nhân liên kết với tài khoản này" />;
   const taken = async (id: string) => {
     try {
       await markReminderTaken(id);
@@ -192,7 +194,6 @@ export default function Prescriptions() {
       );
     }
   };
-  if (loading) return <Spin />;
   return (
     <Space direction="vertical" size={18} style={{ width: "100%" }}>
       <Space style={{ width: "100%", justifyContent: "space-between" }}>

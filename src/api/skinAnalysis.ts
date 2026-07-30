@@ -2,7 +2,7 @@ import { http } from "./http";
 
 export interface SkinPrediction {
   classIndex: number;
-  label: string;
+  label?: string;
   probability: number;
 }
 
@@ -33,6 +33,25 @@ export interface SkinCaseImageResult {
     mimeType: "image/png";
     dataUrl: string;
     allZero: boolean;
+    attention?: {
+      threshold: number;
+      coveragePercent: number;
+      boundingBox: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      } | null;
+      centroid: { x: number; y: number } | null;
+    };
+  } | null;
+  segmentation?: {
+    dataUrl: string;
+    calibrated: boolean;
+    calibrationMethod?: string;
+    widthMm?: number;
+    heightMm?: number;
+    areaMm2?: number;
   } | null;
 }
 
@@ -66,6 +85,32 @@ export interface SkinAnalysisCaseResult {
   disclaimer: string;
 }
 
+export interface SkinAnalysisCaseSummary {
+  caseId: string;
+  encounterId: string | null;
+  patient: {
+    id: string;
+    code: string;
+    userId: string | null;
+    name: string;
+  } | null;
+  status: SkinAnalysisCaseResult["status"];
+  bodyRegion: string;
+  generatedAt: string;
+  triage: SkinAnalysisCaseResult["triage"];
+  reviewedAt: string | null;
+  reviewerDecision: SkinCaseReviewDecision | null;
+  reviewerDiagnosis: string | null;
+}
+
+export interface SkinAnalysisCaseDetail extends SkinAnalysisCaseSummary {
+  durationDays: number | null;
+  symptoms: string[];
+  images: SkinCaseImageResult[];
+  aggregate: SkinAnalysisCaseResult["aggregate"];
+  reviewerNote: string | null;
+}
+
 export async function analyzeSkinImage(
   file: File,
 ): Promise<SkinAnalysisResult> {
@@ -81,7 +126,9 @@ export async function analyzeSkinCase(input: {
   bodyRegion: string;
   durationDays?: number;
   symptoms?: string[];
+  note?: string;
   patientId?: string;
+  encounterId?: string;
 }): Promise<SkinAnalysisCaseResult> {
   const form = new FormData();
   form.append("closeup", input.closeup, input.closeup.name);
@@ -90,8 +137,27 @@ export async function analyzeSkinCase(input: {
   form.append("bodyRegion", input.bodyRegion);
   if (input.durationDays !== undefined) form.append("durationDays", String(input.durationDays));
   if (input.symptoms?.length) form.append("symptoms", JSON.stringify(input.symptoms));
+  if (input.note?.trim()) form.append("note", input.note.trim());
   if (input.patientId) form.append("patientId", input.patientId);
+  if (input.encounterId) form.append("encounterId", input.encounterId);
   return http.post<SkinAnalysisCaseResult>("/api/v1/ai/skin-analysis-cases", form);
+}
+
+export function listSkinAnalysisCases(filters?: {
+  patientId?: string;
+  encounterId?: string;
+}): Promise<SkinAnalysisCaseSummary[]> {
+  const params = new URLSearchParams();
+  if (filters?.patientId) params.set("patientId", filters.patientId);
+  if (filters?.encounterId) params.set("encounterId", filters.encounterId);
+  const query = params.size ? `?${params.toString()}` : "";
+  return http.get<SkinAnalysisCaseSummary[]>(`/api/v1/ai/skin-analysis-cases${query}`);
+}
+
+export function getSkinAnalysisCase(caseId: string): Promise<SkinAnalysisCaseDetail> {
+  return http.get<SkinAnalysisCaseDetail>(
+    `/api/v1/ai/skin-analysis-cases/${encodeURIComponent(caseId)}`,
+  );
 }
 
 export type SkinCaseReviewDecision =

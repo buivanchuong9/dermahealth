@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Avatar, Tag, Space, Typography, Row, Col, Divider } from 'antd';
 import { FileText, UserRound } from 'lucide-react';
-import type { Patient } from '../../domain/core/entities';
+import type { Patient, PatientProfile } from '../../domain/core/entities';
 import type { LifetimeMedicalRecord } from '../../api/lifetimeMedicalRecord';
 import { getPatientAvatarUrl } from '../../utils/avatarUtils';
 
@@ -19,20 +19,28 @@ export const PatientHeaderCard: React.FC<PatientHeaderCardProps> = ({
   avatarUrl: propAvatarUrl,
 }) => {
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(
-    propAvatarUrl || getPatientAvatarUrl(patient?.userId, patient?.id || record?.patient?.id)
+    propAvatarUrl || getPatientAvatarUrl(undefined, patient?.id || record?.patient?.id)
   );
 
   useEffect(() => {
     const handleAvatarUpdate = () => {
-      const updated = getPatientAvatarUrl(patient?.userId, patient?.id || record?.patient?.id);
+      const updated = getPatientAvatarUrl(undefined, patient?.id || record?.patient?.id);
       setAvatarUrl(updated);
     };
     window.addEventListener('avatar_updated', handleAvatarUpdate);
     return () => window.removeEventListener('avatar_updated', handleAvatarUpdate);
-  }, [patient?.userId, patient?.id, record?.patient?.id]);
+  }, [patient?.id, record?.patient?.id]);
 
-  const profile = patient?.profile || {};
-  const displayName = record?.patient.name || patient?.name || 'Bệnh nhân';
+  // Never merge identity fields from two different patients. When the live
+  // patient repository and the clinical record refer to the same patient,
+  // the live Patient row is canonical; the record is only a fallback for
+  // direct/shared record views.
+  const livePatient =
+    patient && (!record?.patient.id || patient.id === record.patient.id)
+      ? patient
+      : undefined;
+  const profile: Partial<PatientProfile> = livePatient?.profile ?? {};
+  const displayName = livePatient?.name || record?.patient.name || 'Bệnh nhân';
   const initials = displayName
     .split(' ')
     .slice(-2)
@@ -40,10 +48,9 @@ export const PatientHeaderCard: React.FC<PatientHeaderCardProps> = ({
     .join('')
     .toUpperCase();
 
-  const formattedDob = record?.patient.dob
-    ? new Date(record.patient.dob).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    : profile.dob
-    ? new Date(profile.dob).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const dob = profile.dob || record?.patient.dob;
+  const formattedDob = dob
+    ? new Date(dob).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : 'Chưa cập nhật';
 
   const calculateAge = (dobString?: string | null) => {
@@ -56,13 +63,16 @@ export const PatientHeaderCard: React.FC<PatientHeaderCardProps> = ({
     return age > 0 ? ` (${age} tuổi)` : '';
   };
 
-  const genderDisplay = record?.patient.gender === 'male' || profile.gender === 'male'
+  const gender = profile.gender || record?.patient.gender;
+  const genderDisplay = gender === 'male'
     ? 'Nam'
-    : record?.patient.gender === 'female' || profile.gender === 'female'
+    : gender === 'female'
     ? 'Nữ'
     : 'Khác';
 
-  const bloodType = record?.patient.bloodType || profile.bloodType || 'Chưa cập nhật';
+  const bloodType = profile.bloodType || record?.patient.bloodType || 'Chưa cập nhật';
+  const phone = profile.phone || record?.patient.phone || 'Chưa cập nhật';
+  const address = profile.address || record?.patient.address || 'Chưa cập nhật';
   const allergies = record?.summary.allergies || [];
   const activeConditions = record?.summary.activeConditions || [];
   const currentMedications = record?.summary.currentMedications || [];
@@ -88,7 +98,7 @@ export const PatientHeaderCard: React.FC<PatientHeaderCardProps> = ({
                 </Title>
               </Space>
               <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                Mã BN: <strong style={{ color: '#334155' }}>{record?.patient.code || patient?.code || '—'}</strong>
+                Mã BN: <strong style={{ color: '#334155' }}>{livePatient?.code || record?.patient.code || '—'}</strong>
               </Text>
               <Space size={4} wrap style={{ marginBottom: 4 }}>
                 {record?.patient.nationalHealthId && <Tag className="emr-subtle-tag">Đã định danh VNeID</Tag>}
@@ -107,7 +117,7 @@ export const PatientHeaderCard: React.FC<PatientHeaderCardProps> = ({
           <div className="emr-patient-details-grid">
             <div className="emr-patient-detail-item">
               <span className="emr-detail-label">Ngày sinh:</span>
-              <span className="emr-detail-val">{formattedDob}{calculateAge(record?.patient.dob || profile.dob)}</span>
+              <span className="emr-detail-val">{formattedDob}{calculateAge(dob)}</span>
             </div>
             <div className="emr-patient-detail-item">
               <span className="emr-detail-label">Giới tính:</span>
@@ -119,11 +129,11 @@ export const PatientHeaderCard: React.FC<PatientHeaderCardProps> = ({
             </div>
             <div className="emr-patient-detail-item">
               <span className="emr-detail-label">Điện thoại:</span>
-              <span className="emr-detail-val">{profile.phone || 'Chưa cập nhật'}</span>
+              <span className="emr-detail-val">{phone}</span>
             </div>
             <div className="emr-patient-detail-item emr-detail-full">
               <span className="emr-detail-label">Địa chỉ:</span>
-              <span className="emr-detail-val">{profile.address || 'Chưa cập nhật'}</span>
+              <span className="emr-detail-val">{address}</span>
             </div>
           </div>
         </Col>

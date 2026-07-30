@@ -3,7 +3,7 @@ import { Card, Typography, Empty, Tag } from 'antd';
 import { Activity } from 'lucide-react';
 import type { LifetimeMedicalRecord, LifetimeRecordClinicalItem } from '../../api/lifetimeMedicalRecord';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 interface LatestLabResultsCardProps {
   record?: LifetimeMedicalRecord;

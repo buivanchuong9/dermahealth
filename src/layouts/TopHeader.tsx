@@ -128,20 +128,20 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
   );
 
   const [userAvatar, setUserAvatar] = useState<string | undefined>(() =>
-    currentUser.avatarUrl || (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || localStorage.getItem('user_avatar_global') || undefined
+    currentUser.avatarUrl || (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || undefined
   );
 
   useEffect(() => {
     const handleAvatarUpdate = () => {
       setUserAvatar(
-        currentUser.avatarUrl || (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || localStorage.getItem('user_avatar_global') || undefined
+        currentUser.avatarUrl || (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || undefined
       );
     };
     window.addEventListener('avatar_updated', handleAvatarUpdate);
     return () => window.removeEventListener('avatar_updated', handleAvatarUpdate);
   }, [currentUser.avatarUrl, currentUser.id]);
 
-  const userName = typeof currentUser.name === 'string' ? currentUser.name : String((currentUser.name as any)?.name ?? 'User');
+  const userName = currentUser.name.trim() || 'User';
   const userInitial = userName.trim().slice(-1) || 'U';
 
   const accountContent = (
@@ -183,7 +183,7 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
           navigate('/app/profile');
         }}
       >
-        Hồ sơ bệnh nhân
+        Hồ sơ cá nhân
       </Button>
       <Button
         type="text"

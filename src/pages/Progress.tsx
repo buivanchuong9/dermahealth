@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { App, Button, Card, Empty, Space, Spin, Statistic, Upload, Typography } from "antd";
+import { App, Button, Card, Empty, Space, Spin, Statistic, Tabs, Upload, Typography } from "antd";
 import { UploadCloud } from "lucide-react";
 import Highcharts, { HighchartsReact } from "../charts/highchartsSetup";
+import { RecoveryComparison } from "../components/ai/RecoveryComparison";
 import { useAppState } from "../state/useAppState";
 import {
   getHealthHistory,
@@ -14,13 +15,14 @@ import { uploadFile } from "../api/uploads";
 const { Title, Text } = Typography;
 export default function Progress() {
   const { message } = App.useApp();
-  const { currentPatient } = useAppState();
+  const { currentPatient, currentUser } = useAppState();
   const [history, setHistory] = useState<HealthPoint[]>([]);
   const [summary, setSummary] = useState<HealthSummary>();
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const reload = () =>
-    Promise.all([
+  const reload = () => {
+    if (!currentPatient) return Promise.resolve();
+    return Promise.all([
       getHealthHistory(currentPatient.id),
       getHealthSummary(currentPatient.id),
     ])
@@ -28,11 +30,13 @@ export default function Progress() {
         setHistory(points);
         setSummary(result);
       });
+  };
   useEffect(() => {
     reload().finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPatient.id]);
+  }, [currentPatient?.id]);
   const submitPhoto = async (file: File) => {
+    if (!currentPatient) return false;
     setUploading(true);
     try {
       const uploaded = await uploadFile(file, "progress-photo");
@@ -74,38 +78,72 @@ export default function Progress() {
     [scored],
   );
   if (loading) return <Spin />;
+  if (!currentPatient) return <Empty description="Chưa có hồ sơ bệnh nhân liên kết với tài khoản này" />;
   return (
     <Space direction="vertical" size={18} style={{ width: "100%" }}>
-      <Space style={{ width: "100%", justifyContent: "space-between" }}>
+      <div>
         <Title level={3} style={{ margin: 0 }}>Theo dõi tiến triển</Title>
-        <Upload
-          accept="image/*"
-          showUploadList={false}
-          beforeUpload={(file) => {
-            void submitPhoto(file);
-            return false;
-          }}
-          disabled={uploading}
-        >
-          <Button type="primary" icon={<UploadCloud size={16} />} loading={uploading}>
-            Tải ảnh tiến triển
-          </Button>
-        </Upload>
-      </Space>
-      <Card>
-        <Statistic
-          title="Ảnh tiến triển đã lưu"
-          value={summary?.dataAvailability.progressPhotos ?? 0}
-        />
-        <Text type="secondary">{summary?.notice}</Text>
-      </Card>
-      <Card title="Lịch sử điểm từ database">
-        {scored.length ? (
-          <HighchartsReact highcharts={Highcharts} options={options} />
-        ) : (
-          <Empty description="Chưa có ảnh được chấm điểm" />
-        )}
-      </Card>
+        <Text type="secondary">
+          So sánh ảnh theo thời gian, sàng lọc Top 3 tín hiệu và lưu lịch sử điều trị.
+        </Text>
+      </div>
+      <Tabs
+        defaultActiveKey="ai-comparison"
+        items={[
+          {
+            key: "ai-comparison",
+            label: "AI so sánh hồi phục",
+            children: (
+              <RecoveryComparison
+                patientId={currentPatient.id}
+                clinicalMode={currentUser.role !== "patient"}
+              />
+            ),
+          },
+          {
+            key: "history",
+            label: "Lịch sử & ảnh đã lưu",
+            children: (
+              <Space direction="vertical" size={18} style={{ width: "100%" }}>
+                <Card
+                  extra={(
+                    <Upload
+                      accept="image/*"
+                      showUploadList={false}
+                      beforeUpload={(file) => {
+                        void submitPhoto(file);
+                        return false;
+                      }}
+                      disabled={uploading}
+                    >
+                      <Button
+                        type="primary"
+                        icon={<UploadCloud size={16} />}
+                        loading={uploading}
+                      >
+                        Tải ảnh tiến triển
+                      </Button>
+                    </Upload>
+                  )}
+                >
+                  <Statistic
+                    title="Ảnh tiến triển đã lưu"
+                    value={summary?.dataAvailability.progressPhotos ?? 0}
+                  />
+                  <Text type="secondary">{summary?.notice}</Text>
+                </Card>
+                <Card title="Lịch sử điểm từ database">
+                  {scored.length ? (
+                    <HighchartsReact highcharts={Highcharts} options={options} />
+                  ) : (
+                    <Empty description="Chưa có ảnh được chấm điểm" />
+                  )}
+                </Card>
+              </Space>
+            ),
+          },
+        ]}
+      />
     </Space>
   );
 }

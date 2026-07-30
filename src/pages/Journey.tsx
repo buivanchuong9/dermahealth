@@ -66,7 +66,7 @@ function formatEncounterDate(value: string) {
 
 export default function Journey() {
   const { currentPatient, role } = useAppState();
-  const encounters = useStore(encounterRepository).filter((e) => e.patientId === currentPatient.id);
+  const encounters = useStore(encounterRepository).filter((e) => e.patientId === currentPatient?.id);
   const orders = useStore(clinicalOrderRepository.orders());
   const results = useStore(clinicalOrderRepository.results());
   const tasks = useStore(workflowRepository.tasks());
@@ -76,6 +76,7 @@ export default function Journey() {
   const alerts = useStore(carePlanRepository.alerts());
 
   useEffect(() => {
+    if (!currentPatient) return;
     void Promise.all([
       listPatientAlerts(currentPatient.id).then((rows) =>
         rows.forEach((row) => carePlanRepository.alerts().upsert(row)),
@@ -84,9 +85,10 @@ export default function Journey() {
         carePlanRepository.plans().upsert(plan),
       ),
     ]).catch(() => undefined);
-  }, [currentPatient.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPatient?.id]);
 
-  const defaultId = encounterService.getActiveEncounter(currentPatient.id)?.id ?? encounters[0]?.id;
+  const defaultId = (currentPatient ? encounterService.getActiveEncounter(currentPatient.id)?.id : undefined) ?? encounters[0]?.id;
   const [selectedId, setSelectedId] = useState<EncounterId | undefined>(defaultId);
 
   const encounter = encounters.find((e) => e.id === selectedId) ?? encounters[0];
@@ -95,10 +97,10 @@ export default function Journey() {
   const encounterTasks = tasks.filter((t) => t.encounterId === encounter?.id);
   const instance = instances.find((i) => i.id === encounter?.workflowInstanceId);
   const record = records.find((r) => r.encounterId === encounter?.id);
-  const carePlan = carePlans.find((p) => p.patientId === currentPatient.id);
-  const openAlerts = alerts.filter((a) => a.patientId === currentPatient.id && a.status !== 'resolved');
+  const carePlan = carePlans.find((p) => p.patientId === currentPatient?.id);
+  const openAlerts = alerts.filter((a) => a.patientId === currentPatient?.id && a.status !== 'resolved');
 
-  if (!encounter) {
+  if (!currentPatient || !encounter) {
     return <Card><ProfessionalEmpty title="Chưa có lượt khám" description="Tiến trình sẽ xuất hiện sau khi bệnh nhân có lịch hẹn hoặc được tiếp nhận tại phòng khám." primaryLabel="Xem lịch hẹn" primaryHref="/app/appointments" /></Card>;
   }
 
