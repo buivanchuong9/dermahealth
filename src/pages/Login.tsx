@@ -418,9 +418,14 @@ export default function Login() {
     setForgotLoading(true);
     setForgotError(null);
     try {
-      const result = await forgotPassword({ email });
+      // The backend deliberately never reveals whether the email matched an
+      // account (avoids leaking which emails are registered) — its response
+      // body carries no user-facing text, so the message shown here must
+      // always be this fixed string, never something derived from the
+      // response itself.
+      await forgotPassword({ email });
       setForgotResult(
-        result || "Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi.",
+        "Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi.",
       );
     } catch (err) {
       setForgotError(

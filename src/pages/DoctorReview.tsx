@@ -785,6 +785,15 @@ export default function DoctorReview() {
               <Alert type="error" showIcon style={{ marginBottom: 12 }} message={`Cờ đỏ (${assessment.redFlag.urgency}): ${assessment.redFlag.reasons.join('; ')}`} />
             )}
 
+            {!skinCase && assessment?.candidateConditionsUnavailableReason && (
+              <Alert
+                type="warning"
+                showIcon
+                message="Chưa có gợi ý chẩn đoán phân biệt từ AI"
+                description={assessment.candidateConditionsUnavailableReason}
+              />
+            )}
+
             {!skinCase && assessment?.status === 'completed' && assessment.candidateConditions.map((c) => (
               <div
                 key={c.code}

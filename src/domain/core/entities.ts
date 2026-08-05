@@ -160,6 +160,10 @@ export interface AIPreliminaryAssessment {
   encounterId: EncounterId;
   status: 'completed' | 'insufficient_data' | 'failed';
   candidateConditions: CandidateCondition[];
+  /** Set only when status is 'completed' but no validated differential-
+   * diagnosis model exists — candidateConditions is empty rather than
+   * fabricated. Render this, don't silently show an empty AI-suggestion list. */
+  candidateConditionsUnavailableReason?: string | null;
   redFlag: ClinicalRedFlag;
   suggestedSpecialty?: string;
   suggestedNextActions: string[];

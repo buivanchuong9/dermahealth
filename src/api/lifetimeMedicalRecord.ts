@@ -1,4 +1,15 @@
 import { http } from "./http";
+import type {
+  ComparisonSession,
+  AdverseEvent,
+  Lesion,
+  LesionDetailBundle,
+  LesionObservation,
+  Laterality,
+  MetricSource,
+  ReviewInput,
+  TimelineEvent,
+} from "../domain/skinProgress";
 
 export type LifetimeRecordEventType =
   | "encounter"
@@ -111,7 +122,8 @@ const asNullableString = (value: unknown): string | null =>
 const asNumber = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) ? value : 0;
 
-const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+const asArray = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value : [];
 
 const EVENT_TYPES = new Set<LifetimeRecordEventType>([
   "encounter",
@@ -203,11 +215,13 @@ const mapLifetimeMedicalRecord = (value: unknown): LifetimeMedicalRecord => {
       email: asNullableString(patient.email),
       address: asNullableString(patient.address),
       heightCm:
-        typeof patient.heightCm === "number" && Number.isFinite(patient.heightCm)
+        typeof patient.heightCm === "number" &&
+        Number.isFinite(patient.heightCm)
           ? patient.heightCm
           : null,
       weightKg:
-        typeof patient.weightKg === "number" && Number.isFinite(patient.weightKg)
+        typeof patient.weightKg === "number" &&
+        Number.isFinite(patient.weightKg)
           ? patient.weightKg
           : null,
     },
@@ -219,7 +233,9 @@ const mapLifetimeMedicalRecord = (value: unknown): LifetimeMedicalRecord => {
       lastRecordedAt: asNullableString(summary.lastRecordedAt),
       activeConditions: asArray(summary.activeConditions).map(mapClinicalItem),
       allergies: asArray(summary.allergies).map(mapClinicalItem),
-      currentMedications: asArray(summary.currentMedications).map(mapClinicalItem),
+      currentMedications: asArray(summary.currentMedications).map(
+        mapClinicalItem,
+      ),
     },
     events: asArray(root.events).map(mapEvent),
     page: asNumber(root.page),
@@ -279,3 +295,242 @@ export const shareLifetimeMedicalRecord = (
     `${patientLifetimePath(patientId)}/shares`,
     body,
   );
+
+// DermaTimeline API contracts follow the Lifetime Medical Record transport conventions.
+
+export interface PaginatedLesions {
+  items: Lesion[];
+  nextCursor: string | null;
+}
+
+export const listPatientLesions = (
+  patientId: string,
+  cursor?: string,
+  signal?: AbortSignal,
+) => {
+  const query = new URLSearchParams({ limit: "30" });
+  if (cursor) query.set("cursor", cursor);
+  return http.get<PaginatedLesions>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/lesions?${query.toString()}`,
+    { signal },
+  );
+};
+
+export const getLesion = (lesionId: string, signal?: AbortSignal) =>
+  http.get<LesionDetailBundle>(
+    `/api/v1/lesions/${encodeURIComponent(lesionId)}`,
+    { signal },
+  );
+
+export interface CreateLesionRequest {
+  title: string;
+  bodyRegion: string;
+  laterality: Laterality;
+  firstObservedAt: string;
+  diagnosis?: string;
+  diagnosisCode?: string;
+  clinicianId?: string;
+  currentTreatment?: string;
+}
+
+export const createLesion = (
+  patientId: string,
+  body: CreateLesionRequest,
+  idempotencyKey: string,
+) =>
+  http.post<Lesion>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/lesions`,
+    body,
+    { idempotencyKey },
+  );
+
+export interface CreateObservationMetricRequest {
+  code: string;
+  value: number;
+  source: MetricSource;
+  measurementMethod?: string;
+  observedAt: string;
+}
+
+export interface CreateObservationRequest {
+  encounterId?: string;
+  capturedAt: string;
+  imageAssetIds: string[];
+  patientReportedSymptoms: string[];
+  clinicianNotes?: string;
+  treatmentContext?: string;
+  clinicalMetrics: CreateObservationMetricRequest[];
+}
+
+export const createObservation = (
+  lesionId: string,
+  body: CreateObservationRequest,
+  idempotencyKey: string,
+) =>
+  http.post<LesionObservation>(
+    `/api/v1/lesions/${encodeURIComponent(lesionId)}/observations`,
+    body,
+    { idempotencyKey },
+  );
+
+export const submitObservation = (
+  observationId: string,
+  idempotencyKey: string,
+) =>
+  http.post<LesionObservation>(
+    `/api/v1/observations/${encodeURIComponent(observationId)}/submit`,
+    undefined,
+    { idempotencyKey },
+  );
+
+export const createComparison = (
+  lesionId: string,
+  body: {
+    baselineObservationId: string;
+    targetObservationId: string;
+  },
+  idempotencyKey: string,
+) =>
+  http.post<ComparisonSession>(
+    `/api/v1/lesions/${encodeURIComponent(lesionId)}/comparisons`,
+    body,
+    { idempotencyKey },
+  );
+
+export const getComparison = (comparisonId: string) =>
+  http.get<ComparisonSession>(
+    `/api/v1/comparisons/${encodeURIComponent(comparisonId)}`,
+  );
+
+export const createClinicianReview = (
+  comparisonId: string,
+  body: ReviewInput,
+  idempotencyKey: string,
+) =>
+  http.post<LesionDetailBundle>(
+    `/api/v1/comparisons/${encodeURIComponent(comparisonId)}/reviews`,
+    body,
+    { idempotencyKey },
+  );
+
+export interface CorrectMaskRequest {
+  action: "CONFIRM" | "CORRECT";
+  /** Required for action="CORRECT": an already-uploaded (POST /uploads,
+   * context "lesion-image") replacement mask image. */
+  uploadObjectId?: string;
+  reason: string;
+}
+
+export const correctLesionMask = (
+  comparisonId: string,
+  assetId: string,
+  body: CorrectMaskRequest,
+  idempotencyKey: string,
+) =>
+  http.post<LesionDetailBundle>(
+    `/api/v1/comparisons/${encodeURIComponent(comparisonId)}/masks/${encodeURIComponent(assetId)}/corrections`,
+    body,
+    { idempotencyKey },
+  );
+
+export const getLesionTimeline = (lesionId: string, cursor?: string) => {
+  const query = new URLSearchParams({ limit: "50" });
+  if (cursor) query.set("cursor", cursor);
+  return http.get<{ items: TimelineEvent[]; nextCursor: string | null }>(
+    `/api/v1/lesions/${encodeURIComponent(lesionId)}/timeline?${query.toString()}`,
+  );
+};
+
+/** Creates a suspected safety event only. This endpoint must never create or
+ * confirm an Allergy resource as a side effect. */
+export const createAdverseEvent = (
+  patientId: string,
+  body: Omit<AdverseEvent, "id" | "patientId" | "createdAt" | "updatedAt">,
+  idempotencyKey: string,
+) =>
+  http.post<AdverseEvent>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/adverse-events`,
+    body,
+    { idempotencyKey },
+  );
+
+export interface DermaTimelineRepository {
+  listLesions(patientId: string, signal?: AbortSignal): Promise<Lesion[]>;
+  getBundle(
+    patientId: string,
+    lesionId: string,
+    signal?: AbortSignal,
+  ): Promise<LesionDetailBundle>;
+  requestComparison(
+    patientId: string,
+    bundle: LesionDetailBundle,
+    baselineObservationId: string,
+    targetObservationId: string,
+    idempotencyKey: string,
+  ): Promise<ComparisonSession>;
+  submitReview(
+    patientId: string,
+    bundle: LesionDetailBundle,
+    input: ReviewInput,
+    reviewer: { id: string; name: string },
+    idempotencyKey: string,
+  ): Promise<LesionDetailBundle>;
+  correctMask(
+    comparisonId: string,
+    assetId: string,
+    input: CorrectMaskRequest,
+    idempotencyKey: string,
+  ): Promise<LesionDetailBundle>;
+}
+
+export class ApiDermaTimelineRepository implements DermaTimelineRepository {
+  async listLesions(
+    patientId: string,
+    signal?: AbortSignal,
+  ): Promise<Lesion[]> {
+    return (await listPatientLesions(patientId, undefined, signal)).items;
+  }
+
+  getBundle(
+    _patientId: string,
+    lesionId: string,
+    signal?: AbortSignal,
+  ): Promise<LesionDetailBundle> {
+    return getLesion(lesionId, signal);
+  }
+
+  requestComparison(
+    _patientId: string,
+    bundle: LesionDetailBundle,
+    baselineObservationId: string,
+    targetObservationId: string,
+    idempotencyKey: string,
+  ): Promise<ComparisonSession> {
+    return createComparison(
+      bundle.lesion.id,
+      { baselineObservationId, targetObservationId },
+      idempotencyKey,
+    );
+  }
+
+  submitReview(
+    _patientId: string,
+    bundle: LesionDetailBundle,
+    input: ReviewInput,
+    _reviewer: { id: string; name: string },
+    idempotencyKey: string,
+  ): Promise<LesionDetailBundle> {
+    if (!bundle.comparison)
+      throw new Error("Không có phiên so sánh để review.");
+    return createClinicianReview(bundle.comparison.id, input, idempotencyKey);
+  }
+
+  correctMask(
+    comparisonId: string,
+    assetId: string,
+    input: CorrectMaskRequest,
+    idempotencyKey: string,
+  ): Promise<LesionDetailBundle> {
+    return correctLesionMask(comparisonId, assetId, input, idempotencyKey);
+  }
+}

@@ -13,6 +13,7 @@ export interface AppStateValue {
   currentPatient: Patient | null;
   resetToSeed: () => void;
   refreshMe: () => void;
+  refreshIdentity: () => Promise<void>;
   resetSession: () => void;
 }
 

@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Row, Col, Alert, Spin, App as AntApp } from 'antd';
 import { useAppState } from '../../state/useAppState';
 import { getLifetimeMedicalRecord, type LifetimeMedicalRecord as LifetimeMedicalRecordData } from '../../api/lifetimeMedicalRecord';
-import { getPatientAvatarUrl } from '../../utils/avatarUtils';
 
 // Modular EMR Components
 import { HeaderToolbar } from './HeaderToolbar';
@@ -18,7 +17,7 @@ import './LifetimeMedicalRecord.css';
 
 export function LifetimeMedicalRecord() {
   const { message } = AntApp.useApp();
-  const { currentPatient } = useAppState();
+  const { currentPatient, currentUser, role } = useAppState();
   const [record, setRecord] = useState<LifetimeMedicalRecordData>();
   const [loadedPatientId, setLoadedPatientId] = useState<string>();
   const [error, setError] = useState<string>();
@@ -47,7 +46,7 @@ export function LifetimeMedicalRecord() {
     };
   }, [patientId]);
 
-  const avatarUrl = getPatientAvatarUrl(undefined, currentPatient?.id);
+  const avatarUrl = currentUser.avatarUrl;
 
   if (!currentPatient) {
     return (
@@ -120,7 +119,11 @@ export function LifetimeMedicalRecord() {
             <ClinicalProgressChartCard record={record} patientId={currentPatient?.id} />
 
             {/* 2. Unified Clinical Details Workspace Tabs */}
-            <ClinicalDetailsTabsCard record={record} />
+            <ClinicalDetailsTabsCard
+              record={record}
+              patientId={currentPatient.id}
+              user={{ id: currentUser.id, name: currentUser.name, role }}
+            />
           </Col>
 
           {/* Sidebar Auxiliary Area (Right 35%) */}

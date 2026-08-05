@@ -1,4 +1,5 @@
-import { Tabs } from 'antd';
+import { lazy, Suspense } from 'react';
+import { Skeleton, Tabs } from 'antd';
 import type { LifetimeMedicalRecord } from '../../api/lifetimeMedicalRecord';
 import { LatestLabResultsCard } from './LatestLabResultsCard';
 import { LesionGalleryCard } from './LesionGalleryCard';
@@ -6,11 +7,19 @@ import { RecentPrescriptionsCard } from './RecentPrescriptionsCard';
 import { TreatmentRegimenCard } from './TreatmentRegimenCard';
 import { TreatmentTimelineCard } from './TreatmentTimelineCard';
 
+const DermaTimeline = lazy(() =>
+  import('./DermaTimeline').then((module) => ({
+    default: module.DermaTimeline,
+  })),
+);
+
 interface ClinicalDetailsTabsCardProps {
   record?: LifetimeMedicalRecord;
+  patientId: string;
+  user: { id: string; name: string; role: string };
 }
 
-export function ClinicalDetailsTabsCard({ record }: ClinicalDetailsTabsCardProps) {
+export function ClinicalDetailsTabsCard({ record, patientId, user }: ClinicalDetailsTabsCardProps) {
   return (
     <Tabs
       defaultActiveKey="timeline"
@@ -34,6 +43,15 @@ export function ClinicalDetailsTabsCard({ record }: ClinicalDetailsTabsCardProps
           key: 'results',
           label: 'Cận lâm sàng',
           children: <LatestLabResultsCard record={record} />,
+        },
+        {
+          key: 'derma-timeline',
+          label: 'Tiến triển tổn thương',
+          children: (
+            <Suspense fallback={<Skeleton active paragraph={{ rows: 8 }} />}>
+              <DermaTimeline patientId={patientId} user={user} />
+            </Suspense>
+          ),
         },
         {
           key: 'documents',

@@ -13,8 +13,8 @@ export async function login(payload: LoginRequest): Promise<AuthSession> {
   return session;
 }
 
-export function forgotPassword(payload: ForgotPasswordRequest): Promise<string> {
-  return http.post<string>('/api/v1/auth/forgot-password', payload, {
+export function forgotPassword(payload: ForgotPasswordRequest): Promise<{ accepted: boolean }> {
+  return http.post<{ accepted: boolean }>('/api/v1/auth/forgot-password', payload, {
     auth: false,
   });
 }

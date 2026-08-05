@@ -48,7 +48,6 @@ import {
 } from "../api/aiEntitlement";
 import { ENCOUNTER_STATUS_LABEL, type EncounterStatus } from "../domain/core/enums";
 import type { AuthUser } from "../api/types";
-import { savePatientAvatarUrl, getPatientAvatarUrl } from "../utils/avatarUtils";
 import { patientRepository } from "../domain/repositories";
 import "./Profile.css";
 
@@ -122,16 +121,9 @@ const safeString = (val: unknown, fallback: string = "—"): string => {
 };
 
 const resolveProfileAvatar = (
-  userId?: string | null,
-  patientId?: string | null,
   backendAvatarUrl?: string | null,
 ): string =>
-  getPatientAvatarUrl(userId, patientId) ||
-  // This is the authenticated user's own profile, so falling back from the
-  // owned patient key to the user key cannot leak another patient's photo.
-  getPatientAvatarUrl(userId) ||
-  backendAvatarUrl ||
-  "";
+  backendAvatarUrl || "";
 
 // "No patient yet" and "haven't finished loading" and "the load failed" are
 // three different situations that must never be conflated into one nullable
@@ -146,7 +138,7 @@ type PatientLoadState =
 
 export default function Profile() {
   const { message } = AntApp.useApp();
-  const { refreshMe } = useAppState();
+  const { refreshMe, refreshIdentity } = useAppState();
   const [form] = Form.useForm<ProfileForm>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -167,23 +159,13 @@ export default function Profile() {
   const [visitModalOpen, setVisitModalOpen] = useState(false);
 
   useEffect(() => {
-    const handleAvatarUpdate = () => {
-      setAvatarPreview(
-        resolveProfileAvatar(me?.id, patient?.id, me?.avatarUrl),
-      );
-    };
-    window.addEventListener("avatar_updated", handleAvatarUpdate);
-    return () => window.removeEventListener("avatar_updated", handleAvatarUpdate);
-  }, [me?.avatarUrl, me?.id, patient?.id]);
-
-  useEffect(() => {
     let active = true;
     const loadSelfProfile = async () => {
       const userResult = await getMe();
       if (!active) return;
       setMe(userResult);
       setAvatarPreview(
-        resolveProfileAvatar(userResult.id, undefined, userResult.avatarUrl),
+        resolveProfileAvatar(userResult.avatarUrl),
       );
       form.setFieldsValue({
         name: safeString(userResult.displayName, ""),
@@ -237,11 +219,7 @@ export default function Profile() {
       }
       setPatientState({ status: "ready", patient: patientResult });
       setAvatarPreview(
-        resolveProfileAvatar(
-          userResult.id,
-          patientResult.id,
-          userResult.avatarUrl,
-        ),
+        resolveProfileAvatar(userResult.avatarUrl),
       );
       form.setFieldsValue({
         name: safeString(patientResult.name || userResult.displayName, ""),
@@ -441,11 +419,18 @@ export default function Profile() {
         throw new Error("Backend đã nhận tệp nhưng không trả URL ảnh đại diện.");
       }
       setMe(updated);
-      savePatientAvatarUrl(dataUrl, me.id, patient?.id);
       setAvatarPreview(updated.avatarUrl);
-
-      await refreshMe();
       void message.success("Đã cập nhật ảnh đại diện thành công.");
+
+      // Best-effort sync of the header/global avatar — refreshMe() would do
+      // this too, but it flips AppStateProvider's `loading` flag and
+      // unmounts the whole page behind a full-screen spinner. The upload
+      // above already succeeded and is reflected on this page, so a
+      // refreshIdentity() failure (e.g. a transient session-refresh 403)
+      // must not revert it or be reported as an upload failure.
+      refreshIdentity().catch((error: unknown) => {
+        console.warn("Không đồng bộ được ảnh đại diện lên header:", error);
+      });
     } catch (error) {
       setAvatarPreview(previousAvatar);
       void message.error(error instanceof Error ? error.message : "Không thể tải ảnh đại diện.");
