@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { App, Button, Card, Empty, Space, Spin, Statistic, Tabs, Upload, Typography } from "antd";
 import { UploadCloud } from "lucide-react";
 import Highcharts, { HighchartsReact } from "../charts/highchartsSetup";
-import { RecoveryComparison } from "../components/ai/RecoveryComparison";
+import { DermaTimeline } from "../components/medical-record/DermaTimeline";
 import { useAppState } from "../state/useAppState";
 import {
   getHealthHistory,
@@ -92,11 +92,17 @@ export default function Progress() {
         items={[
           {
             key: "ai-comparison",
-            label: "AI so sánh hồi phục",
+            label: "Tiến trình tổn thương",
             children: (
-              <RecoveryComparison
+              <DermaTimeline
                 patientId={currentPatient.id}
-                clinicalMode={currentUser.role !== "patient"}
+                patient={currentPatient}
+                user={{
+                  id: currentUser.id,
+                  name: currentUser.name,
+                  role: currentUser.role,
+                  avatarUrl: currentUser.avatarUrl,
+                }}
               />
             ),
           },

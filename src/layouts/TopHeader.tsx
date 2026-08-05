@@ -127,19 +127,7 @@ export default function TopHeader({ onOpenMobileNav }: { onOpenMobileNav?: () =>
     </div>
   );
 
-  const [userAvatar, setUserAvatar] = useState<string | undefined>(() =>
-    (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || currentUser.avatarUrl || undefined
-  );
-
-  useEffect(() => {
-    const handleAvatarUpdate = () => {
-      setUserAvatar(
-        (currentUser.id ? localStorage.getItem(`user_avatar_${currentUser.id}`) : null) || currentUser.avatarUrl || undefined
-      );
-    };
-    window.addEventListener('avatar_updated', handleAvatarUpdate);
-    return () => window.removeEventListener('avatar_updated', handleAvatarUpdate);
-  }, [currentUser.avatarUrl, currentUser.id]);
+  const userAvatar = currentUser.avatarUrl || undefined;
 
   const userName = currentUser.name.trim() || 'User';
   const userInitial = userName.trim().slice(-1) || 'U';

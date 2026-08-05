@@ -48,7 +48,6 @@ import {
   type MedicationReminder,
   type OperationalKpis,
 } from "../api/clinical";
-import { getPatientAvatarUrl } from "../utils/avatarUtils";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -496,7 +495,7 @@ export default function Dashboard() {
     return rawRisk;
   };
 
-  const patientAvatar = getPatientAvatarUrl(undefined, currentPatient.id);
+  const patientAvatar = currentUser.avatarUrl;
 
   return (
     <Space direction="vertical" size={20} style={{ width: "100%" }}>

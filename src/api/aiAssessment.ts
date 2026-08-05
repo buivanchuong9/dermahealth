@@ -40,6 +40,7 @@ interface ApiAssessment {
   intakeId: string;
   status: AIPreliminaryAssessment["status"];
   candidateConditions: CandidateCondition[];
+  candidateConditionsUnavailableReason?: string | null;
   redFlagTriggered: boolean;
   redFlagUrgency: Urgency;
   redFlagReasons: string[];
@@ -78,6 +79,7 @@ function mapAssessment(row: ApiAssessment): AIPreliminaryAssessment {
     encounterId: row.encounterId as EncounterId,
     status: row.status,
     candidateConditions: row.candidateConditions ?? [],
+    candidateConditionsUnavailableReason: row.candidateConditionsUnavailableReason ?? null,
     redFlag: {
       triggered: row.redFlagTriggered,
       urgency: row.redFlagUrgency ?? "routine",

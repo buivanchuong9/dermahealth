@@ -84,6 +84,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setCurrentUser((previous) => ({
       id: me.id as UserId,
       name: refreshedDisplayName,
+      avatarUrl:
+        me.avatarUrl ||
+        (previous?.id === me.id ? previous.avatarUrl : undefined) ||
+        undefined,
       roles,
       role:
         (previous?.id === me.id && previous.roles.includes(previous.role)
@@ -112,11 +116,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
       const rawDisplayName =
         me.displayName.trim() || me.email.split("@")[0]?.trim() || "Người dùng";
-      const storedAvatar = localStorage.getItem(`user_avatar_${me.id}`) || me.avatarUrl || undefined;
       const user: User = {
         id: me.id as UserId,
         name: rawDisplayName,
-        avatarUrl: storedAvatar,
+        avatarUrl: me.avatarUrl || undefined,
         roles,
         role: readStoredActiveRole(me.id, roles) ?? resolveOperationalRole(roles),
       };
@@ -284,6 +287,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             currentPatient,
             resetToSeed: refreshMe,
             refreshMe,
+            refreshIdentity,
             resetSession,
           }
         : null,
@@ -291,6 +295,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       currentUser,
       currentPatient,
       refreshMe,
+      refreshIdentity,
       resetSession,
       setCurrentUserId,
       setActiveRole,

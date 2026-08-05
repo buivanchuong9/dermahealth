@@ -30,6 +30,7 @@ interface RequestOptions {
   auth?: boolean;
   retryAuth?: boolean;
   idempotencyKey?: string;
+  signal?: AbortSignal;
 }
 
 const SESSION_REFRESH_ENDPOINT = "/api/v1/auth/session-refreshes";
@@ -63,7 +64,18 @@ async function refreshAccessToken(): Promise<string> {
       })
       .catch((error) => {
         clearAccessToken();
-        if (error instanceof ApiError && error.status === 401) {
+        // Any failure to refresh — an expired refresh cookie (401), an
+        // origin the backend won't trust for a cookie-authenticated request
+        // (403 from CsrfOriginGuard), etc. — means this client can no longer
+        // authenticate. Left unhandled here, that error re-throws with
+        // whatever status the refresh endpoint happened to return, and the
+        // *original* request's caller (e.g. useDermaTimeline's 403 handling)
+        // then misreads it as if it were their own endpoint's 403 — turning
+        // "your session can't be renewed" into a misleading "you don't have
+        // permission for this patient's data". Routing to login here, for
+        // every ApiError from the refresh call and not just 401, keeps that
+        // distinction from leaking into unrelated feature error messages.
+        if (error instanceof ApiError) {
           redirectToLoginAfterSessionExpiry();
         }
         throw error;
@@ -84,6 +96,7 @@ async function request<T>(
     auth = true,
     retryAuth = true,
     idempotencyKey,
+    signal,
   }: RequestOptions = {},
 ): Promise<T> {
   const isFormData = body instanceof FormData;
@@ -109,6 +122,7 @@ async function request<T>(
     headers,
     credentials: "include",
     body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   if (res.status === 401 && auth && retryAuth) {
@@ -120,6 +134,7 @@ async function request<T>(
       auth,
       retryAuth: false,
       idempotencyKey: requestIdempotencyKey,
+      signal,
     });
   }
 

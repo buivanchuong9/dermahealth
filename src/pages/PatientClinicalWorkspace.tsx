@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Avatar, Button, Card, Col, Descriptions, Input, Modal, Row, Select, Skeleton, Space, Tag, Timeline, Typography,
+  Alert, Avatar, Button, Card, Col, Collapse, Descriptions, Input, Modal, Row, Select, Skeleton, Space, Tag, Timeline, Typography,
 } from 'antd';
 import {
   Activity, ArrowLeft, CalendarDays, Camera, Droplets, FileHeart, HeartPulse,
@@ -15,7 +15,12 @@ import {
 } from '../api/lifetimeMedicalRecord';
 import { useAppState } from '../state/useAppState';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
-import { getPatientAvatarUrl } from '../utils/avatarUtils';
+
+const DermaTimeline = lazy(() =>
+  import('../components/medical-record/DermaTimeline').then((module) => ({
+    default: module.DermaTimeline,
+  })),
+);
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -95,17 +100,11 @@ export default function PatientClinicalWorkspace() {
   const [compareImageIds, setCompareImageIds] = useState<string[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
 
-  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() =>
-    getPatientAvatarUrl(currentUser?.id, effectivePatientId)
-  );
-
-  useEffect(() => {
-    const handleAvatarUpdate = () => {
-      setAvatarUrl(getPatientAvatarUrl(currentUser?.id, effectivePatientId));
-    };
-    window.addEventListener('avatar_updated', handleAvatarUpdate);
-    return () => window.removeEventListener('avatar_updated', handleAvatarUpdate);
-  }, [currentUser?.id, effectivePatientId]);
+  // The patients API does not expose an avatar for arbitrary patient
+  // records, only for the signed-in user's own account — so this can only
+  // ever show a photo when the viewer is looking at their own chart.
+  const avatarUrl =
+    currentPatient?.id === effectivePatientId ? currentUser?.avatarUrl : undefined;
 
   useEffect(() => {
     if (!effectivePatientId) return;
@@ -260,6 +259,22 @@ export default function PatientClinicalWorkspace() {
             style={{ marginBottom: 16 }}
           />
         )}
+
+        <Collapse
+          style={{ marginBottom: 16, background: '#ffffff' }}
+          items={[{
+            key: 'derma-timeline',
+            label: 'DermaTimeline · Tiến triển tổn thương',
+            children: (
+              <Suspense fallback={<Skeleton active paragraph={{ rows: 8 }} />}>
+                <DermaTimeline
+                  patientId={effectivePatientId}
+                  user={{ id: currentUser.id, name: currentUser.name, role }}
+                />
+              </Suspense>
+            ),
+          }]}
+        />
 
         {/* Master Workspace Grid (Left 35% Summary / Right 65% Timeline & Images) */}
         <Row gutter={[16, 16]}>

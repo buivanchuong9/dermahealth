@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   Row, Col, Card, Upload, Button, Input, Checkbox, Progress, Result, Tag,
   Alert, Typography, List, Space, Select, Segmented,
@@ -27,9 +27,14 @@ import {
   type SkinCaseReviewDecision,
 } from '../api/skinAnalysis';
 import { ClinicalImageViewer } from '../components/image-viewer/ClinicalImageViewer';
-import { RecoveryComparison } from '../components/ai/RecoveryComparison';
 import { aiAssessmentRepository, encounterRepository } from '../domain/repositories';
 import { formatSkinLabel } from '../domain/skinLabels';
+
+const DermaTimeline = lazy(() =>
+  import('../components/medical-record/DermaTimeline').then((module) => ({
+    default: module.DermaTimeline,
+  })),
+);
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -121,7 +126,7 @@ const TRIAGE_GUIDANCE: Record<TriageLevel, {
 };
 
 export default function AIAnalysis() {
-  const { currentPatient, role } = useAppState();
+  const { currentPatient, currentUser, role } = useAppState();
   const clinicalMode = role === 'doctor' || role === 'nurse';
   const doctorMode = role === 'doctor';
   const [workspace, setWorkspace] = useState<Workspace>('screening');
@@ -387,7 +392,13 @@ export default function AIAnalysis() {
       </div>
 
       {workspace === 'recovery' && (
-        <RecoveryComparison patientId={currentPatient.id} clinicalMode={clinicalMode} />
+        <Suspense fallback={<Card><ProfessionalEmpty title="Đang mở tiến trình tổn thương" description="Đang tải dữ liệu theo dõi dọc và bàn so sánh hình ảnh…" /></Card>}>
+          <DermaTimeline
+            patientId={currentPatient.id}
+            patient={currentPatient}
+            user={{ id: currentUser.id, name: currentUser.name, role, avatarUrl: currentUser.avatarUrl }}
+          />
+        </Suspense>
       )}
 
       {workspace === 'screening' && step === 'upload' && (

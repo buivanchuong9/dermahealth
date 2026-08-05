@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Card, Avatar, Tag, Space, Typography, Row, Col, Divider } from 'antd';
 import { FileText, UserRound } from 'lucide-react';
 import type { Patient, PatientProfile } from '../../domain/core/entities';
 import type { LifetimeMedicalRecord } from '../../api/lifetimeMedicalRecord';
-import { getPatientAvatarUrl } from '../../utils/avatarUtils';
 
 const { Title, Text } = Typography;
 
@@ -16,21 +15,8 @@ interface PatientHeaderCardProps {
 export const PatientHeaderCard: React.FC<PatientHeaderCardProps> = ({
   patient,
   record,
-  avatarUrl: propAvatarUrl,
+  avatarUrl,
 }) => {
-  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(
-    propAvatarUrl || getPatientAvatarUrl(undefined, patient?.id || record?.patient?.id)
-  );
-
-  useEffect(() => {
-    const handleAvatarUpdate = () => {
-      const updated = getPatientAvatarUrl(undefined, patient?.id || record?.patient?.id);
-      setAvatarUrl(updated);
-    };
-    window.addEventListener('avatar_updated', handleAvatarUpdate);
-    return () => window.removeEventListener('avatar_updated', handleAvatarUpdate);
-  }, [patient?.id, record?.patient?.id]);
-
   // Never merge identity fields from two different patients. When the live
   // patient repository and the clinical record refer to the same patient,
   // the live Patient row is canonical; the record is only a fallback for

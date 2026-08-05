@@ -3,7 +3,12 @@ import { http } from "./http";
 export interface PresignUploadRequest {
   fileName: string;
   contentType: string;
-  context: "clinical-document" | "progress-photo" | "avatar" | "intake-image";
+  context:
+    | "clinical-document"
+    | "progress-photo"
+    | "avatar"
+    | "intake-image"
+    | "lesion-image";
 }
 
 export interface PresignedUpload {
