@@ -12,21 +12,23 @@ import {
   Select,
   Skeleton,
   Space,
-  Statistic,
   Tag,
   Typography,
   App as AntApp,
 } from "antd";
 import {
-  ArrowRight,
   CalendarDays,
-  CheckCircle2,
-  CircleAlert,
+  Clock,
   Image as ImageIcon,
-  ImagePlus,
+  Layers,
+  MapPin,
+  Pill,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
+  Stethoscope,
   UploadCloud,
+  UserCheck,
   UserRound,
 } from "lucide-react";
 import type { Patient } from "../../domain/core/entities";
@@ -35,8 +37,10 @@ import {
   deriveReviewState,
   isValidObservationPair,
   selectDefaultObservationPair,
+  selectResultSummaryState,
   validObservationsSorted,
   type EvidenceLink,
+  type Lesion,
   type LesionObservation,
   type ReviewInput,
 } from "../../domain/skinProgress";
@@ -54,7 +58,7 @@ import {
   ObservationEntryDrawer,
   UnifiedTimeline,
 } from "./DermaTimelineParts";
-import { ComparisonWorkbench } from "./DermaComparisonWorkbench";
+import { ComparisonWorkbench, type ViewMode } from "./DermaComparisonWorkbench";
 import {
   ExplainabilityPanel,
   ImageQualityPanel,
@@ -63,16 +67,16 @@ import {
   SafetyPanel,
 } from "./DermaClinicalPanels";
 import { DermaBaselineUploader } from "./DermaBaselineUploader";
-import { PatientRecoveryOverview } from "./PatientRecoveryOverview";
+import { ResultSummaryCard } from "./PatientRecoveryOverview";
+import { PatientClinicalGPS } from "./PatientClinicalGPS";
 import styles from "./DermaTimeline.module.scss";
 
 const { Text, Title } = Typography;
 
-const assessmentLabel = {
-  IMPROVING: "Cải thiện",
-  STABLE: "Ổn định",
-  WORSENING: "Xấu đi",
-  INDETERMINATE: "Chưa xác định",
+const lesionStatusLabel: Record<Lesion["status"], string> = {
+  ACTIVE: "Đang theo dõi",
+  RESOLVED: "Đã lành",
+  ARCHIVED: "Đã lưu trữ",
 };
 
 const reviewStateLabel = {
@@ -101,6 +105,70 @@ const observationPreview = (observation?: LesionObservation) =>
     ?.protectedUrl ??
   undefined;
 
+interface ObservationSelectOption {
+  value: string;
+  label: string;
+  disabled: boolean;
+  item: LesionObservation;
+  isNewest: boolean;
+}
+
+// excludeId is whichever observation is already picked in the OTHER column
+// (baseline excludes the current target, and vice versa) — surfaced in the
+// label itself so a grayed-out option explains why, instead of just looking
+// unexplainedly disabled.
+const buildObservationOptions = (
+  observations: LesionObservation[],
+  excludeId: string | undefined,
+): ObservationSelectOption[] => {
+  const newestId = observations.length
+    ? observations.reduce((latest, item) =>
+        Date.parse(item.capturedAt) > Date.parse(latest.capturedAt) ? item : latest,
+      ).id
+    : undefined;
+  return observations.map((item) => {
+    const isExcluded = item.id === excludeId;
+    const isUnusable = item.imageQualityStatus === "UNUSABLE";
+    const timeLabel = new Date(item.capturedAt).toLocaleString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const suffix = isExcluded
+      ? " · đang chọn ở cột kia"
+      : isUnusable
+        ? " · chất lượng ảnh không đạt"
+        : "";
+    return {
+      value: item.id,
+      label: `${timeLabel} · ${observationStatusLabel[item.status]}${suffix}`,
+      disabled: isExcluded || isUnusable,
+      item,
+      isNewest: item.id === newestId,
+    };
+  });
+};
+
+const renderObservationOption = (option: ObservationSelectOption) => (
+  <div className={styles.observationOption}>
+    <span className={styles.observationOptionThumb}>
+      {observationPreview(option.item) ? (
+        <img src={observationPreview(option.item)} alt="" />
+      ) : (
+        <ImageIcon size={12} />
+      )}
+    </span>
+    <span className={styles.observationOptionText}>{option.label}</span>
+    {option.isNewest && (
+      <Tag color="blue" className={styles.observationOptionTag}>
+        Mới nhất
+      </Tag>
+    )}
+  </div>
+);
+
 export function DermaTimeline({
   patientId,
   user,
@@ -125,6 +193,7 @@ export function DermaTimeline({
     creatingObservation,
     reviewing,
     requestingComparison,
+    reanalyzing,
     correctingMask,
     error,
     mutationError,
@@ -134,6 +203,7 @@ export function DermaTimeline({
     createObservation,
     submitReview,
     requestComparison,
+    reanalyzeComparison,
     correctMask,
   } = useDermaTimeline(patientId, actor);
   const [selection, setSelection] = useState<{
@@ -143,6 +213,10 @@ export function DermaTimeline({
   }>();
   const [lesionEntryOpen, setLesionEntryOpen] = useState(false);
   const [observationEntryOpen, setObservationEntryOpen] = useState(false);
+  // Which comparison column the next uploaded photo should be auto-assigned
+  // to, so "upload here" and "lands here" are the same click instead of a
+  // separate upload-then-pick-from-dropdown step.
+  const [observationEntrySlot, setObservationEntrySlot] = useState<"baseline" | "target">();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [maskCorrectionTarget, setMaskCorrectionTarget] = useState<{
     assetId: string;
@@ -150,8 +224,10 @@ export function DermaTimeline({
   } | null>(null);
   const [focusedMetric, setFocusedMetric] = useState<string>();
   const [focusedEvent, setFocusedEvent] = useState<string>();
-  const [evidenceMode, setEvidenceMode] = useState<"difference" | "mask">();
+  const [evidenceMode, setEvidenceMode] = useState<ViewMode>();
   const metricRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   // super_administrator has full standing authority across every feature
   // here, same as an assigned doctor — mirrors the backend's
@@ -182,8 +258,9 @@ export function DermaTimeline({
     clearMutationError();
     setLesionEntryOpen(true);
   };
-  const openObservationEntry = () => {
+  const openObservationEntry = (slot?: "baseline" | "target") => {
     clearMutationError();
+    setObservationEntrySlot(slot);
     setObservationEntryOpen(true);
   };
   const handleCreateLesion = async (input: LesionEntryInput) => {
@@ -201,8 +278,11 @@ export function DermaTimeline({
   };
   const handleCreateObservation = async (input: ObservationEntryInput) => {
     try {
-      await createObservation(input);
+      const created = await createObservation(input);
       setObservationEntryOpen(false);
+      if (observationEntrySlot === "baseline") setBaselineId(created.id);
+      else if (observationEntrySlot === "target") setTargetId(created.id);
+      setObservationEntrySlot(undefined);
       void message.success(
         "Đã lưu, gửi duyệt quan sát và tải lại dữ liệu từ server.",
       );
@@ -313,7 +393,18 @@ export function DermaTimeline({
     : bundle.lesion.reviewState;
   const canReview =
     dermaTimelineFlags.clinicianReviewEnabled && canReviewComparison(user.role);
-  const hasResult = Boolean(sessionMatchesPair && session?.analysis);
+  // The two states with an obvious, specific next step get a tailored
+  // primary action; everything else falls back to "view the evidence"
+  // (wired inline where ResultSummaryCard is rendered, since that fallback
+  // needs viewerRef which isn't declared yet at this point in the file).
+  const resultPrimaryAction =
+    sessionMatchesPair && session
+      ? selectResultSummaryState(session, baseline, target) === "RECAPTURE_REQUIRED"
+        ? { label: "Hướng dẫn chụp lại", onClick: () => openObservationEntry() }
+        : canReview && session.status === "READY_FOR_REVIEW" && session.analysis
+          ? { label: "Mở review lâm sàng", onClick: () => setReviewOpen(true) }
+          : undefined
+      : undefined;
   const latestClinicalTime = Math.max(
     Date.parse(bundle.lesion.firstObservedAt),
     ...bundle.observations.map((item) => Date.parse(item.capturedAt)),
@@ -337,6 +428,7 @@ export function DermaTimeline({
       });
     } else if (evidence.type === "OVERLAY") {
       setEvidenceMode("difference");
+      viewerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
       setFocusedEvent(evidence.targetId);
       timelineRef.current?.scrollIntoView({
@@ -344,6 +436,15 @@ export function DermaTimeline({
         block: "center",
       });
     }
+  };
+  // Same jump-to-evidence pattern as onEvidence, but for the fixed,
+  // capability-gated image-evidence rows in ExplainabilityPanel (mask/
+  // Grad-CAM/difference/original) rather than backend-authored EvidenceLinks.
+  const jumpToEvidence = (mode: ViewMode) => {
+    setFocusedMetric(undefined);
+    setFocusedEvent(undefined);
+    setEvidenceMode(mode);
+    viewerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const handleReview = async (input: ReviewInput) => {
     try {
@@ -407,7 +508,7 @@ export function DermaTimeline({
               <Button
                 type="primary"
                 icon={<UploadCloud size={16} />}
-                onClick={openObservationEntry}
+                onClick={() => openObservationEntry()}
               >
                 Tải ảnh mới để phân tích
               </Button>
@@ -416,7 +517,7 @@ export function DermaTimeline({
         </Card>
       )}
 
-      <Row gutter={[16, 16]} align="stretch">
+      <Row gutter={[16, 16]}>
         <Col xs={24} lg={7} xl={6}>
           <Card
             title={<span className={styles.sectionTitle}><b>01</b> Tổn thương theo dõi</span>}
@@ -440,77 +541,107 @@ export function DermaTimeline({
           <Card className={styles.summaryCard}>
             <div className={styles.summaryHeader}>
               <div className={styles.summaryTitleGroup}>
-                <Space wrap>
-                  <Tag color="blue">{bundle.lesion.code}</Tag>
+                <Space wrap align="center">
+                  <Tag color="blue" className={styles.codeTag}>{bundle.lesion.code}</Tag>
                   <Title level={4}>{bundle.lesion.title}</Title>
                 </Space>
-                <Text type="secondary">
-                  {bundle.lesion.bodyRegion} ·{" "}
-                  {bundle.lesion.diagnosis ?? "Chưa có chẩn đoán liên quan"}
-                </Text>
+                <div className={styles.summaryMetaRow}>
+                  <Text type="secondary" className={styles.summaryMetaItem}>
+                    <MapPin size={13} /> {bundle.lesion.bodyRegion}
+                  </Text>
+                  <Text type="secondary" className={styles.summaryMetaDot}>•</Text>
+                  <Text type="secondary" className={styles.summaryMetaItem}>
+                    <Stethoscope size={13} /> {bundle.lesion.diagnosis ?? "Chưa có chẩn đoán liên quan"}
+                  </Text>
+                </div>
               </div>
-              <Space wrap>
-                <Tag
-                  color={
-                    bundle.lesion.currentAssessment === "WORSENING"
-                      ? "red"
-                      : bundle.lesion.currentAssessment === "IMPROVING"
-                        ? "green"
-                        : "default"
-                  }
-                >
-                  {assessmentLabel[bundle.lesion.currentAssessment]}
+              <Space wrap align="center">
+                <Tag color={bundle.lesion.status === "ARCHIVED" ? "default" : "processing"} className={styles.statusPill}>
+                  {lesionStatusLabel[bundle.lesion.status]}
                 </Tag>
                 {!patient && canCreateClinicalData && (
                   <Button
                     size="small"
+                    type="primary"
+                    ghost
                     icon={<UploadCloud size={14} />}
-                    onClick={openObservationEntry}
+                    onClick={() => openObservationEntry()}
                   >
                     Tải ảnh mới
                   </Button>
                 )}
               </Space>
             </div>
+
             <div className={styles.summaryStats}>
-              <Statistic
-                title="Thời gian theo dõi"
-                value={durationDays}
-                suffix="ngày"
-              />
-              <Statistic
-                title="Quan sát hợp lệ"
-                value={
-                  bundle.observations.filter((item) =>
-                    ["VERIFIED", "READY_FOR_REVIEW"].includes(item.status),
-                  ).length
-                }
-              />
-              <div>
-                <Text type="secondary">Điều trị hiện tại</Text>
-                <Text strong>
-                  {bundle.lesion.currentTreatment ?? "Chưa ghi nhận"}
-                </Text>
+              <div className={styles.statCard}>
+                <div className={styles.statHeader}>
+                  <span className={`${styles.statIcon} ${styles.statIconBlue}`}><Clock size={15} /></span>
+                  <Text type="secondary" className={styles.statTitle}>Thời gian theo dõi</Text>
+                </div>
+                <div className={styles.statBody}>
+                  <span className={styles.statValue}>{durationDays}</span>
+                  <span className={styles.statUnit}>ngày</span>
+                </div>
               </div>
-              <div>
-                <Text type="secondary">Bác sĩ phụ trách</Text>
-                <Text strong>
-                  {bundle.lesion.clinicianName ?? "Chưa phân công"}
-                </Text>
+
+              <div className={styles.statCard}>
+                <div className={styles.statHeader}>
+                  <span className={`${styles.statIcon} ${styles.statIconTeal}`}><Layers size={15} /></span>
+                  <Text type="secondary" className={styles.statTitle}>Quan sát hợp lệ</Text>
+                </div>
+                <div className={styles.statBody}>
+                  <span className={styles.statValue}>
+                    {bundle.observations.filter((item) =>
+                      ["VERIFIED", "READY_FOR_REVIEW"].includes(item.status),
+                    ).length}
+                  </span>
+                  <span className={styles.statUnit}>lần</span>
+                </div>
               </div>
-              <div>
-                <Text type="secondary">Trạng thái xác nhận</Text>
-                <Tag
-                  color={
-                    reviewState === "AWAITING_CLINICIAN_REVIEW"
-                      ? "gold"
-                      : reviewState === "CLINICIAN_CONFIRMED"
-                        ? "green"
-                        : "default"
-                  }
-                >
-                  {reviewStateLabel[reviewState]}
-                </Tag>
+
+              <div className={styles.statCard}>
+                <div className={styles.statHeader}>
+                  <span className={`${styles.statIcon} ${styles.statIconPurple}`}><Pill size={15} /></span>
+                  <Text type="secondary" className={styles.statTitle}>Điều trị hiện tại</Text>
+                </div>
+                <div className={styles.statBodyText}>
+                  <Text strong ellipsis={{ tooltip: bundle.lesion.currentTreatment ?? undefined }}>
+                    {bundle.lesion.currentTreatment ?? "Chưa ghi nhận"}
+                  </Text>
+                </div>
+              </div>
+
+              <div className={styles.statCard}>
+                <div className={styles.statHeader}>
+                  <span className={`${styles.statIcon} ${styles.statIconIndigo}`}><UserCheck size={15} /></span>
+                  <Text type="secondary" className={styles.statTitle}>Bác sĩ phụ trách</Text>
+                </div>
+                <div className={styles.statBodyText}>
+                  <Text strong ellipsis={{ tooltip: bundle.lesion.clinicianName ?? undefined }}>
+                    {bundle.lesion.clinicianName ?? "Chưa phân công"}
+                  </Text>
+                </div>
+              </div>
+
+              <div className={styles.statCard}>
+                <div className={styles.statHeader}>
+                  <span className={`${styles.statIcon} ${styles.statIconGold}`}><ShieldCheck size={15} /></span>
+                  <Text type="secondary" className={styles.statTitle}>Trạng thái xác nhận</Text>
+                </div>
+                <div className={styles.statBodyTag}>
+                  <Tag
+                    color={
+                      reviewState === "AWAITING_CLINICIAN_REVIEW"
+                        ? "gold"
+                        : reviewState === "CLINICIAN_CONFIRMED"
+                          ? "green"
+                          : "default"
+                    }
+                  >
+                    {reviewStateLabel[reviewState]}
+                  </Tag>
+                </div>
               </div>
             </div>
           </Card>
@@ -541,70 +672,146 @@ export function DermaTimeline({
         )
       ) : (
         <>
+          {/* The answer comes before the setup UI — a returning user should
+              never have to scroll past the baseline/follow-up picker to
+              find out what the system concluded. */}
+          <div ref={resultsRef}>
+            {!patientMode && sessionMatchesPair && session ? (
+              <ResultSummaryCard
+                lesion={bundle.lesion}
+                session={session}
+                baseline={baseline}
+                target={target}
+                primaryAction={
+                  resultPrimaryAction ??
+                  (session.analysis
+                    ? {
+                        label: "Xem bằng chứng chi tiết",
+                        onClick: () =>
+                          viewerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                      }
+                    : undefined)
+                }
+                onRetry={
+                  session.status === "FAILED" && baselineId && targetId
+                    ? () =>
+                        void reanalyzeComparison(baselineId, targetId).catch((cause: unknown) => {
+                          void message.error(
+                            cause instanceof Error ? cause.message : "Không thể chạy lại phân tích.",
+                          );
+                        })
+                    : undefined
+                }
+                retrying={reanalyzing}
+              />
+            ) : (
+              validPair && (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="Chưa có kết quả cho cặp ảnh đang chọn"
+                  description='Bấm "Chạy AI đối chiếu" ở khu vực thiết lập bên dưới để xem kết quả.'
+                />
+              )
+            )}
+          </div>
+
           <Card
             title={<span className={styles.sectionTitle}><b>02</b> Thiết lập so sánh tiến triển</span>}
-            extra={<Tag color="blue">{validObservationCount} ảnh đủ điều kiện</Tag>}
+            extra={
+              <Space size={10}>
+                <Tag color="blue">{validObservationCount} ảnh đủ điều kiện</Tag>
+                {validPair && (
+                  <Button
+                    type="primary"
+                    icon={session?.status === "FAILED" ? <RefreshCw size={15} /> : <Sparkles size={15} />}
+                    loading={requestingComparison}
+                    onClick={() => {
+                      if (!baselineId || !targetId) return;
+                      const isRetry = session?.status === "FAILED";
+                      void requestComparison(baselineId, targetId)
+                        .then(() => {
+                          resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        })
+                        .catch((cause: unknown) => {
+                          void message.error(
+                            cause instanceof Error
+                              ? cause.message
+                              : isRetry
+                                ? "Không thể gửi lại phân tích."
+                                : "Không thể tạo phiên so sánh.",
+                          );
+                        });
+                    }}
+                    style={{
+                      fontWeight: 600,
+                      background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                      borderColor: "#1d4ed8",
+                      boxShadow: "0 3px 10px rgba(37, 99, 235, 0.35)",
+                    }}
+                  >
+                    {requestingComparison
+                      ? "Đang phân tích..."
+                      : session?.status === "FAILED"
+                        ? "Phân tích lại"
+                        : "Chạy AI đối chiếu"}
+                  </Button>
+                )}
+              </Space>
+            }
             className={styles.selectionCard}
           >
-            {canCreateClinicalData && (
-              <div className={styles.uploadCallout}>
-                <span className={styles.uploadCalloutIcon}>
-                  <ImagePlus size={22} />
-                </span>
-                <div className={styles.uploadCalloutCopy}>
-                  <Text strong>Tải ảnh theo dõi mới để AI phân tích</Text>
-                  <Text type="secondary">
-                    Chọn ảnh JPEG, PNG hoặc WebP tối đa 10 MB. Ảnh mới sẽ được
-                    thêm vào danh sách mốc so sánh bên dưới.
-                  </Text>
-                </div>
-                <Button
-                  type="primary"
-                  icon={<UploadCloud size={16} />}
-                  onClick={openObservationEntry}
-                >
-                  Chọn ảnh tải lên
-                </Button>
-              </div>
-            )}
             <div className={styles.comparisonPair}>
               <article className={styles.observationPicker}>
                 <div className={styles.observationPickerHeader}>
                   <div>
                     <span className={styles.observationStep}>MỐC 01</span>
-                    <Text strong>Ảnh ban đầu</Text>
+                    <Text strong>Ảnh ban đầu (Baseline)</Text>
                   </div>
-                  <Tag>Đối chứng</Tag>
+                  {canCreateClinicalData && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      icon={<UploadCloud size={13} />}
+                      onClick={() => openObservationEntry("baseline")}
+                    >
+                      + Tải ảnh mốc 1
+                    </Button>
+                  )}
                 </div>
+
                 <div className={styles.observationPreview}>
                   {observationPreview(baseline) ? (
                     <img src={observationPreview(baseline)} alt="Ảnh tổn thương tại mốc ban đầu" />
                   ) : (
                     <div className={styles.observationPreviewEmpty}>
-                      <ImageIcon size={30} />
+                      <ImageIcon size={28} />
                       <span>Ảnh được bảo vệ</span>
                     </div>
                   )}
                   <span className={styles.previewBadge}>BASELINE</span>
                 </div>
-                <label className={styles.observationSelectLabel}>
-                  Chọn lần theo dõi
-                </label>
-                <Select
-                  value={baselineId}
-                  onChange={setBaselineId}
-                  className={styles.fullWidth}
-                  options={bundle.observations.map((item) => ({
-                    value: item.id,
-                    label: `${new Date(item.capturedAt).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })} · ${observationStatusLabel[item.status]}`,
-                    disabled:
-                      item.id === targetId ||
-                      item.imageQualityStatus === "UNUSABLE",
-                  }))}
-                />
+
+                <div style={{ marginTop: 12 }}>
+                  <label className={styles.observationSelectLabel}>
+                    Chọn thời điểm quan sát ban đầu:
+                  </label>
+                  <Select
+                    value={baselineId}
+                    onChange={setBaselineId}
+                    className={styles.fullWidth}
+                    popupMatchSelectWidth={false}
+                    options={buildObservationOptions(bundle.observations, targetId)}
+                    optionRender={(option) =>
+                      renderObservationOption(option.data as unknown as ObservationSelectOption)
+                    }
+                  />
+                </div>
+
                 {baseline && (
                   <div className={styles.observationMeta}>
-                    <span><CalendarDays size={14} />{new Date(baseline.capturedAt).toLocaleDateString("vi-VN")}</span>
+                    <span><CalendarDays size={13} />{new Date(baseline.capturedAt).toLocaleDateString("vi-VN")}</span>
                     <Tag color={baseline.status === "VERIFIED" ? "green" : "blue"}>
                       {observationStatusLabel[baseline.status]}
                     </Tag>
@@ -612,48 +819,56 @@ export function DermaTimeline({
                 )}
               </article>
 
-              <div className={styles.comparisonDirection} aria-hidden="true">
-                <span><ArrowRight size={20} /></span>
-                <Text>AI đối chiếu</Text>
-              </div>
-
               <article className={`${styles.observationPicker} ${styles.observationPickerCurrent}`}>
                 <div className={styles.observationPickerHeader}>
                   <div>
                     <span className={styles.observationStep}>MỐC 02</span>
-                    <Text strong>Ảnh hiện tại</Text>
+                    <Text strong>Ảnh hiện tại (Follow-up)</Text>
                   </div>
-                  <Tag color="blue">Theo dõi</Tag>
+                  {canCreateClinicalData && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      icon={<UploadCloud size={13} />}
+                      onClick={() => openObservationEntry("target")}
+                    >
+                      + Tải ảnh mốc 2
+                    </Button>
+                  )}
                 </div>
+
                 <div className={styles.observationPreview}>
                   {observationPreview(target) ? (
                     <img src={observationPreview(target)} alt="Ảnh tổn thương tại mốc hiện tại" />
                   ) : (
                     <div className={styles.observationPreviewEmpty}>
-                      <ImageIcon size={30} />
+                      <ImageIcon size={28} />
                       <span>Ảnh được bảo vệ</span>
                     </div>
                   )}
                   <span className={`${styles.previewBadge} ${styles.previewBadgeCurrent}`}>FOLLOW-UP</span>
                 </div>
-                <label className={styles.observationSelectLabel}>
-                  Chọn lần theo dõi
-                </label>
-                <Select
-                  value={targetId}
-                  onChange={setTargetId}
-                  className={styles.fullWidth}
-                  options={bundle.observations.map((item) => ({
-                    value: item.id,
-                    label: `${new Date(item.capturedAt).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })} · ${observationStatusLabel[item.status]}`,
-                    disabled:
-                      item.id === baselineId ||
-                      item.imageQualityStatus === "UNUSABLE",
-                  }))}
-                />
+
+                <div style={{ marginTop: 12 }}>
+                  <label className={styles.observationSelectLabel}>
+                    Chọn thời điểm quan sát hiện tại:
+                  </label>
+                  <Select
+                    value={targetId}
+                    onChange={setTargetId}
+                    className={styles.fullWidth}
+                    popupMatchSelectWidth={false}
+                    options={buildObservationOptions(bundle.observations, baselineId)}
+                    optionRender={(option) =>
+                      renderObservationOption(option.data as unknown as ObservationSelectOption)
+                    }
+                  />
+                </div>
+
                 {target && (
                   <div className={styles.observationMeta}>
-                    <span><CalendarDays size={14} />{new Date(target.capturedAt).toLocaleDateString("vi-VN")}</span>
+                    <span><CalendarDays size={13} />{new Date(target.capturedAt).toLocaleDateString("vi-VN")}</span>
                     <Tag color={target.status === "VERIFIED" ? "green" : "blue"}>
                       {observationStatusLabel[target.status]}
                     </Tag>
@@ -676,9 +891,9 @@ export function DermaTimeline({
             target &&
             sessionMatchesPair &&
             session?.analysis && (
-              <>
+              <div ref={viewerRef}>
                 <Row gutter={[16, 16]} align="stretch">
-                  <Col xs={24} xl={16}>
+                  <Col xs={24} xl={15} style={{ display: "flex", flexDirection: "column" }}>
                     <ComparisonWorkbench
                       key={`${baseline.id}:${target.id}:${evidenceMode ?? "default"}`}
                       baseline={baseline}
@@ -690,160 +905,80 @@ export function DermaTimeline({
                           ? (asset) => setMaskCorrectionTarget({ assetId: asset.id, side: asset.side })
                           : undefined
                       }
+                      onReanalyze={
+                        doctorMode
+                          ? () => {
+                              if (!baselineId || !targetId) return;
+                              void reanalyzeComparison(baselineId, targetId).catch((cause: unknown) => {
+                                void message.error(
+                                  cause instanceof Error ? cause.message : "Không thể chạy lại phân tích.",
+                                );
+                              });
+                            }
+                          : undefined
+                      }
+                      reanalyzing={reanalyzing}
                     />
                   </Col>
-                  <Col xs={24} xl={8}>
+                  <Col xs={24} xl={9} style={{ display: "flex", flexDirection: "column" }}>
                     <ImageQualityPanel session={session} />
                   </Col>
                 </Row>
                 {!patientMode && (
-                  <Row gutter={[16, 16]}>
-                    <Col xs={24} xl={9}>
-                      <ExplainabilityPanel
-                        session={session}
-                        onEvidence={onEvidence}
-                      />
-                    </Col>
-                    <Col xs={24} xl={15}>
-                      <div ref={metricRef}>
+                  <Row gutter={[16, 16]} align="stretch" style={{ marginTop: 16 }}>
+                    <Col xs={24} xl={15} style={{ display: "flex", flexDirection: "column" }}>
+                      <div ref={metricRef} style={{ flex: 1, display: "flex", flexDirection: "column" }}>
                         <MetricsPanel
                           session={session}
                           focusedMetric={focusedMetric}
+                          patientMode={patientMode}
                         />
                       </div>
                     </Col>
+                    <Col xs={24} xl={9} style={{ display: "flex", flexDirection: "column" }}>
+                      <ExplainabilityPanel
+                        session={session}
+                        baseline={baseline}
+                        target={target}
+                        onEvidence={onEvidence}
+                        onViewEvidence={jumpToEvidence}
+                        patientMode={patientMode}
+                      />
+                    </Col>
                   </Row>
                 )}
-              </>
+              </div>
             )}
 
           {validPair && !sessionMatchesPair && (
-            <Alert
-              type="info"
-              showIcon
-              message="Chưa có phiên phân tích cho cặp quan sát này"
-              description="Yêu cầu được gửi kèm idempotency key để tránh tạo job trùng khi thử lại."
-              action={
-                <Button
-                  loading={requestingComparison}
-                  onClick={() => {
-                    if (!baselineId || !targetId) return;
-                    void requestComparison(baselineId, targetId).catch(
-                      (cause: unknown) => {
-                        void message.error(
-                          cause instanceof Error
-                            ? cause.message
-                            : "Không thể tạo phiên so sánh.",
-                        );
-                      },
-                    );
-                  }}
-                >
-                  Yêu cầu phân tích
-                </Button>
-              }
-            />
+            <Text type="secondary" style={{ display: "block", marginTop: -4 }}>
+              Bấm "Chạy AI đối chiếu" ở giữa hai ảnh phía trên — kết quả sẽ hiện ngay bên trên khi xong.
+            </Text>
           )}
-
-          {session?.status === "NEEDS_RECAPTURE" && (
-            <Alert
-              type="warning"
-              showIcon
-              icon={<CircleAlert />}
-              message="Cần chụp lại ảnh"
-              description={
-                session.failureReason ??
-                "Ảnh không đủ chất lượng để đưa ra nhận định đáp ứng điều trị."
-              }
-              action={<Button>Hướng dẫn chụp lại</Button>}
-            />
-          )}
-          {session?.status === "FAILED" && (
-            <div className={`${styles.analysisState} ${styles.analysisStateFailed}`}>
-              <span className={styles.analysisStateIcon}><CircleAlert size={22} /></span>
-              <div>
-                <Text strong>Không thể hoàn tất phân tích tự động</Text>
-                <Text type="secondary">
-                  Ảnh gốc vẫn an toàn trong hồ sơ. Bạn có thể gửi lại cùng cặp ảnh mà không tạo bản ghi trùng.
-                </Text>
-              </div>
-              <Button
-                icon={<RefreshCw size={14} />}
-                loading={requestingComparison}
-                onClick={() => {
-                  if (!baselineId || !targetId) return;
-                  void requestComparison(baselineId, targetId).catch((cause: unknown) => {
-                    void message.error(cause instanceof Error ? cause.message : "Không thể gửi lại phân tích.");
-                  });
-                }}
-              >
-                Phân tích lại
-              </Button>
-            </div>
-          )}
-
         </>
       )}
 
-      {patientMode && validPair && sessionMatchesPair && (
-        <PatientRecoveryOverview
+      {patientMode && (
+        <PatientClinicalGPS
           lesion={bundle.lesion}
           observations={bundle.observations}
-          session={session}
+          session={sessionMatchesPair ? session : null}
+          baseline={baseline}
+          target={target}
+          onViewImages={() => viewerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          onRecapture={() => setObservationEntryOpen(true)}
         />
       )}
 
-      <Row gutter={[16, 16]} align="stretch">
-        <Col xs={24} lg={!patientMode && hasResult ? 12 : 24}>
-          <SafetyPanel
-            lesion={bundle.lesion}
-            analysis={session?.analysis}
-            patientId={patientId}
-            canReport={canCreateClinicalData}
-            onReported={retry}
-          />
-        </Col>
-        {/* Review is a decision panel, not a status readout — it only earns
-            a slot on the page once there's an actual result to decide on.
-            Before that, the step indicator above already communicates
-            "not there yet"; a second empty card would be redundant. */}
-        {!patientMode && hasResult && (
-          <Col xs={24} lg={12}>
-            {session?.status === "READY_FOR_REVIEW" && session.analysis ? (
-              <Card className={styles.reviewBanner}>
-                <div>
-                  {reviewState === "AWAITING_CLINICIAN_REVIEW" ? (
-                    <CircleAlert size={22} />
-                  ) : (
-                    <CheckCircle2 size={22} />
-                  )}
-                  <div>
-                    <Title level={5}>{reviewStateLabel[reviewState]}</Title>
-                    <Text>
-                      Kết quả hỗ trợ không thay thế đánh giá của bác sĩ.
-                    </Text>
-                  </div>
-                </div>
-                {canReview ? (
-                  <Button type="primary" onClick={() => setReviewOpen(true)}>
-                    Mở review lâm sàng
-                  </Button>
-                ) : (
-                  <Text type="secondary">
-                    Tác vụ review chỉ hiển thị cho vai trò lâm sàng được phép.
-                  </Text>
-                )}
-              </Card>
-            ) : (
-              <Card size="small" title="Đánh giá của bác sĩ" className={styles.panelCard}>
-                <Text type="secondary">
-                  Kết quả phân tích đã có nhưng chưa ở trạng thái chờ bác sĩ xác nhận.
-                </Text>
-              </Card>
-            )}
-          </Col>
-        )}
-      </Row>
+      {/* Review status + "Mở review lâm sàng" now live in ResultSummaryCard
+          at the top of the page — a second review card here duplicated that
+          exact conclusion further down, so it's gone rather than repeated. */}
+      <SafetyPanel
+        lesion={bundle.lesion}
+        patientId={patientId}
+        canReport={canCreateClinicalData}
+        onReported={retry}
+      />
 
       <div ref={timelineRef}>
         <UnifiedTimeline events={bundle.timeline} focusedId={focusedEvent} />

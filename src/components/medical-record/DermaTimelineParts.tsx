@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Collapse,
   Drawer,
   Empty,
   Form,
@@ -354,8 +355,8 @@ export function ObservationEntryDrawer({
       <Alert
         type="info"
         showIcon
-        message="Ảnh gốc được lưu trong kho bảo vệ"
-        description="Chấp nhận đúng một ảnh JPEG, PNG hoặc WebP, tối đa 10 MB. Backend kiểm tra loại tệp và giữ nguyên bằng chứng gốc."
+        message="Dễ dàng tải ảnh từ điện thoại"
+        description="Chấp nhận tệp JPEG, PNG hoặc WebP (tối đa 10 MB). Hệ thống AI tự động xử lý và lưu trữ ảnh bảo vệ; người dùng không cần có thước đo mm."
       />
       {error && (
         <Alert
@@ -510,14 +511,25 @@ export function ObservationEntryDrawer({
           ))}
         </Row>
         {clinicalMode && (
-          <>
-            <Alert
-              type="warning"
-              showIcon
-              message="Chỉ nhập số đo trực tiếp"
-              description="Kích thước dùng thước chia vạch milimet; ban đỏ và bong vảy dùng đánh giá trực tiếp thang 0–4. Không ước lượng từ ảnh trong trình duyệt."
-              style={{ marginBottom: 14 }}
-            />
+          <Collapse
+            style={{ marginTop: 14, marginBottom: 16 }}
+            items={[
+              {
+                key: "clinical_metrics",
+                label: (
+                  <Text strong style={{ color: "#475569" }}>
+                    Chỉ số kích thước mm & thang độ lâm sàng (Dành cho Y/Bác sĩ có thước đo)
+                  </Text>
+                ),
+                children: (
+                  <>
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="Chỉ nhập khi có thước chia vạch"
+                      description="Kích thước thực tế dùng thước milimet. Ban đỏ và bong vảy đánh giá trực tiếp theo thang 0–4. Không tự ước lượng từ ảnh chụp."
+                      style={{ marginBottom: 14 }}
+                    />
             <Row gutter={12}>
               <Col xs={24} sm={12}>
                 <Form.Item
@@ -580,14 +592,20 @@ export function ObservationEntryDrawer({
                 </Form.Item>
               </Col>
             </Row>
-            <Form.Item
-              name="clinicianNotes"
-              label="Ghi chú lâm sàng"
-              rules={[{ max: 4000 }]}
-            >
-              <Input.TextArea rows={3} maxLength={4000} />
-            </Form.Item>
           </>
+        ),
+      },
+    ]}
+  />
+        )}
+        {clinicalMode && (
+          <Form.Item
+            name="clinicianNotes"
+            label="Ghi chú lâm sàng"
+            rules={[{ max: 4000 }]}
+          >
+            <Input.TextArea rows={3} maxLength={4000} placeholder="Ghi chú bổ sung dành riêng cho bác sĩ..." />
+          </Form.Item>
         )}
         <Space>
           <Button type="primary" htmlType="submit" loading={loading}>

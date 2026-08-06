@@ -102,6 +102,7 @@ export function useDermaTimeline(
   const [creatingObservation, setCreatingObservation] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [requestingComparison, setRequestingComparison] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [correctingMask, setCorrectingMask] = useState(false);
   const [error, setError] = useState<DermaTimelineLoadError>();
   const [mutationError, setMutationError] = useState<DermaTimelineLoadError>();
@@ -594,6 +595,34 @@ export function useDermaTimeline(
     [bundle, keyFor, patientId, repository],
   );
 
+  const reanalyzeComparison = useCallback(
+    async (baselineObservationId: string, targetObservationId: string) => {
+      if (!bundle)
+        throw new Error("Không có dữ liệu tổn thương để tạo so sánh.");
+      setReanalyzing(true);
+      try {
+        // Deliberately bypasses keyFor()'s per-pair memoized idempotency key:
+        // reusing that key for a COMPLETED legacy session would hit the
+        // backend's idempotency short-circuit and just return the same
+        // legacy record unchanged. A fresh key forces a brand-new
+        // comparison session through the current analysis pipeline.
+        const session = await repository.requestComparison(
+          patientId,
+          bundle,
+          baselineObservationId,
+          targetObservationId,
+          crypto.randomUUID(),
+        );
+        setBundle((current) =>
+          current ? { ...current, comparison: session } : current,
+        );
+      } finally {
+        setReanalyzing(false);
+      }
+    },
+    [bundle, patientId, repository],
+  );
+
   const visibleLesions = lesions.filter((item) => item.patientId === patientId);
   const visibleBundle =
     bundle?.lesion.patientId === patientId ? bundle : undefined;
@@ -612,6 +641,7 @@ export function useDermaTimeline(
     creatingObservation,
     reviewing,
     requestingComparison,
+    reanalyzing,
     correctingMask,
     error,
     mutationError,
@@ -621,6 +651,7 @@ export function useDermaTimeline(
     createObservation: createObservationRecord,
     submitReview,
     requestComparison,
+    reanalyzeComparison,
     correctMask,
   };
 }

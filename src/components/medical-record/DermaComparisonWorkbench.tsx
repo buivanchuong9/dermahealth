@@ -1,36 +1,46 @@
 import { memo, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
-import { Alert, Button, Empty, Segmented, Select, Slider, Space, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Empty, Segmented, Slider, Space, Tag, Tooltip, Typography } from 'antd';
 import { BrainCircuit, Expand, Layers3, RotateCcw, ScanLine, ZoomIn, ZoomOut } from 'lucide-react';
 import type { ComparisonAnalysis, LesionObservation } from '../../domain/skinProgress';
-import { isRegisteredProgressAnalysis, isSimulatedAnalysis } from '../../domain/skinProgress';
+import {
+  canUseOverlay,
+  canUseSlider,
+  canViewBaselineGradCam,
+  canViewBaselineMask,
+  canViewBothGradCam,
+  canViewBothMasks,
+  canViewDifferenceMap,
+  canViewFollowUpGradCam,
+  canViewFollowUpMask,
+  isPairRegistered,
+  isRegisteredProgressAnalysis,
+  isSimulatedAnalysis,
+  latestImageAsset,
+} from '../../domain/skinProgress';
 import { dermaTimelineFlags } from './useDermaTimeline';
 import styles from './DermaTimeline.module.scss';
 
 const { Text } = Typography;
-type ViewMode =
+export type ViewMode =
   | 'side'
   | 'slider'
   | 'overlay'
+  | 'bothMask'
+  | 'bothAttention'
   | 'baselineMask'
   | 'targetMask'
   | 'difference'
   | 'baselineAttention'
   | 'targetAttention';
 
+const DUAL_MASK_MODES: ViewMode[] = ['bothMask', 'baselineMask', 'targetMask'];
+const DUAL_ATTENTION_MODES: ViewMode[] = ['bothAttention', 'baselineAttention', 'targetAttention'];
+
 const originalSource = (observation: LesionObservation) =>
   observation.imageAssets.find((asset) => asset.type === 'ORIGINAL')?.protectedUrl;
 
 const alignedSource = (observation: LesionObservation) =>
-  observation.imageAssets.find((asset) => asset.type === 'ALIGNED')?.protectedUrl;
-
-// .at(-1), not .find(): imageAssets is ordered oldest-first, and a MASK type
-// can have multiple rows once a clinician confirms/corrects the AI proposal
-// (lesion_image_assets is append-only — a correction is always a new row).
-// The most recently created row for a type is always the authoritative one.
-const derivedAsset = (observation: LesionObservation, type: 'MASK' | 'DIFFERENCE_MAP' | 'HEATMAP') =>
-  observation.imageAssets.filter((asset) => asset.type === type).at(-1);
-const derivedSource = (observation: LesionObservation, type: 'MASK' | 'DIFFERENCE_MAP' | 'HEATMAP') =>
-  derivedAsset(observation, type)?.protectedUrl;
+  latestImageAsset(observation, 'ALIGNED')?.protectedUrl;
 
 const MASK_PROVENANCE_LABEL: Record<string, string> = {
   CLINICIAN_DRAWN: 'Mask do bác sĩ vẽ',
@@ -44,19 +54,28 @@ export const ComparisonWorkbench = memo(function ComparisonWorkbench({
   analysis,
   evidenceMode,
   onCorrectMask,
+  onReanalyze,
+  reanalyzing,
 }: {
   baseline: LesionObservation;
   target: LesionObservation;
   analysis?: ComparisonAnalysis | null;
-  evidenceMode?: 'difference' | 'mask';
+  /** Jump target from outside (e.g. ExplainabilityPanel's evidence rows or a
+   * metric's OVERLAY link). The caller is responsible for only requesting a
+   * mode whose capability check already passes — DermaTimeline.tsx remounts
+   * this component (via a `key` including evidenceMode) whenever it changes,
+   * so this only needs to seed the initial mode, never sync mid-life. */
+  evidenceMode?: ViewMode;
   /** Doctor-only. Omit to hide the confirm/correct action entirely (e.g. patient view). */
   onCorrectMask?: (asset: { id: string; side: 'baseline' | 'target' }) => void;
+  /** Omit to hide the "re-run with current pipeline" action (e.g. patient view). */
+  onReanalyze?: () => void;
+  reanalyzing?: boolean;
 }) {
-  const [mode, setMode] = useState<ViewMode>(
-    evidenceMode === 'difference' ? 'difference' : evidenceMode === 'mask' ? 'targetMask' : 'side',
-  );
+  const [mode, setMode] = useState<ViewMode>(evidenceMode ?? 'side');
   const [sliderPosition, setSliderPosition] = useState(50);
   const [overlayOpacity, setOverlayOpacity] = useState(55);
+  const [derivedOpacity, setDerivedOpacity] = useState(65);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [broken, setBroken] = useState<string[]>([]);
@@ -66,22 +85,30 @@ export const ComparisonWorkbench = memo(function ComparisonWorkbench({
   const baselineUrl = originalSource(baseline);
   const targetUrl = originalSource(target);
   const registeredProgress = isRegisteredProgressAnalysis(analysis);
-  const registeredBaselineUrl = registeredProgress ? alignedSource(baseline) : undefined;
-  const registeredTargetUrl = registeredProgress ? alignedSource(target) : undefined;
-  const hasRegisteredPair = Boolean(registeredBaselineUrl && registeredTargetUrl);
-  const differenceUrl = dermaTimelineFlags.heatmapEnabled && registeredProgress
-    ? derivedSource(target, 'DIFFERENCE_MAP')
-    : undefined;
-  const baselineMaskAsset = dermaTimelineFlags.heatmapEnabled && registeredProgress
-    ? derivedAsset(baseline, 'MASK')
-    : undefined;
-  const targetMaskAsset = dermaTimelineFlags.heatmapEnabled && registeredProgress
-    ? derivedAsset(target, 'MASK')
-    : undefined;
+  const hasRegisteredPair = isPairRegistered(baseline, target, analysis);
+  const registeredBaselineUrl = hasRegisteredPair ? alignedSource(baseline) : undefined;
+  const registeredTargetUrl = hasRegisteredPair ? alignedSource(target) : undefined;
+  // Each evidence kind gets its own capability check (skinProgress.ts) —
+  // masks and Grad-CAM are per-photo evidence and, unlike slider/overlay/
+  // difference-map, never depend on hasRegisteredPair. heatmapEnabled is an
+  // unrelated ops rollout flag, kept as an extra AND for every non-Grad-CAM
+  // layer.
+  const sliderAvailable = dermaTimelineFlags.heatmapEnabled && canUseSlider(baseline, target, analysis);
+  const overlayAvailable = dermaTimelineFlags.heatmapEnabled && canUseOverlay(baseline, target, analysis);
+  const baselineMaskAvailable = dermaTimelineFlags.heatmapEnabled && canViewBaselineMask(baseline, analysis);
+  const targetMaskAvailable = dermaTimelineFlags.heatmapEnabled && canViewFollowUpMask(target, analysis);
+  const bothMaskAvailable = dermaTimelineFlags.heatmapEnabled && canViewBothMasks(baseline, target, analysis);
+  const differenceAvailable = dermaTimelineFlags.heatmapEnabled && canViewDifferenceMap(baseline, target, analysis);
+  const baselineAttentionAvailable = canViewBaselineGradCam(baseline);
+  const targetAttentionAvailable = canViewFollowUpGradCam(target);
+  const bothAttentionAvailable = canViewBothGradCam(baseline, target);
+  const baselineMaskAsset = baselineMaskAvailable ? latestImageAsset(baseline, 'MASK') : undefined;
+  const targetMaskAsset = targetMaskAvailable ? latestImageAsset(target, 'MASK') : undefined;
   const baselineMaskUrl = baselineMaskAsset?.protectedUrl;
   const targetMaskUrl = targetMaskAsset?.protectedUrl;
-  const baselineAttentionUrl = derivedSource(baseline, 'HEATMAP');
-  const targetAttentionUrl = derivedSource(target, 'HEATMAP');
+  const differenceUrl = differenceAvailable ? latestImageAsset(target, 'DIFFERENCE_MAP')?.protectedUrl : undefined;
+  const baselineAttentionUrl = baselineAttentionAvailable ? latestImageAsset(baseline, 'HEATMAP')?.protectedUrl : undefined;
+  const targetAttentionUrl = targetAttentionAvailable ? latestImageAsset(target, 'HEATMAP')?.protectedUrl : undefined;
   const transform = useMemo(
     () => `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
     [pan, zoom],
@@ -92,6 +119,7 @@ export const ComparisonWorkbench = memo(function ComparisonWorkbench({
     setPan({ x: 0, y: 0 });
     setSliderPosition(50);
     setOverlayOpacity(55);
+    setDerivedOpacity(65);
   };
   const updateZoom = (next: number) => setZoom(Math.min(4, Math.max(1, next)));
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
@@ -127,34 +155,59 @@ export const ComparisonWorkbench = memo(function ComparisonWorkbench({
       />
     ) : <Empty className={styles.imageUnavailable} description={`${label} không khả dụng`} />;
 
+  // Hide unsupported options rather than list them all disabled — a control
+  // that isn't there yet isn't a promise the user can't act on, unlike a
+  // greyed-out one sitting right next to the working ones.
+  type EvidenceOption = { value: ViewMode; label: string };
+  // "Ảnh gốc song song" always leads Group A and is the default mode — the
+  // two dual-image modes come right after it (preferred whenever both sides
+  // of a layer exist) so the viewer never has to toggle back and forth
+  // between two single-image views to compare baseline vs. follow-up.
+  const perImageOptions: EvidenceOption[] = [
+    { value: 'side', label: 'Ảnh gốc song song' },
+    bothMaskAvailable && { value: 'bothMask', label: 'Mask hai mốc' },
+    bothAttentionAvailable && { value: 'bothAttention', label: 'Grad-CAM hai mốc' },
+    baselineMaskAvailable && { value: 'baselineMask', label: 'Mask ảnh ban đầu' },
+    targetMaskAvailable && { value: 'targetMask', label: 'Mask ảnh hiện tại' },
+    baselineAttentionAvailable && { value: 'baselineAttention', label: 'Grad-CAM ảnh ban đầu' },
+    targetAttentionAvailable && { value: 'targetAttention', label: 'Grad-CAM ảnh hiện tại' },
+  ].filter((option): option is EvidenceOption => Boolean(option));
+  const comparisonOptions: EvidenceOption[] = [
+    sliderAvailable && { value: 'slider', label: 'Thanh trượt' },
+    overlayAvailable && { value: 'overlay', label: 'Chồng ảnh' },
+    differenceAvailable && { value: 'difference', label: 'Bản đồ thay đổi tổn thương' },
+  ].filter((option): option is EvidenceOption => Boolean(option));
+  const activeMaskAsset = mode === 'baselineMask' ? baselineMaskAsset : mode === 'targetMask' ? targetMaskAsset : undefined;
+  const maskProvenanceLabel = (asset?: typeof baselineMaskAsset) => {
+    const provenance = asset?.maskProvenance;
+    if (!provenance || provenance === 'MODEL_PROPOSED') return 'Chưa được bác sĩ xác nhận';
+    return MASK_PROVENANCE_LABEL[provenance];
+  };
+
   return (
     <section className={styles.workbench} aria-label="Bàn so sánh hình ảnh tổn thương">
       <div className={styles.workbenchToolbar}>
         <div className={styles.workbenchModes}>
-          <Segmented
-            value={['side', 'slider', 'overlay'].includes(mode) ? mode : 'side'}
-            onChange={(value) => setMode(value as ViewMode)}
-            options={[
-              { label: 'Song song', value: 'side' },
-              { label: 'Thanh trượt', value: 'slider', disabled: !hasRegisteredPair },
-              { label: 'Chồng ảnh', value: 'overlay', disabled: !hasRegisteredPair },
-            ]}
-            aria-label="Chế độ xem so sánh"
-          />
-          <Select
-            aria-label="Lớp bằng chứng hình ảnh"
-            className={styles.evidenceLayerSelect}
-            value={['baselineMask', 'targetMask', 'difference', 'baselineAttention', 'targetAttention'].includes(mode) ? mode : 'none'}
-            onChange={(value) => setMode(value === 'none' ? 'side' : value as ViewMode)}
-            options={[
-              { value: 'none', label: 'Lớp bằng chứng' },
-              { value: 'baselineMask', label: 'Mask · ảnh ban đầu', disabled: !baselineMaskUrl || !hasRegisteredPair },
-              { value: 'targetMask', label: 'Mask · ảnh hiện tại', disabled: !targetMaskUrl || !hasRegisteredPair },
-              { value: 'difference', label: 'Heatmap thay đổi tổn thương', disabled: !differenceUrl || !hasRegisteredPair },
-              { value: 'baselineAttention', label: 'Grad-CAM · ảnh ban đầu', disabled: !baselineAttentionUrl },
-              { value: 'targetAttention', label: 'Grad-CAM · ảnh hiện tại', disabled: !targetAttentionUrl },
-            ]}
-          />
+          <div className={styles.evidenceGroup}>
+            <span className={styles.evidenceGroupLabel}>Bằng chứng từng ảnh</span>
+            <Segmented
+              value={perImageOptions.some((option) => option.value === mode) ? mode : undefined}
+              onChange={(value) => setMode(value as ViewMode)}
+              options={perImageOptions}
+              aria-label="Bằng chứng từng ảnh"
+            />
+          </div>
+          {comparisonOptions.length > 0 && (
+            <div className={styles.evidenceGroup}>
+              <span className={styles.evidenceGroupLabel}>Bằng chứng so sánh</span>
+              <Segmented
+                value={comparisonOptions.some((option) => option.value === mode) ? mode : undefined}
+                onChange={(value) => setMode(value as ViewMode)}
+                options={comparisonOptions}
+                aria-label="Bằng chứng so sánh"
+              />
+            </div>
+          )}
         </div>
         <Space size={4} wrap>
           {isSimulatedAnalysis(analysis) && (
@@ -178,15 +231,29 @@ export const ComparisonWorkbench = memo(function ComparisonWorkbench({
         <Alert
           type="info"
           showIcon
-          message="Chỉ hiển thị song song"
+          message="Thanh trượt, chồng ảnh và bản đồ thay đổi chưa khả dụng"
           description={analysis && !registeredProgress
-            ? 'Kết quả cũ không có provenance căn chỉnh và mask hợp lệ nên các lớp tiến triển đã bị khóa. Hãy chạy lại bằng pipeline hiện tại.'
-            : 'Backend chưa cung cấp cặp ảnh đã đăng ký cùng hệ tọa độ; thanh trượt và chồng ảnh được khóa để tránh diễn giải sai lệch.'}
+            ? 'Kết quả cũ không có provenance căn chỉnh nên các lớp so sánh trực tiếp đã bị khóa (mask và Grad-CAM trên từng ảnh riêng vẫn xem được ở trên nếu có). Hãy chạy lại bằng pipeline hiện tại.'
+            : 'Hai ảnh chưa căn chỉnh được cùng hệ tọa độ nên các lớp so sánh trực tiếp bị khóa để tránh diễn giải sai lệch (mask và Grad-CAM trên từng ảnh riêng vẫn xem được ở trên nếu có).'}
+          action={analysis && !registeredProgress && onReanalyze ? (
+            <Button
+              size="small"
+              icon={<RotateCcw size={14} />}
+              loading={reanalyzing}
+              onClick={onReanalyze}
+            >
+              Chạy lại bằng pipeline hiện tại
+            </Button>
+          ) : undefined}
         />
       )}
 
+      {/* stageRef wraps the stage AND its controls bar, not just the stage —
+          the native Fullscreen API only shows the fullscreened element and
+          its descendants, so fullscreening just the image area used to make
+          the opacity slider, legend, and mask actions vanish entirely. */}
+      <div ref={stageRef} className={styles.stageFrame}>
       <div
-        ref={stageRef}
         className={`${styles.comparisonStage} ${zoom > 1 ? styles.stagePannable : ''}`}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
@@ -208,16 +275,45 @@ export const ComparisonWorkbench = memo(function ComparisonWorkbench({
             <figure><div style={{ transform }}>{image(targetUrl, 'Ảnh theo dõi hiện tại')}</div><figcaption>Hiện tại · {new Date(target.capturedAt).toLocaleDateString('vi-VN')}</figcaption></figure>
           </div>
         )}
-        {mode !== 'side' && (
+        {(mode === 'bothMask' || mode === 'bothAttention') && (
+          <div className={styles.sideBySide}>
+            <figure>
+              <div style={{ transform }}>
+                {image(baselineUrl, 'Ảnh ban đầu')}
+                <div className={styles.opacityLayer} style={{ opacity: derivedOpacity / 100 }}>
+                  {image(
+                    mode === 'bothMask' ? baselineMaskUrl : baselineAttentionUrl,
+                    mode === 'bothMask' ? 'Mask ảnh ban đầu' : 'Grad-CAM ảnh ban đầu',
+                    styles.derivedLayer,
+                  )}
+                </div>
+              </div>
+              <figcaption>Mốc · {new Date(baseline.capturedAt).toLocaleDateString('vi-VN')}</figcaption>
+            </figure>
+            <figure>
+              <div style={{ transform }}>
+                {image(targetUrl, 'Ảnh hiện tại')}
+                <div className={styles.opacityLayer} style={{ opacity: derivedOpacity / 100 }}>
+                  {image(
+                    mode === 'bothMask' ? targetMaskUrl : targetAttentionUrl,
+                    mode === 'bothMask' ? 'Mask ảnh hiện tại' : 'Grad-CAM ảnh hiện tại',
+                    styles.derivedLayer,
+                  )}
+                </div>
+              </div>
+              <figcaption>Hiện tại · {new Date(target.capturedAt).toLocaleDateString('vi-VN')}</figcaption>
+            </figure>
+          </div>
+        )}
+        {!['side', 'bothMask', 'bothAttention'].includes(mode) && (
           <div className={styles.layeredImages} style={{ transform }}>
-            {image(registeredBaselineUrl, 'Ảnh mốc đã đăng ký')}
-            {mode === 'slider' && <div className={styles.clippedLayer} style={{ clipPath: `inset(0 0 0 ${sliderPosition}%)` }}>{image(registeredTargetUrl, 'Ảnh hiện tại đã đăng ký')}</div>}
-            {mode === 'overlay' && <div className={styles.opacityLayer} style={{ opacity: overlayOpacity / 100 }}>{image(registeredTargetUrl, 'Ảnh hiện tại đã đăng ký')}</div>}
-            {mode === 'baselineMask' && <><div className={styles.opacityLayer} style={{ opacity: 0.72 }}>{image(registeredBaselineUrl, 'Ảnh ban đầu đã đăng ký')}</div>{image(baselineMaskUrl, 'Mask đề xuất ảnh ban đầu', styles.derivedLayer)}</>}
-            {mode === 'targetMask' && <><div className={styles.opacityLayer} style={{ opacity: 0.72 }}>{image(registeredTargetUrl, 'Ảnh hiện tại đã đăng ký')}</div>{image(targetMaskUrl, 'Mask đề xuất ảnh hiện tại', styles.derivedLayer)}</>}
-            {mode === 'difference' && <><div className={styles.opacityLayer} style={{ opacity: 0.55 }}>{image(registeredTargetUrl, 'Ảnh hiện tại đã đăng ký')}</div>{image(differenceUrl, 'Heatmap thay đổi tổn thương', styles.derivedLayer)}</>}
-            {mode === 'baselineAttention' && <><div className={styles.opacityLayer} style={{ opacity: 0.72 }}>{image(baselineUrl, 'Ảnh ban đầu')}</div>{image(baselineAttentionUrl, 'Grad-CAM ảnh ban đầu', styles.derivedLayer)}</>}
-            {mode === 'targetAttention' && <><div className={styles.opacityLayer} style={{ opacity: 0.72 }}>{image(targetUrl, 'Ảnh hiện tại')}</div>{image(targetAttentionUrl, 'Grad-CAM ảnh hiện tại', styles.derivedLayer)}</>}
+            {mode === 'slider' && <>{image(registeredBaselineUrl, 'Ảnh mốc đã đăng ký')}<div className={styles.clippedLayer} style={{ clipPath: `inset(0 0 0 ${sliderPosition}%)` }}>{image(registeredTargetUrl, 'Ảnh hiện tại đã đăng ký')}</div></>}
+            {mode === 'overlay' && <>{image(registeredBaselineUrl, 'Ảnh mốc đã đăng ký')}<div className={styles.opacityLayer} style={{ opacity: overlayOpacity / 100 }}>{image(registeredTargetUrl, 'Ảnh hiện tại đã đăng ký')}</div></>}
+            {mode === 'baselineMask' && <>{image(baselineUrl, 'Ảnh ban đầu')}<div className={styles.opacityLayer} style={{ opacity: derivedOpacity / 100 }}>{image(baselineMaskUrl, 'Mask đề xuất ảnh ban đầu', styles.derivedLayer)}</div></>}
+            {mode === 'targetMask' && <>{image(targetUrl, 'Ảnh hiện tại')}<div className={styles.opacityLayer} style={{ opacity: derivedOpacity / 100 }}>{image(targetMaskUrl, 'Mask đề xuất ảnh hiện tại', styles.derivedLayer)}</div></>}
+            {mode === 'difference' && <>{image(registeredTargetUrl, 'Ảnh hiện tại đã đăng ký')}<div className={styles.opacityLayer} style={{ opacity: 0.85 }}>{image(differenceUrl, 'Bản đồ thay đổi tổn thương', styles.derivedLayer)}</div></>}
+            {mode === 'baselineAttention' && <>{image(baselineUrl, 'Ảnh ban đầu')}<div className={styles.opacityLayer} style={{ opacity: derivedOpacity / 100 }}>{image(baselineAttentionUrl, 'Grad-CAM ảnh ban đầu', styles.derivedLayer)}</div></>}
+            {mode === 'targetAttention' && <>{image(targetUrl, 'Ảnh hiện tại')}<div className={styles.opacityLayer} style={{ opacity: derivedOpacity / 100 }}>{image(targetAttentionUrl, 'Grad-CAM ảnh hiện tại', styles.derivedLayer)}</div></>}
             {mode === 'slider' && <span className={styles.sliderDivider} style={{ left: `${sliderPosition}%` }} aria-hidden="true" />}
           </div>
         )}
@@ -229,36 +325,51 @@ export const ComparisonWorkbench = memo(function ComparisonWorkbench({
         {mode === 'overlay' && <label><Text>Độ mờ ảnh hiện tại</Text><Slider value={overlayOpacity} onChange={setOverlayOpacity} aria-label="Độ mờ ảnh chồng" /></label>}
         {mode === 'difference' && (
           <div className={styles.differenceLegend}>
-            <Text strong><ScanLine size={14} /> Heatmap thay đổi:</Text>
+            <Text strong><ScanLine size={14} /> Bản đồ thay đổi tổn thương:</Text>
             <span className={styles.legendReduced}>Giảm</span>
             <span className={styles.legendPersistent}>Còn tồn tại</span>
             <span className={styles.legendExpanded}>Mới / lan rộng</span>
             <span className={styles.legendUncertain}>Chưa chắc chắn</span>
           </div>
         )}
-        {(mode === 'baselineMask' || mode === 'targetMask') && (() => {
-          const asset = mode === 'baselineMask' ? baselineMaskAsset : targetMaskAsset;
-          const provenance = asset?.maskProvenance;
-          return (
-            <Space wrap>
+        {DUAL_MASK_MODES.includes(mode) && (
+          <>
+            <label className={styles.opacityControl}>
+              <Text>Độ mờ vùng tổn thương</Text>
+              <Slider value={derivedOpacity} onChange={setDerivedOpacity} aria-label="Độ mờ vùng tổn thương AI đề xuất" />
+            </label>
+            <Space wrap size={16}>
               <Text type="secondary">
-                <Layers3 size={14} /> {provenance && provenance !== 'MODEL_PROPOSED' ? MASK_PROVENANCE_LABEL[provenance] : 'Mask đề xuất bán tự động · cần bác sĩ xác nhận'}
+                <Layers3 size={14} /> Vùng tổn thương AI đề xuất
+                {mode !== 'targetMask' && ` · Ban đầu: ${maskProvenanceLabel(baselineMaskAsset)}`}
+                {mode !== 'baselineMask' && ` · Hiện tại: ${maskProvenanceLabel(targetMaskAsset)}`}
               </Text>
-              {onCorrectMask && asset && (
+              {onCorrectMask && activeMaskAsset && (
                 <Button
                   size="small"
-                  onClick={() => onCorrectMask({ id: asset.id, side: mode === 'baselineMask' ? 'baseline' : 'target' })}
+                  onClick={() => onCorrectMask({ id: activeMaskAsset.id, side: mode === 'baselineMask' ? 'baseline' : 'target' })}
                 >
-                  {provenance && provenance !== 'MODEL_PROPOSED' ? 'Chỉnh sửa lại mask' : 'Xác nhận / chỉnh sửa mask'}
+                  {maskProvenanceLabel(activeMaskAsset) === 'Chưa được bác sĩ xác nhận' ? 'Xác nhận / chỉnh sửa mask' : 'Chỉnh sửa lại mask'}
                 </Button>
               )}
             </Space>
-          );
-        })()}
-        {(mode === 'baselineAttention' || mode === 'targetAttention') && (
-          <Text type="secondary"><BrainCircuit size={14} /> Vùng mô hình phân loại chú ý · không phải bản đồ tiến triển</Text>
+          </>
         )}
-        {!differenceUrl && <Text type="secondary"><ScanLine size={13} /> Heatmap thay đổi cần cặp ảnh đã căn chỉnh và hai mask hợp lệ</Text>}
+        {DUAL_ATTENTION_MODES.includes(mode) && (
+          <>
+            <label className={styles.opacityControl}>
+              <Text>Độ mờ vùng chú ý</Text>
+              <Slider value={derivedOpacity} onChange={setDerivedOpacity} aria-label="Độ mờ vùng mô hình chú ý" />
+            </label>
+            <span className={styles.attentionLegend} aria-hidden="true">
+              <span className={styles.attentionLegendBar} /> Thấp → Cao
+            </span>
+            <Text type="secondary">
+              <BrainCircuit size={14} /> Grad-CAM cho biết vùng mô hình phân loại tập trung chú ý. Đây không phải bản đồ hồi phục, lan rộng hoặc thay đổi của tổn thương.
+            </Text>
+          </>
+        )}
+      </div>
       </div>
     </section>
   );

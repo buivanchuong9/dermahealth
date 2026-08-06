@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   Row, Col, Card, Upload, Button, Input, Checkbox, Progress, Result, Tag,
-  Alert, Typography, List, Space, Select, Segmented,
+  Alert, Typography, List, Space, Select,
 } from 'antd';
 import {
   Upload as UploadIcon,
@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Phone,
   FlaskConical,
+  GitCompare,
   TriangleAlert,
 } from 'lucide-react';
 import { useAppState } from '../state/useAppState';
@@ -19,6 +20,7 @@ import { analyzeDermatologyImage, type ImageQualityReport } from '../domain/imag
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 import { createEncounter, getActiveEncounter } from '../api/encounters';
+import { ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
 import { submitEncounterIntake } from '../api/aiAssessment';
 import {
   analyzeSkinCase,
@@ -239,6 +241,20 @@ export default function AIAnalysis() {
         return;
       }
     }
+    // Only these two statuses accept a new intake submission on the backend
+    // (ai-assessment.service.ts's submitIntake guard) — anything else (most
+    // commonly "escalated", once a red flag routed the case to a doctor)
+    // would fail after upload with a generic error. Catching it here, before
+    // spending the upload, avoids that dead end and explains why.
+    if (encounter.status !== 'registered' && encounter.status !== 'intake_in_progress') {
+      setSubmitting(false);
+      setSubmitError(
+        encounter.status === 'escalated'
+          ? 'Ca khám này đã được chuyển cho bác sĩ xem xét (do có dấu hiệu cần ưu tiên) nên không thể gửi thêm đánh giá AI tự động. Vui lòng chờ bác sĩ liên hệ hoặc liên hệ phòng khám.'
+          : `Lượt khám hiện tại đang ở trạng thái "${ENCOUNTER_STATUS_LABEL[encounter.status] ?? encounter.status}" nên chưa thể gửi đánh giá AI mới.`,
+      );
+      return;
+    }
     const skinAnalysisPromise = imageReport?.uploadFile && bodyRegion
       ? analyzeSkinCase({
           closeup: imageReport.uploadFile,
@@ -367,15 +383,62 @@ export default function AIAnalysis() {
                 : 'Chụp ảnh và trả lời vài câu hỏi đơn giản để biết khi nào nên đi khám.'}
           </Text>
         </div>
-        <Space wrap>
-          <Segmented
-            value={workspace}
-            onChange={(value) => setWorkspace(value as Workspace)}
-            options={[
-              { label: 'Đánh giá tổn thương', value: 'screening' },
-              { label: 'So sánh hồi phục', value: 'recovery' },
-            ]}
-          />
+        <Space wrap align="center">
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              background: '#f1f5f9',
+              padding: '3px',
+              borderRadius: '9px',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setWorkspace('screening')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 14px',
+                borderRadius: '7px',
+                border: 'none',
+                background: workspace === 'screening' ? '#ffffff' : 'transparent',
+                color: workspace === 'screening' ? '#0f172a' : '#64748b',
+                boxShadow: workspace === 'screening' ? '0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04)' : 'none',
+                fontWeight: workspace === 'screening' ? 600 : 500,
+                fontSize: '13px',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <FlaskConical size={14} color={workspace === 'screening' ? '#2563eb' : '#64748b'} />
+              Đánh giá tổn thương
+            </button>
+            <button
+              type="button"
+              onClick={() => setWorkspace('recovery')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 14px',
+                borderRadius: '7px',
+                border: 'none',
+                background: workspace === 'recovery' ? '#ffffff' : 'transparent',
+                color: workspace === 'recovery' ? '#0f172a' : '#64748b',
+                boxShadow: workspace === 'recovery' ? '0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04)' : 'none',
+                fontWeight: workspace === 'recovery' ? 600 : 500,
+                fontSize: '13px',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <GitCompare size={14} color={workspace === 'recovery' ? '#2563eb' : '#64748b'} />
+              So sánh hồi phục
+            </button>
+          </div>
           {workspace === 'screening' && (
             step === 'result' ? (
               <>

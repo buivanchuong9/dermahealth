@@ -42,6 +42,7 @@ import { uploadFile } from "../api/uploads";
 import {
   createAiCreditPurchaseRequest,
   createAiPlanChangeRequest,
+  decideAiPlanChange,
   getMyAiEntitlement,
   type AiEntitlement,
   type AiPlan,
@@ -157,6 +158,7 @@ export default function Profile() {
   const [selectedCredits, setSelectedCredits] = useState(30);
   const [visitPurchaseLoading, setVisitPurchaseLoading] = useState(false);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
+  const [maxUpgradeLoading, setMaxUpgradeLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -282,11 +284,100 @@ export default function Profile() {
   }, [patient?.heightCm, patient?.weightKg]);
   
   const currentPlan = aiEntitlement?.plan;
+  const isUnlimitedPlan = aiEntitlement?.includedQuota === null;
   const usagePercent = aiEntitlement?.usagePercent ?? 0;
   const scrollToUpgradePlans = () => {
     document.getElementById("service-plans")?.scrollIntoView({
       behavior: "smooth",
       block: "start",
+    });
+  };
+
+  // Staff who can decide plan-change requests (super_administrator /
+  // system_administrator / medical_administrator). Only relevant here
+  // because there is no backend endpoint for staff to create a plan-change
+  // request on another patient's behalf — only a patient's own "/me"
+  // session can create one, so this quick action only ever applies to the
+  // signed-in staff member's own patient profile, not an arbitrary account.
+  const canDecidePlanChanges = (me?.memberships ?? []).some((membership) =>
+    ["super_administrator", "system_administrator", "medical_administrator"].includes(
+      membership.role,
+    ),
+  );
+
+  const upgradeToMax = async () => {
+    if (!patient || maxUpgradeLoading) return;
+    setMaxUpgradeLoading(true);
+    try {
+      const pendingPlanRequests = (aiEntitlement?.pendingRequests ?? []).filter(
+        (request) => request.type === "plan_change",
+      );
+      const pendingMaxRequest = pendingPlanRequests.find((request) => request.planCode === "max");
+      const pendingOtherRequest = pendingPlanRequests.find((request) => request.planCode !== "max");
+      if (pendingOtherRequest) {
+        throw new Error(
+          `Đang có yêu cầu đổi sang gói "${pendingOtherRequest.planCode}" chờ duyệt — cần xử lý yêu cầu đó trước khi chuyển sang Max.`,
+        );
+      }
+      const request =
+        pendingMaxRequest ??
+        (await createAiPlanChangeRequest("max", `plan-change:max:${patient.id}`));
+      await decideAiPlanChange(request.id, "approved", `plan-change-decision:${request.id}`);
+      setAiEntitlement(await getMyAiEntitlement());
+      void message.success("Đã chuyển tài khoản sang gói Max.");
+    } catch (cause) {
+      void message.error(
+        cause instanceof Error ? cause.message : "Không thể chuyển sang gói Max.",
+      );
+    } finally {
+      setMaxUpgradeLoading(false);
+    }
+  };
+
+  const confirmUpgradeToMax = () => {
+    Modal.confirm({
+      title: "Chuyển sang gói Max?",
+      content:
+        "Tài khoản sẽ được sử dụng không giới hạn lượt phân tích. Yêu cầu và quyết định phê duyệt vẫn được lưu trong audit log.",
+      okText: "Xác nhận",
+      cancelText: "Hủy",
+      onOk: upgradeToMax,
+    });
+  };
+
+  const pendingPlanChangeRequest = (aiEntitlement?.pendingRequests ?? []).find(
+    (request) => request.type === "plan_change",
+  );
+
+  const cancelPendingPlanChange = async () => {
+    if (!pendingPlanChangeRequest || maxUpgradeLoading) return;
+    setMaxUpgradeLoading(true);
+    try {
+      await decideAiPlanChange(
+        pendingPlanChangeRequest.id,
+        "rejected",
+        `plan-change-decision:${pendingPlanChangeRequest.id}`,
+      );
+      setAiEntitlement(await getMyAiEntitlement());
+      void message.success("Đã hủy yêu cầu đổi gói đang chờ duyệt.");
+    } catch (cause) {
+      void message.error(
+        cause instanceof Error ? cause.message : "Không thể hủy yêu cầu đổi gói.",
+      );
+    } finally {
+      setMaxUpgradeLoading(false);
+    }
+  };
+
+  const confirmCancelPendingPlanChange = () => {
+    if (!pendingPlanChangeRequest) return;
+    Modal.confirm({
+      title: "Hủy yêu cầu đổi gói đang chờ duyệt?",
+      content: `Yêu cầu đổi sang gói "${pendingPlanChangeRequest.planCode}" sẽ bị từ chối. Quyết định này vẫn được lưu trong audit log.`,
+      okText: "Hủy yêu cầu",
+      okButtonProps: { danger: true },
+      cancelText: "Đóng",
+      onOk: cancelPendingPlanChange,
     });
   };
 
@@ -674,36 +765,81 @@ export default function Profile() {
                 bodyStyle={{ padding: 24 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                   <Text style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', textTransform: 'uppercase' }}>Gói hiện tại</Text>
+                   <Text style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', textTransform: 'uppercase' }}>
+                     {isUnlimitedPlan ? "Gói Max" : "Gói hiện tại"}
+                   </Text>
                    <Tag color="#0f172a" style={{ color: '#fff', fontWeight: 700, borderRadius: 20, padding: '4px 12px', margin: 0, border: 'none' }}>{currentPlan.name}</Tag>
                 </div>
-                <div style={{ marginBottom: 24 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <Text strong style={{ color: '#1f2937' }}>Phân tích hình ảnh</Text>
+                {isUnlimitedPlan ? (
+                  <div style={{ marginBottom: 24 }}>
+                    <Text strong style={{ display: 'block', color: '#166534', fontSize: 15, marginBottom: 6 }}>
+                      Không giới hạn lượt phân tích
+                    </Text>
                     <Text type="secondary" style={{ fontSize: 13 }}>
-                      {aiEntitlement.includedQuota === null
-                        ? `${aiEntitlement.includedUsed} lượt đã dùng · Không giới hạn`
-                        : `${aiEntitlement.includedUsed}/${aiEntitlement.includedQuota} lượt trong gói`}
+                      Hệ thống vẫn ghi nhận số lượt sử dụng để thống kê nhưng không áp dụng giới hạn hàng tháng.
                     </Text>
                   </div>
-                  <Progress percent={usagePercent} showInfo={false} strokeColor="#0ea5e9" trailColor="#e2e8f0" style={{ marginBottom: 0 }} />
-                  {aiEntitlement.extraCreditBalance > 0 && (
-                    <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>
-                      Còn thêm {aiEntitlement.extraCreditBalance} lượt đã mua
-                    </Text>
-                  )}
-                </div>
+                ) : (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text strong style={{ color: '#1f2937' }}>Phân tích hình ảnh</Text>
+                      <Text type="secondary" style={{ fontSize: 13 }}>
+                        {`Còn ${aiEntitlement.remainingCredits ?? 0} lượt · ${aiEntitlement.includedUsed}/${aiEntitlement.includedQuota} lượt trong gói`}
+                      </Text>
+                    </div>
+                    <Progress percent={usagePercent} showInfo={false} strokeColor="#0ea5e9" trailColor="#e2e8f0" style={{ marginBottom: 0 }} />
+                    {aiEntitlement.extraCreditBalance > 0 && (
+                      <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>
+                        Còn thêm {aiEntitlement.extraCreditBalance} lượt đã mua
+                      </Text>
+                    )}
+                    {aiEntitlement.periodEnd && (
+                      <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>
+                        Làm mới vào {formatDateTime(aiEntitlement.periodEnd)}
+                      </Text>
+                    )}
+                  </div>
+                )}
                 <Button
                   block
                   size="large"
                   style={{ borderRadius: 8, fontWeight: 600, color: '#0f172a', borderColor: '#cbd5e1', backgroundColor: '#fff' }}
                   onClick={scrollToUpgradePlans}
                 >
-                  Xem các gói dịch vụ
+                  Đổi gói
                 </Button>
+                {canDecidePlanChanges && !isUnlimitedPlan && (
+                  <Button
+                    block
+                    type="link"
+                    loading={maxUpgradeLoading}
+                    style={{ marginTop: 8, fontWeight: 600 }}
+                    onClick={confirmUpgradeToMax}
+                  >
+                    Chuyển tài khoản sang Max
+                  </Button>
+                )}
+                {canDecidePlanChanges && pendingPlanChangeRequest && (
+                  <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
+                    <Text style={{ display: 'block', fontSize: 12.5, color: '#92400e' }}>
+                      Đang chờ duyệt: đổi sang gói "{pendingPlanChangeRequest.planCode}".
+                    </Text>
+                    <Button
+                      type="link"
+                      danger
+                      size="small"
+                      loading={maxUpgradeLoading}
+                      style={{ padding: 0, height: 'auto', fontWeight: 600 }}
+                      onClick={confirmCancelPendingPlanChange}
+                    >
+                      Hủy yêu cầu này
+                    </Button>
+                  </div>
+                )}
               </Card>
 
-              {/* MUA THÊM LƯỢT AI - giữ nguyên gói dịch vụ hiện tại */}
+              {/* MUA THÊM LƯỢT AI - ẩn hoàn toàn với gói không giới hạn */}
+              {!isUnlimitedPlan && (
               <Card
                 bordered={false}
                 style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.04)', marginBottom: 24, border: '1px solid #e2e8f0' }}
@@ -718,43 +854,35 @@ export default function Profile() {
                   </Text>
                 </div>
 
-                {aiEntitlement.includedQuota === null ? (
-                  <div style={{ padding: '14px 16px', marginBottom: 16, borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                    <Text style={{ color: '#166534', fontSize: 13 }}>
-                      Gói {currentPlan.name} đã có lượt AI không giới hạn, không cần mua thêm.
-                    </Text>
-                  </div>
-                ) : (
-                  <div style={{ padding: '4px 4px 22px' }}>
-                    <Slider
-                      min={aiEntitlement.purchaseMinCredits}
-                      max={aiEntitlement.purchaseMaxCredits}
-                      step={1}
-                      value={selectedCredits}
-                      onChange={setSelectedCredits}
-                      tooltip={{ formatter: (value) => `${value ?? selectedCredits} lượt` }}
-                      marks={{
-                        [aiEntitlement.purchaseMinCredits]: {
-                          label: `${aiEntitlement.purchaseMinCredits} lượt`,
-                        },
-                        [Math.round(
+                <div style={{ padding: '4px 4px 22px' }}>
+                  <Slider
+                    min={aiEntitlement.purchaseMinCredits}
+                    max={aiEntitlement.purchaseMaxCredits}
+                    step={1}
+                    value={selectedCredits}
+                    onChange={setSelectedCredits}
+                    tooltip={{ formatter: (value) => `${value ?? selectedCredits} lượt` }}
+                    marks={{
+                      [aiEntitlement.purchaseMinCredits]: {
+                        label: `${aiEntitlement.purchaseMinCredits} lượt`,
+                      },
+                      [Math.round(
+                        (aiEntitlement.purchaseMinCredits +
+                          aiEntitlement.purchaseMaxCredits) /
+                          2,
+                      )]: {
+                        label: `${Math.round(
                           (aiEntitlement.purchaseMinCredits +
                             aiEntitlement.purchaseMaxCredits) /
                             2,
-                        )]: {
-                          label: `${Math.round(
-                            (aiEntitlement.purchaseMinCredits +
-                              aiEntitlement.purchaseMaxCredits) /
-                              2,
-                          )} lượt`,
-                        },
-                        [aiEntitlement.purchaseMaxCredits]: {
-                          label: `${aiEntitlement.purchaseMaxCredits} lượt`,
-                        },
-                      }}
-                    />
-                  </div>
-                )}
+                        )} lượt`,
+                      },
+                      [aiEntitlement.purchaseMaxCredits]: {
+                        label: `${aiEntitlement.purchaseMaxCredits} lượt`,
+                      },
+                    }}
+                  />
+                </div>
 
                 <div
                   style={{
@@ -791,12 +919,9 @@ export default function Profile() {
                   block
                   size="large"
                   style={{ borderRadius: 8, fontWeight: 600, background: 'linear-gradient(135deg, #0ea5e9, #6366f1)', border: 'none' }}
-                  disabled={aiEntitlement.includedQuota === null}
                   onClick={() => setVisitModalOpen(true)}
                 >
-                  {aiEntitlement.includedQuota === null
-                    ? "Gói hiện tại không giới hạn"
-                    : `Mua ${selectedCredits} lượt`}
+                  {`Mua ${selectedCredits} lượt`}
                 </Button>
                 {aiEntitlement.pendingRequests.some(
                   (request) => request.type === "credit_purchase",
@@ -806,6 +931,7 @@ export default function Profile() {
                   </Text>
                 )}
               </Card>
+              )}
 
               {/* LỊCH KHÁM VÀ LƯỢT DÙNG AI THỰC TẾ */}
               <Card

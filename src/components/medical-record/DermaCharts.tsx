@@ -1,15 +1,28 @@
 import { useMemo } from 'react';
+import { Tag, Tooltip, Typography } from 'antd';
+import { Info } from 'lucide-react';
 import Highcharts, { HighchartsReact } from '../../charts/highchartsSetup';
 import type {
   ImageQualityAssessment,
   LesionObservation,
 } from '../../domain/skinProgress';
+import styles from './DermaTimeline.module.scss';
+
+const { Text } = Typography;
+
+// Fixed status palette (good/warning/critical) — never themed, matches the
+// GOOD/FAIR/POOR tiers already used elsewhere for registrationQuality, so a
+// score's color means the same thing everywhere in this feature.
+const STATUS_GOOD = '#0ca30c';
+const STATUS_WARNING = '#fab219';
+const STATUS_CRITICAL = '#d03b3b';
+const STATUS_MUTED = '#94a3b8';
 
 const qualityColor = (score: number | null) => {
-  if (score === null) return '#94a3b8';
-  if (score >= 80) return '#16835f';
-  if (score >= 60) return '#b7791f';
-  return '#c83e4d';
+  if (score === null) return STATUS_MUTED;
+  if (score >= 80) return STATUS_GOOD;
+  if (score >= 60) return STATUS_WARNING;
+  return STATUS_CRITICAL;
 };
 
 export function QualityGaugeChart({
@@ -19,138 +32,148 @@ export function QualityGaugeChart({
   score: number | null;
   compact?: boolean;
 }) {
-  const options = useMemo<Highcharts.Options>(
-    () => ({
-      chart: {
-        type: 'solidgauge',
-        height: compact ? 118 : 142,
-        spacing: [0, 0, 0, 0],
-        animation: false,
-      },
-      accessibility: {
-        description: `Điểm khả năng so sánh ảnh ${score ?? 'chưa khả dụng'} trên 100`,
-      },
-      pane: {
-        center: ['50%', '72%'],
-        size: '132%',
-        startAngle: -90,
-        endAngle: 90,
-        background: {
-          backgroundColor: '#e8eef3',
-          borderWidth: 0,
-          innerRadius: '68%',
-          outerRadius: '100%',
-          shape: 'arc',
-        },
-      },
-      tooltip: { enabled: false },
-      yAxis: {
-        min: 0,
-        max: 100,
-        lineWidth: 0,
-        tickPositions: [],
-        stops: [
-          [0.59, '#c83e4d'],
-          [0.79, '#b7791f'],
-          [1, '#16835f'],
-        ],
-      },
-      plotOptions: {
-        solidgauge: {
-          rounded: true,
-          linecap: 'round',
-          dataLabels: {
-            y: compact ? -15 : -20,
-            borderWidth: 0,
-            useHTML: true,
-            format:
-              '<div style="text-align:center"><span style="font-size:26px;font-weight:750;color:#172033">{y}</span><span style="font-size:12px;color:#8792a2">/100</span></div>',
-          },
-        },
-      },
-      series: [
-        {
-          type: 'solidgauge',
-          name: 'Khả năng so sánh',
-          data: score === null ? [] : [{ y: score, color: qualityColor(score) }],
-        },
-      ],
-    }),
-    [compact, score],
-  );
+  const size = compact ? 96 : 116;
+  const strokeWidth = 9;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = score !== null 
+    ? circumference - (score / 100) * circumference
+    : circumference;
 
-  return <HighchartsReact highcharts={Highcharts} options={options} />;
+  const color = qualityColor(score);
+
+  return (
+    <div style={{ position: 'relative', width: size, height: size, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="#f1f5f9"
+          strokeWidth={strokeWidth}
+          fill="transparent"
+        />
+        {score !== null && (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke={color}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+          />
+        )}
+      </svg>
+      <div style={{ position: 'absolute', textAlign: 'center' }}>
+        <div style={{ fontSize: compact ? '22px' : '26px', fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>
+          {score ?? '—'}
+        </div>
+        <div style={{ fontSize: '10.5px', fontWeight: 600, color: '#94a3b8', marginTop: 2 }}>/100</div>
+      </div>
+    </div>
+  );
 }
+
+const DIMENSION_STATUS_LABEL = {
+  good: 'Tốt',
+  warning: 'Cần lưu ý',
+  critical: 'Không đạt',
+  unavailable: 'Chưa đo được',
+} as const;
+
+const DIMENSION_STATUS_TAG_COLOR = {
+  good: 'green',
+  warning: 'gold',
+  critical: 'red',
+  unavailable: 'default',
+} as const;
+
+function dimensionStatus(score: number | null): keyof typeof DIMENSION_STATUS_LABEL {
+  if (score === null) return 'unavailable';
+  if (score >= 80) return 'good';
+  if (score >= 60) return 'warning';
+  return 'critical';
+}
+
+/** Registration doesn't produce a 0-100 score today — GOOD/FAIR/POOR is
+ * mapped onto the same three-tier status bucket the numeric dimensions use,
+ * purely for a consistent bar/label, never presented as the real score. */
+const REGISTRATION_STATUS_SCORE: Record<ImageQualityAssessment['registrationQuality'], number | null> = {
+  GOOD: 92,
+  FAIR: 65,
+  POOR: 25,
+  UNAVAILABLE: null,
+};
 
 export function QualityDimensionsChart({
   quality,
 }: {
   quality: ImageQualityAssessment;
 }) {
+  // Fixed four-dimension structure the clinical-quality card always shows,
+  // regardless of which pipeline detectors are wired up yet — angleConsistency
+  // and occlusion have no detector today (see comparison.py) so they're
+  // intentionally not part of this list rather than shown as empty bars.
   const dimensions = useMemo(
     () => [
-      { label: 'Độ nét', value: quality.sharpness },
-      { label: 'Ánh sáng', value: quality.lightingConsistency },
-      { label: 'Góc chụp', value: quality.angleConsistency },
-      { label: 'Khoảng cách', value: quality.scaleConsistency },
       {
-        label: 'Không che khuất',
-        value: quality.occlusion === null ? null : 100 - quality.occlusion,
+        key: 'sharpness',
+        label: 'Độ nét',
+        value: quality.sharpness,
+        help: 'Ảnh có đủ nét để nhìn rõ ranh giới tổn thương hay không.',
+      },
+      {
+        key: 'lighting',
+        label: 'Ánh sáng',
+        value: quality.lightingConsistency,
+        help: 'Ánh sáng giữa hai lần chụp có đồng nhất hay không.',
+      },
+      {
+        key: 'scale',
+        label: 'Tỷ lệ / khoảng cách',
+        value: quality.scaleConsistency,
+        help: 'Khoảng cách và tỷ lệ chụp giữa hai ảnh có giống nhau hay không.',
+      },
+      {
+        key: 'registration',
+        label: 'Đăng ký ảnh',
+        value: REGISTRATION_STATUS_SCORE[quality.registrationQuality],
+        help: 'Hai ảnh có được căn chỉnh về cùng một hệ tọa độ để so sánh trực tiếp hay không.',
       },
     ],
     [quality],
   );
-  const options = useMemo<Highcharts.Options>(
-    () => ({
-      chart: { type: 'bar', height: 176, spacing: [2, 6, 2, 0] },
-      accessibility: {
-        description: 'Các tiêu chí kỹ thuật dùng để đánh giá khả năng so sánh hai ảnh.',
-      },
-      xAxis: {
-        categories: dimensions.map((item) => item.label),
-        lineWidth: 0,
-        tickWidth: 0,
-        labels: { style: { color: '#475569', fontSize: '11px' } },
-      },
-      yAxis: {
-        min: 0,
-        max: 100,
-        tickPositions: [0, 50, 100],
-        gridLineWidth: 0,
-        labels: { enabled: false },
-      },
-      legend: { enabled: false },
-      tooltip: {
-        pointFormat: '<b>{point.y}/100</b>',
-      },
-      plotOptions: {
-        series: {
-          borderWidth: 0,
-          borderRadius: 6,
-          pointWidth: 7,
-          groupPadding: 0.12,
-          dataLabels: {
-            enabled: true,
-            align: 'right',
-            inside: false,
-            format: '{y}',
-            style: { color: '#64748b', fontSize: '10px', textOutline: 'none' },
-          },
-        },
-      },
-      series: [
-        {
-          type: 'bar',
-          name: 'Điểm kỹ thuật',
-          color: '#16835f',
-          data: dimensions.map((item) => item.value),
-        },
-      ],
-    }),
-    [dimensions],
-  );
 
-  return <HighchartsReact highcharts={Highcharts} options={options} />;
+  return (
+    <div className={styles.qualityDimensions}>
+      {dimensions.map((dimension) => {
+        const status = dimensionStatus(dimension.value);
+        return (
+          <div key={dimension.key} className={styles.qualityDimensionRow}>
+            <Tooltip title={dimension.help}>
+              <span className={styles.qualityDimensionLabel}>
+                {dimension.label} <Info size={12} />
+              </span>
+            </Tooltip>
+            <div className={styles.qualityDimensionTrack}>
+              <div
+                className={styles.qualityDimensionFill}
+                style={{ width: `${dimension.value ?? 0}%`, background: qualityColor(dimension.value) }}
+              />
+            </div>
+            <Text type="secondary" className={styles.qualityDimensionValue}>
+              {dimension.value === null ? '—' : `${dimension.value}/100`}
+            </Text>
+            <Tag color={DIMENSION_STATUS_TAG_COLOR[status]}>{DIMENSION_STATUS_LABEL[status]}</Tag>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function SymptomTrendChart({
