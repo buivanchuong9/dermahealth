@@ -36,7 +36,7 @@ import type {
   LifetimeMedicalRecord,
   VitalObservation,
 } from '../../api/lifetimeMedicalRecord';
-import { createAllergy, verifyAllergy } from '../../api/lifetimeMedicalRecord';
+import { createAllergy, verifyAllergy, updateNarrative } from '../../api/lifetimeMedicalRecord';
 
 const { Text, Title } = Typography;
 
@@ -254,8 +254,11 @@ interface Props {
 export const PatientIntroductionCard: React.FC<Props> = ({ record, patientId, onRecordUpdated }) => {
   const { message } = AntApp.useApp();
   const [addAllergyOpen, setAddAllergyOpen] = useState(false);
+  const [narrativeOpen, setNarrativeOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [narrativeSaving, setNarrativeSaving] = useState(false);
   const [form] = Form.useForm();
+  const [narrativeForm] = Form.useForm();
 
   const allergies = record?.allergies ?? [];
   const vitals = record?.vitals ?? [];
@@ -298,6 +301,21 @@ export const PatientIntroductionCard: React.FC<Props> = ({ record, patientId, on
       // form validation error shown inline
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveNarrative() {
+    try {
+      const values = await narrativeForm.validateFields();
+      setNarrativeSaving(true);
+      await updateNarrative(patientId, values as Parameters<typeof updateNarrative>[1]);
+      void message.success('Đã lưu thông tin');
+      setNarrativeOpen(false);
+      onRecordUpdated?.();
+    } catch {
+      // form validation errors shown inline
+    } finally {
+      setNarrativeSaving(false);
     }
   }
 
@@ -534,12 +552,29 @@ export const PatientIntroductionCard: React.FC<Props> = ({ record, patientId, on
 
             {/* Patient narrative — always marked as patient-provided */}
             <div>
-              <Space style={{ marginBottom: 10 }}>
-                <Text strong style={{ fontSize: 13 }}>Thông tin bệnh nhân tự khai</Text>
-                <Tag color="blue" style={{ fontSize: 10, padding: '0 4px' }}>
-                  Bạn đã cung cấp
-                </Tag>
-              </Space>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <Space>
+                  <Text strong style={{ fontSize: 13 }}>Thông tin bệnh nhân tự khai</Text>
+                  <Tag color="blue" style={{ fontSize: 10, padding: '0 4px' }}>Bạn đã cung cấp</Tag>
+                </Space>
+                <Button
+                  size="small"
+                  type="dashed"
+                  onClick={() => {
+                    narrativeForm.setFieldsValue({
+                      occupation: narrative?.occupation ?? '',
+                      chiefComplaint: narrative?.chiefComplaint ?? '',
+                      medicalHistory: narrative?.medicalHistory ?? '',
+                      familyHistory: narrative?.familyHistory ?? '',
+                      currentSymptoms: narrative?.currentSymptoms ?? '',
+                      lifestyle: narrative?.lifestyle ?? '',
+                    });
+                    setNarrativeOpen(true);
+                  }}
+                >
+                  Chỉnh sửa
+                </Button>
+              </div>
               {narrative && (
                 <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
                   Cập nhật lần cuối: {formatDateTime(narrative.updatedAt)}
@@ -555,21 +590,10 @@ export const PatientIntroductionCard: React.FC<Props> = ({ record, patientId, on
               ].map(({ label, value }) => (
                 <div
                   key={label}
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    padding: '5px 0',
-                    borderBottom: '1px solid #f1f5f9',
-                  }}
+                  style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}
                 >
                   <Text style={{ fontSize: 12, color: '#64748b', minWidth: 160, flexShrink: 0 }}>{label}:</Text>
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      color: value ? '#0f172a' : '#94a3b8',
-                      fontStyle: value ? 'normal' : 'italic',
-                    }}
-                  >
+                  <Text style={{ fontSize: 12, color: value ? '#0f172a' : '#94a3b8', fontStyle: value ? 'normal' : 'italic' }}>
                     {value || 'Chưa ghi nhận'}
                   </Text>
                 </div>
@@ -616,6 +640,39 @@ export const PatientIntroductionCard: React.FC<Props> = ({ record, patientId, on
           </Form.Item>
           <Form.Item name="note" label="Ghi chú thêm">
             <Input.TextArea rows={2} placeholder="Thông tin bổ sung..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Edit Narrative Modal */}
+      <Modal
+        title="Cập nhật thông tin tự khai"
+        open={narrativeOpen}
+        onOk={handleSaveNarrative}
+        onCancel={() => setNarrativeOpen(false)}
+        confirmLoading={narrativeSaving}
+        okText="Lưu"
+        cancelText="Huỷ"
+        width={560}
+      >
+        <Form form={narrativeForm} layout="vertical">
+          <Form.Item name="occupation" label="Nghề nghiệp">
+            <Input placeholder="Ví dụ: Giáo viên, Kỹ sư, Nội trợ..." />
+          </Form.Item>
+          <Form.Item name="chiefComplaint" label="Lý do đến khám chính">
+            <Input.TextArea rows={2} placeholder="Mô tả ngắn lý do đến khám..." />
+          </Form.Item>
+          <Form.Item name="medicalHistory" label="Tiền sử bệnh tật">
+            <Input.TextArea rows={3} placeholder="Các bệnh đã/đang mắc, phẫu thuật đã thực hiện..." />
+          </Form.Item>
+          <Form.Item name="familyHistory" label="Tiền sử gia đình">
+            <Input.TextArea rows={2} placeholder="Bệnh di truyền, bệnh mạn tính trong gia đình..." />
+          </Form.Item>
+          <Form.Item name="currentSymptoms" label="Triệu chứng hiện tại">
+            <Input.TextArea rows={2} placeholder="Các triệu chứng bạn đang gặp phải..." />
+          </Form.Item>
+          <Form.Item name="lifestyle" label="Lối sống">
+            <Input.TextArea rows={2} placeholder="Thói quen ăn uống, vận động, hút thuốc, uống rượu..." />
           </Form.Item>
         </Form>
       </Modal>

@@ -484,6 +484,21 @@ export const assessAllergyKnowledgeState = (
     { knowledgeState, ...options },
   );
 
+export interface UpdateNarrativeRequest {
+  occupation?: string;
+  chiefComplaint?: string;
+  medicalHistory?: string;
+  familyHistory?: string;
+  currentSymptoms?: string;
+  lifestyle?: string;
+}
+
+export const updateNarrative = (patientId: string, body: UpdateNarrativeRequest) =>
+  http.put<PatientProfileNarrative>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/narrative`,
+    body,
+  );
+
 export interface ShareLifetimeRecordRequest {
   recipientOrganizationId: string;
   recipientPractitionerId?: string;

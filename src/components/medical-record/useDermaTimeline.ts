@@ -118,10 +118,13 @@ export function useDermaTimeline(
     return created;
   }, []);
 
+  const [deletedLesionIds, setDeletedLesionIds] = useState<Set<string>>(() => new Set());
+
   const loadLesions = useCallback(
     async (signal?: AbortSignal) => {
-      const result = await repository.listLesions(patientId, signal);
+      const rawResult = await repository.listLesions(patientId, signal);
       signal?.throwIfAborted();
+      const result = rawResult.filter((item) => !deletedLesionIds.has(item.id));
       setLesions(result);
       if (!result.length) setBundle(undefined);
       setSelectedLesionId((current) =>
@@ -130,36 +133,27 @@ export function useDermaTimeline(
           : result[0]?.id,
       );
     },
-    [patientId, repository],
+    [patientId, repository, deletedLesionIds],
   );
 
   const deleteLesionRecord = useCallback(
     async (lesionId: string) => {
+      setDeletedLesionIds((prev) => new Set(prev).add(lesionId));
+      setLesions((prev) => {
+        const remaining = prev.filter((item) => item.id !== lesionId);
+        if (selectedLesionId === lesionId) {
+          const nextId = remaining[0]?.id;
+          setSelectedLesionId(nextId);
+          if (!nextId) setBundle(undefined);
+        }
+        return remaining;
+      });
       try {
         if (repository.deleteLesion) {
           await repository.deleteLesion(lesionId);
         }
-        setLesions((prev) => {
-          const remaining = prev.filter((item) => item.id !== lesionId);
-          if (selectedLesionId === lesionId) {
-            const nextId = remaining[0]?.id;
-            setSelectedLesionId(nextId);
-            if (!nextId) setBundle(undefined);
-          }
-          return remaining;
-        });
       } catch (e) {
         console.error("Failed to delete lesion on backend:", e);
-        // Fallback optimistically so UI deletes even if network fails
-        setLesions((prev) => {
-          const remaining = prev.filter((item) => item.id !== lesionId);
-          if (selectedLesionId === lesionId) {
-            const nextId = remaining[0]?.id;
-            setSelectedLesionId(nextId);
-            if (!nextId) setBundle(undefined);
-          }
-          return remaining;
-        });
       }
     },
     [repository, selectedLesionId],
