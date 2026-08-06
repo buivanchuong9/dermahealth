@@ -2,7 +2,7 @@ import { App, Button, Card, Col, Row, Space, Table, Tag, Typography } from 'antd
 import { useEffect, useMemo, useState } from 'react';
 import { BellRing, Check, LogIn, Route, SkipForward } from 'lucide-react';
 import { useStore } from '../state/useStore';
-import { appointmentRepository, queueRepository } from '../domain/repositories';
+import { appointmentRepository, patientRepository, queueRepository } from '../domain/repositories';
 import type { QueueTicket } from '../domain/core/entities';
 import { useFriendlyError } from '../components/feedback/useFriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
@@ -11,7 +11,7 @@ const { Title, Text } = Typography;
 const labels: Record<QueueTicket['status'], string> = { waiting: 'Đang chờ', called: 'Đang gọi', acknowledged: 'Đã xác nhận', in_service: 'Đang phục vụ', skipped: 'Tạm bỏ qua', completed: 'Hoàn tất', routed: 'Đã chuyển trạm' };
 const announce = (ticket: QueueTicket) => { window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(`Mời số ${ticket.number.split('').join(' ')}, đến ${ticket.room ?? ticket.serviceStation}`); u.lang = 'vi-VN'; window.speechSynthesis.speak(u); };
 export default function ClinicQueue({ board = false }: { board?: boolean }) {
-  const tickets = useStore(queueRepository); const appointments = useStore(appointmentRepository); const { message } = App.useApp(); const showError = useFriendlyError(); const [calling, setCalling] = useState(false); const [actionTicketId, setActionTicketId] = useState<string>(); const [loading, setLoading] = useState(true);
+  const tickets = useStore(queueRepository); const appointments = useStore(appointmentRepository); const patients = useStore(patientRepository); const { message } = App.useApp(); const showError = useFriendlyError(); const [calling, setCalling] = useState(false); const [actionTicketId, setActionTicketId] = useState<string>(); const [loading, setLoading] = useState(true);
   const clinicLocationId = appointments.find((item) => item.clinicLocationId)?.clinicLocationId ?? import.meta.env.VITE_CLINIC_LOCATION_ID;
   useEffect(() => {
     let active = true;
@@ -37,10 +37,9 @@ export default function ClinicQueue({ board = false }: { board?: boolean }) {
     end.setHours(23, 59, 59, 999);
     return tickets.filter((ticket) => {
       const issuedAt = new Date(ticket.issuedAt).getTime();
+      const isValidDate = Number.isFinite(issuedAt);
       return ticket.status !== 'completed'
-        && Number.isFinite(issuedAt)
-        && issuedAt >= start.getTime()
-        && issuedAt <= end.getTime();
+        && (!isValidDate || (issuedAt >= start.getTime() && issuedAt <= end.getTime()));
     });
   }, [tickets]);
   const called = [...activeTodayTickets].filter((t) => t.status === 'called').sort((a,b) => (b.calledAt ?? '').localeCompare(a.calledAt ?? ''))[0];
@@ -62,7 +61,9 @@ export default function ClinicQueue({ board = false }: { board?: boolean }) {
   };
   return <div style={{ display:'flex', flexDirection:'column', gap:16 }}><div><Title level={3}>Hàng đợi khám bệnh</Title><Text type="secondary">Bệnh nhân chỉ xuất hiện tại đây sau khi đã check-in.</Text></div><Space><Button type="primary" loading={calling} icon={<BellRing size={16}/>} onClick={() => void callNext()}>Gọi số tiếp theo</Button><Button disabled={!clinicLocationId} href={clinicLocationId ? `/queue-display/${encodeURIComponent(clinicLocationId)}` : undefined} target="_blank" rel="noopener noreferrer">Mở bảng hiển thị</Button></Space>
     <Card><Table loading={loading} rowKey="id" dataSource={loading ? [] : activeTodayTickets} locale={{emptyText:<ProfessionalEmpty title="Chưa có bệnh nhân đang chờ hôm nay" description="Lượt mới sẽ xuất hiện sau khi bệnh nhân lấy số hoặc check-in. Lượt đã hoàn tất được lưu trong lịch sử." primaryLabel="Mở tiếp đón & cấp số" primaryHref="/app/reception"/>}} columns={[
-      {title:'Số',dataIndex:'number',render:v=><Title level={4} style={{margin:0}}>{v}</Title>},{title:'Khoa',dataIndex:'department'},{title:'Khu vực',dataIndex:'waitingArea'},{title:'Trạng thái',dataIndex:'status',render:(v:QueueTicket['status'])=><Tag color={v==='called'?'blue':v==='in_service'?'green':'default'}>{labels[v]}</Tag>},
+      {title:'Số',dataIndex:'number',render:v=><Title level={4} style={{margin:0}}>{v}</Title>},
+      {title:'Bệnh nhân',render:(_:unknown, t:QueueTicket) => { const p = patients.find((pat) => pat.id === t.patientId); return <Text strong>{p?.name ?? (t.patientId ? `BN #${t.patientId.slice(0, 8)}` : 'Bệnh nhân vãng lai')}</Text>; }},
+      {title:'Khoa',dataIndex:'department'},{title:'Khu vực',dataIndex:'waitingArea'},{title:'Trạng thái',dataIndex:'status',render:(v:QueueTicket['status'])=><Tag color={v==='called'?'blue':v==='in_service'?'green':'default'}>{labels[v]}</Tag>},
       {title:'Thao tác',render:(_:unknown,t:QueueTicket)=><Space wrap>{t.status==='called'&&<><Button icon={<BellRing size={14}/>} onClick={()=>announce(t)}>Gọi lại</Button><Button loading={actionTicketId===t.id} icon={<Check size={14}/>} onClick={()=>void act(t,()=>acknowledgeQueueTicket(t.id,t.version??0),'Đã xác nhận bệnh nhân.')}>Xác nhận</Button><Button loading={actionTicketId===t.id} danger icon={<SkipForward size={14}/>} onClick={()=>void act(t,()=>skipQueueTicket(t.id,t.version??0),'Đã tạm bỏ qua.')}>Bỏ qua</Button></>}{t.status==='acknowledged'&&<Button loading={actionTicketId===t.id} type="primary" icon={<LogIn size={14}/>} onClick={()=>void act(t,()=>startQueueTicketService(t.id,t.version??0),'Đã bắt đầu phục vụ.')}>Bắt đầu phục vụ</Button>}{t.status==='in_service'&&<Button loading={actionTicketId===t.id} icon={<Route size={14}/>} onClick={()=>void act(t,()=>completeQueueTicket(t.id,{version:t.version??0}),'Đã hoàn tất lượt phục vụ.')}>Hoàn tất</Button>}</Space>}
     ]}/></Card></div>;
 }

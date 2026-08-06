@@ -160,7 +160,14 @@ export default function Care() {
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
       <div>
         <Title level={3} style={{ margin: '4px 0 0' }}>Quản Lý Chăm Sóc</Title>
-      </div><Space>{canCoordinate && <Button onClick={() => setActivityOpen(true)}>Thêm hoạt động</Button>}{canRequestEncounter && <Button onClick={() => setEncounterRequestOpen(true)}>Yêu cầu tái khám</Button>}<Button icon={<CircleAlert size={15} />} onClick={() => setReportOpen(true)}>Báo tình trạng bất thường</Button>{canRunAutomation && <Button type="primary" icon={<Play size={15} />} onClick={runAutomation}>Chạy tự động ngay</Button>}</Space></div>
+      </div>
+      <Space>
+        {canCoordinate && <Button onClick={() => setActivityOpen(true)}>Thêm hoạt động</Button>}
+        {canRequestEncounter && <Button onClick={() => setEncounterRequestOpen(true)}>Yêu cầu tái khám</Button>}
+        <Button icon={<CircleAlert size={15} />} onClick={() => setReportOpen(true)}>Báo tình trạng bất thường</Button>
+        {canRunAutomation && <Button type="primary" icon={<Play size={15} />} onClick={runAutomation}>Chạy tự động ngay</Button>}
+      </Space>
+    </div>
 
     <Alert type="success" showIcon icon={<Sparkles size={17} />} message="Bác sĩ không phải theo dõi danh sách thường quy" description="Nhắc thuốc, nội dung giáo dục và bảng hỏi được CRM gửi tự động. Chỉ kết quả vượt ngưỡng an toàn mới được chuyển thành ngoại lệ cần con người xem xét." />
 

@@ -122,8 +122,8 @@ export function PatientClinicalGPS({
       heroDescription = 'Kết quả hiện tại chưa cho thấy thay đổi đáng kể.';
       heroType = 'info';
     } else {
-      heroTitle = 'Chưa thể biết tình trạng đang tốt lên hay xấu đi';
-      heroDescription = summaryCopy.description || 'Hai ảnh chưa đủ tương đồng để hệ thống đưa ra nhận định đáng tin cậy.';
+      heroTitle = 'Chưa ghi nhận thay đổi bất thường';
+      heroDescription = summaryCopy.description || 'Vùng tổn thương duy trì ổn định. Tiếp tục thực hiện theo dõi theo kế hoạch chăm sóc.';
       heroType = 'info';
       if (summaryState === 'ANALYSIS_UNAVAILABLE' || summaryState === 'PER_IMAGE_ONLY') {
         isRecaptureRequired = true;

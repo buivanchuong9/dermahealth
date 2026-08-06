@@ -802,7 +802,7 @@ export default function AIAnalysis() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                               <Tag color={index === 0 ? 'blue' : 'default'} style={{ margin: 0 }}>#{index + 1}</Tag>
                               <Text strong style={{ flex: 1, fontSize: index === 0 ? 15 : 14 }}>
-                                {formatSkinLabel(prediction.label)}
+                                {formatSkinLabel(prediction.label, prediction.classIndex)}
                               </Text>
                               <Text strong={index === 0}>{score}%</Text>
                             </div>

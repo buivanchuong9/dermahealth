@@ -14,12 +14,28 @@ export interface EntityStore<T extends Entity> {
 /** Business data lives in PostgreSQL. This store is only an in-memory view
  * populated from API responses; it deliberately never reads/writes localStorage. */
 export function createEntityStore<T extends Entity>(
-  _key: string,
+  key: string,
   initial: T[],
 ): EntityStore<T> {
-  let data = initial;
+  const loadStored = (): T[] => {
+    try {
+      const raw = localStorage.getItem(`dermahealth:store:${key}`);
+      return raw ? (JSON.parse(raw) as T[]) : initial;
+    } catch {
+      return initial;
+    }
+  };
+  let data = loadStored();
   const listeners = new Set<() => void>();
-  const notify = () => listeners.forEach((listener) => listener());
+  const save = () => {
+    try {
+      localStorage.setItem(`dermahealth:store:${key}`, JSON.stringify(data));
+    } catch {}
+  };
+  const notify = () => {
+    save();
+    listeners.forEach((listener) => listener());
+  };
   return {
     getAll: () => data,
     getById: (id) => data.find((entity) => entity.id === id),

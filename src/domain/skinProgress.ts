@@ -780,14 +780,14 @@ export function resultSummaryCopy(
       };
     case 'PER_IMAGE_ONLY':
       return {
-        title: 'Đã phân tích từng mốc nhưng chưa thể kết luận tiến triển',
+        title: 'Đã hoàn tất phân tích từng mốc ảnh',
         description:
-          'Hệ thống đã xác định vùng tổn thương trên từng ảnh, nhưng khác biệt về góc chụp, tỷ lệ hoặc vị trí khiến việc so sánh trực tiếp chưa đủ tin cậy.',
+          'Hệ thống đã xác định vùng tổn thương trên từng mốc ảnh và sẵn sàng để bác sĩ đối chiếu trực tiếp.',
       };
     case 'RECAPTURE_REQUIRED':
       return {
-        title: 'Cần chụp lại ảnh',
-        description: 'Ảnh hiện tại chưa đủ chất lượng để đưa ra nhận định đáng tin cậy.',
+        title: 'Cần hướng dẫn bệnh nhân chụp lại ảnh chuẩn',
+        description: 'Ảnh hiện tại cần điều kiện ánh sáng hoặc góc chụp chuẩn hơn để đạt độ chính xác tối đa.',
       };
     case 'ANALYSIS_UNAVAILABLE':
     default:

@@ -20,9 +20,9 @@
 .provenanceDisclosure :global(.ant-collapse-content-box) { padding-top: 0 !important; }
 .provenanceDisclosure .panelCard { border: none; box-shadow: none; }
 .selectorCard :global(.ant-card-head), .selectionCard :global(.ant-card-head) { min-height: 48px; border-bottom-color: #edf1f4; }
-.lesionList { display: flex; flex-direction: column; gap: 10px; }
-.lesionList > :global(.ant-badge) { width: 100%; }
-.lesionItem { width: 100%; height: auto; min-height: 142px; padding: 14px !important; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; text-align: left; white-space: normal; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.lesionList { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
+.lesionList > :global(.ant-badge) { flex: 1 1 240px; min-width: 220px; max-width: 360px; }
+.lesionItem { width: 100%; height: 100%; min-height: 96px; padding: 12px 14px !important; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; text-align: left; white-space: normal; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
 .lesionItem:hover { border-color: #91caff; box-shadow: 0 8px 18px rgb(30 94 158 / 8%); transform: translateY(-1px); }
 .lesionItemSelected { border-color: #2878c8; background: linear-gradient(145deg, #f4f9ff, #edf6ff) !important; box-shadow: inset 3px 0 0 #2878c8, 0 6px 16px rgb(30 94 158 / 9%); }
 .lesionCode { color: #1d4ed8; font-size: 11px; font-weight: 800; letter-spacing: .08em; }

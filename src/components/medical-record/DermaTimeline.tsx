@@ -518,7 +518,7 @@ export function DermaTimeline({
       )}
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} lg={7} xl={6}>
+        <Col span={24}>
           <Card
             title={<span className={styles.sectionTitle}><b>01</b> Tổn thương theo dõi</span>}
             extra={
@@ -537,7 +537,7 @@ export function DermaTimeline({
             />
           </Card>
         </Col>
-        <Col xs={24} lg={17} xl={18}>
+        <Col span={24}>
           <Card className={styles.summaryCard}>
             <div className={styles.summaryHeader}>
               <div className={styles.summaryTitleGroup}>

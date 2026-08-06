@@ -11,7 +11,7 @@ import { DragHandle } from '../components/common/DragHandle';
 import { DragConfirmDialog, type PendingDrop } from '../components/common/DragConfirmDialog';
 import { useAppState } from '../state/useAppState';
 import { useStore } from '../state/useStore';
-import { clinicalOrderRepository, workflowRepository, encounterRepository } from '../domain/repositories';
+import { clinicalOrderRepository, workflowRepository, encounterRepository, patientRepository, userRepository } from '../domain/repositories';
 import {
   listWorkflowTasks,
   acceptWorkflowTask,
@@ -49,12 +49,12 @@ function overdueMinutes(task: WorkflowTask): number | null {
   return Math.round((created + task.slaMinutes * 60_000 - Date.now()) / 60_000);
 }
 
-function columnFor(task: WorkflowTask, myUserId: string): ColumnKey | null {
+function columnFor(task: WorkflowTask): ColumnKey | null {
   if (task.status === 'completed') return 'completed';
   if (task.status === 'escalated') return 'escalated';
-  if (task.status === 'ready' && !task.assigneeId) return 'ready';
-  if (task.assigneeId === myUserId && ['assigned', 'accepted', 'in_progress', 'waiting_for_patient', 'waiting_for_result', 'waiting_for_approval'].includes(task.status)) return 'in_progress';
-  return null;
+  if (task.status === 'ready' || task.status === 'pending' || (task.status === 'assigned' && !task.assigneeId)) return 'ready';
+  if (['assigned', 'accepted', 'in_progress', 'waiting_for_patient', 'waiting_for_result', 'waiting_for_approval'].includes(task.status)) return 'in_progress';
+  return 'ready';
 }
 
 function TaskCard({ task, encounterLabel, ghost, readOnly }: { task: WorkflowTask; encounterLabel: string; ghost?: boolean; readOnly?: boolean }) {
@@ -146,7 +146,9 @@ export default function WorkQueue() {
   // tảng). Vai trò này chỉ được xem toàn bộ hàng đợi, không thao tác được.
   const canAct = role !== 'super_administrator';
   const departments = useMemo(() => Array.from(new Set(tasks.map((t) => t.department))), [tasks]);
-  const visibleForRole = tasks.filter((t) => hasRoleAccess(role, ['medical_administrator', 'system_administrator', 'super_administrator']) || t.responsibleRole === role);
+  const visibleForRole = tasks.filter((t) =>
+    hasRoleAccess(role, ['medical_administrator', 'system_administrator', 'super_administrator', 'doctor', 'nurse', 'receptionist']) || t.responsibleRole === role
+  );
   const filtered = visibleForRole.filter((t) =>
     (department === 'all' || t.department === department) &&
     (statusFilter === 'all' || t.status === statusFilter) &&
@@ -154,13 +156,18 @@ export default function WorkQueue() {
     (urgencyFilter === 'all' || t.urgency === urgencyFilter),
   );
 
-  const encounterLabelFor = (t: WorkflowTask) => {
+  const patients = useStore(patientRepository);
+  const users = useStore(userRepository);
+
+  const encounterLabelFor = (t: WorkflowTask | { encounterId: string }) => {
     const enc = encounters.find((e) => e.id === t.encounterId);
-    return enc ? `${enc.id} (${enc.department})` : t.encounterId;
+    if (!enc) return `Lượt khám #${t.encounterId.slice(0, 8)}`;
+    const patient = patients.find((p) => p.id === enc.patientId);
+    const patientName = patient ? patient.name : 'Bệnh nhân';
+    return `${patientName} (${enc.department})`;
   };
 
-  const byColumn = (key: ColumnKey) => filtered.filter((t) => columnFor(t, currentUser.id) === key);
-  const otherTasks = filtered.filter((t) => columnFor(t, currentUser.id) === null);
+  const byColumn = (key: ColumnKey) => filtered.filter((t) => columnFor(t) === key);
 
   const refreshTasks = () =>
     listWorkflowTasks().then((rows) => workflowRepository.tasks().replaceAll(rows)).catch((err: unknown) => { showError(err); });
@@ -300,7 +307,7 @@ export default function WorkQueue() {
     const target = e.over?.id as ColumnKey | undefined;
     const task = tasks.find((t) => t.id === e.active.id);
     if (!task || !target) return;
-    const source = columnFor(task, currentUser.id);
+    const source = columnFor(task);
     if (source === target) return;
 
     const error = dropError(task, target);
@@ -350,10 +357,7 @@ export default function WorkQueue() {
             {
               title: 'Lượt khám',
               dataIndex: 'encounterId',
-              render: (value: string) => {
-                const encounter = encounters.find((item) => item.id === value);
-                return encounter ? `${value} · ${encounter.department}` : value;
-              },
+              render: (_: string, order: ClinicalOrder) => encounterLabelFor(order),
             },
             { title: 'Lý do chỉ định', dataIndex: 'justification' },
             {
@@ -396,19 +400,27 @@ export default function WorkQueue() {
         </DragOverlay>
       </DndContext>
 
-      <Card title="Tất cả tác vụ khác (không thuộc luồng kéo-thả trực tiếp)" size="small" extra={<ShieldCheck size={15} color="var(--text-muted)" />}>
+      <Card title="Danh sách tổng hợp tất cả tác vụ trong hệ thống" size="small" extra={<ShieldCheck size={15} color="var(--text-muted)" />}>
         <Table
           size="small"
           scroll={{ x: 'max-content' }}
           rowKey="id"
           pagination={{ pageSize: 8 }}
-          dataSource={otherTasks}
+          dataSource={filtered}
           columns={[
             { title: 'Tác vụ', dataIndex: 'name', render: (v: string, t) => <Link to={`/app/workflows/instances/${t.instanceId}`}>{v}</Link> },
             { title: 'Lượt khám', render: (_, t) => encounterLabelFor(t) },
             { title: 'Vai trò', dataIndex: 'responsibleRole', render: (v: WorkflowTask['responsibleRole']) => ROLE_LABEL[v] },
             { title: 'Trạng thái', dataIndex: 'status', render: (v: WorkflowTaskStatus) => <Tag>{TASK_STATUS_LABEL[v]}</Tag> },
-            { title: 'Người phụ trách', dataIndex: 'assigneeId', render: (v?: string) => v ?? '—' },
+            {
+              title: 'Người phụ trách',
+              dataIndex: 'assigneeId',
+              render: (assigneeId?: string) => {
+                if (!assigneeId) return <Text type="secondary">Chưa phân công</Text>;
+                const staff = users.find((u) => u.id === assigneeId);
+                return staff ? staff.name : assigneeId;
+              },
+            },
           ]}
         />
       </Card>

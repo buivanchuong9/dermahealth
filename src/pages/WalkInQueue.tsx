@@ -5,7 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import { createWalkInQueueTicket } from "../api/queue";
 import type { QueueTicket } from "../domain/core/entities";
 import type { AppointmentId, EncounterId, PatientId } from "../domain/core/ids";
-import { queueRepository } from "../domain/repositories";
+import { patientRepository, queueRepository } from "../domain/repositories";
 import { QueueResult } from "./KioskCheckIn";
 
 const { Title, Text } = Typography;
@@ -34,10 +34,13 @@ export default function WalkInQueue() {
   const createDemoTicket = (): QueueTicket => {
     const service = selectedService ?? SERVICES[0];
     const existing = queueRepository.getAll();
-    const sequence = Math.max(0, ...existing.map((item) => Number(item.number.replace(/\D/g, "")) || 0)) + 1;
+    const samePrefixNumbers = existing
+      .filter((item) => item.number.startsWith(service.prefix))
+      .map((item) => Number(item.number.replace(/\D/g, "")) || 0);
+    const sequence = Math.max(0, ...samePrefixNumbers) + 1;
     const now = new Date().toISOString();
     return {
-      id: `WALKIN-${Date.now()}`,
+      id: `WALKIN-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       appointmentId: `WALKIN-APPOINTMENT-${Date.now()}` as AppointmentId,
       patientId: `WALKIN-PATIENT-${Date.now()}` as PatientId,
       encounterId: `WALKIN-ENCOUNTER-${Date.now()}` as EncounterId,
@@ -73,8 +76,22 @@ export default function WalkInQueue() {
       } catch (error) {
         if (!import.meta.env.DEV) throw error;
         nextTicket = createDemoTicket();
-        queueRepository.upsert(nextTicket);
       }
+      patientRepository.upsert({
+        id: nextTicket.patientId,
+        code: `BN-${Date.now().toString().slice(-6)}`,
+        name: fullName.trim(),
+        profile: {
+          dob: "1995-01-01",
+          gender: "nam",
+          phone: phone.trim(),
+          email: "",
+          address: "",
+          bloodType: "A+",
+        },
+        primaryDoctorId: "" as any,
+      });
+      queueRepository.upsert(nextTicket);
       setTicket(nextTicket);
       message.success(`Đã cấp số ${nextTicket.number}.`);
     } catch {
