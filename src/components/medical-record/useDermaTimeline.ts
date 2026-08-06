@@ -139,17 +139,28 @@ export function useDermaTimeline(
         if (repository.deleteLesion) {
           await repository.deleteLesion(lesionId);
         }
+        setLesions((prev) => {
+          const remaining = prev.filter((item) => item.id !== lesionId);
+          if (selectedLesionId === lesionId) {
+            const nextId = remaining[0]?.id;
+            setSelectedLesionId(nextId);
+            if (!nextId) setBundle(undefined);
+          }
+          return remaining;
+        });
       } catch (e) {
         console.error("Failed to delete lesion on backend:", e);
+        // Fallback optimistically so UI deletes even if network fails
+        setLesions((prev) => {
+          const remaining = prev.filter((item) => item.id !== lesionId);
+          if (selectedLesionId === lesionId) {
+            const nextId = remaining[0]?.id;
+            setSelectedLesionId(nextId);
+            if (!nextId) setBundle(undefined);
+          }
+          return remaining;
+        });
       }
-      setLesions((prev) => {
-        const remaining = prev.filter((item) => item.id !== lesionId);
-        if (selectedLesionId === lesionId) {
-          setSelectedLesionId(remaining[0]?.id);
-          if (!remaining.length) setBundle(undefined);
-        }
-        return remaining;
-      });
     },
     [repository, selectedLesionId],
   );
