@@ -13,7 +13,7 @@ import {
   Upload,
   App as AntApp,
 } from "antd";
-import { CalendarClock, ImagePlus, UploadCloud } from "lucide-react";
+import { CalendarClock, Download, ImagePlus, UploadCloud } from "lucide-react";
 import type { Lesion, LesionObservation } from "../../domain/skinProgress";
 import { validObservationsSorted } from "../../domain/skinProgress";
 import type { ObservationEntryInput } from "./useDermaTimeline";
@@ -151,6 +151,20 @@ export function DermaBaselineUploader({
         Tải ảnh tổn thương ban đầu và ảnh sau khám để theo dõi tiến triển và
         tạo báo cáo so sánh.
       </Text>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginTop: 12 }}
+        message="Đặt thẻ đo DermaHealth cạnh tổn thương khi chụp"
+        description="Đặt thẻ đo (nằm cạnh tổn thương, cùng mặt phẳng với vùng da, không nghiêng/che khuất) vào khung hình cả hai lần chụp để hệ thống đo được diện tích tổn thương chính xác theo cm² thay vì chỉ tỷ lệ tương đối. Chưa có thẻ đo? Tải mẫu in bên dưới."
+        action={
+          <a href="/dermahealth-calibration-card.svg" download="dermahealth-calibration-card.svg">
+            <Button size="small" icon={<Download size={14} />}>
+              Tải thẻ đo DermaHealth
+            </Button>
+          </a>
+        }
+      />
       {error && (
         <Alert
           type="error"

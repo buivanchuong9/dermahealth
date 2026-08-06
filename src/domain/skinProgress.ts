@@ -321,6 +321,23 @@ export interface ReviewInput {
   requestRecapture?: boolean;
 }
 
+export type DermaTimelinePresentationMode = 'PATIENT' | 'CLINICIAN' | 'ADMIN_CLINICAL';
+
+export function resolveDermaTimelinePresentationMode(
+  userRole: string,
+): DermaTimelinePresentationMode {
+  if (userRole === 'patient') {
+    return 'PATIENT';
+  }
+  if (userRole === 'super_administrator') {
+    return 'ADMIN_CLINICAL';
+  }
+  if (userRole === 'doctor' || userRole === 'nurse' || userRole === 'receptionist') {
+    return 'CLINICIAN';
+  }
+  return 'PATIENT';
+}
+
 /** This UI check only controls visibility. Backend policy remains authoritative. */
 export function canReviewComparison(role: string): boolean {
   return role === 'doctor' || role === 'super_administrator';
@@ -480,4 +497,367 @@ export function canTransitionComparison(
   next: ComparisonStatus,
 ): boolean {
   return COMPARISON_TRANSITIONS[current].includes(next);
+}
+
+// ---------------------------------------------------------------------------
+// Evidence capabilities
+//
+// Each function below answers exactly one question: "can the UI show X for
+// this data?" — replacing what used to be a single broad hasRegisteredPair
+// flag gating every kind of image evidence at once. That flag was correct
+// for slider/overlay/difference-map (which genuinely need a registered pair),
+// but wrong for per-image evidence like masks and Grad-CAM attention, which
+// are computed on ONE photo before the two are ever compared to each other —
+// gating those on pair registration hid real, valid evidence any time
+// registration failed, even though nothing about that evidence depended on
+// registration succeeding.
+// ---------------------------------------------------------------------------
+
+const MASK_PROVENANCE_ALLOWED = new Set<MaskProvenance>([
+  'MODEL_PROPOSED',
+  'CLINICIAN_DRAWN',
+  'CLINICIAN_CORRECTED',
+  'CLINICIAN_CONFIRMED',
+]);
+
+/** imageAssets is ordered oldest-first, and a derived type (ALIGNED, MASK,
+ * HEATMAP, DIFFERENCE_MAP) can have multiple rows once a clinician
+ * confirms/corrects an AI proposal (lesion_image_assets is append-only — a
+ * correction is always a new row, never an edit). The most recently created
+ * row for a type is always the authoritative one. */
+export function latestImageAsset(
+  observation: LesionObservation,
+  type: ImageAssetType,
+): ImageAsset | undefined {
+  return observation.imageAssets.filter((asset) => asset.type === type).at(-1);
+}
+
+function hasUsableMask(
+  observation: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  if (isSimulatedAnalysis(analysis)) return false;
+  const asset = latestImageAsset(observation, 'MASK');
+  if (!asset?.protectedUrl) return false;
+  // Provenance predates the field on some older rows — absence means
+  // "unknown", not "invalid", mirroring isLegacyClassification's precedent
+  // of never treating a missing field as a hidden false.
+  if (asset.maskProvenance == null) return true;
+  return MASK_PROVENANCE_ALLOWED.has(asset.maskProvenance);
+}
+
+/** Deliberately takes only the ONE observation whose mask is being asked
+ * about — no pair-registration check, by design. */
+export function canViewBaselineMask(
+  baseline: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return hasUsableMask(baseline, analysis);
+}
+
+export function canViewFollowUpMask(
+  target: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return hasUsableMask(target, analysis);
+}
+
+function hasAttentionMap(observation: LesionObservation): boolean {
+  return Boolean(latestImageAsset(observation, 'HEATMAP')?.protectedUrl);
+}
+
+/** Grad-CAM is a classifier-attention map for ONE photo — it has never
+ * required pair registration (the model classifies each photo
+ * independently) and still doesn't here. */
+export function canViewBaselineGradCam(baseline: LesionObservation): boolean {
+  return hasAttentionMap(baseline);
+}
+
+export function canViewFollowUpGradCam(target: LesionObservation): boolean {
+  return hasAttentionMap(target);
+}
+
+/** Combined side-by-side views only make sense once BOTH photos have the
+ * same evidence kind — these are pure ANDs of the existing per-side checks
+ * above, never a new gating source. */
+export function canViewBothMasks(
+  baseline: LesionObservation,
+  target: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return canViewBaselineMask(baseline, analysis) && canViewFollowUpMask(target, analysis);
+}
+
+export function canViewBothGradCam(
+  baseline: LesionObservation,
+  target: LesionObservation,
+): boolean {
+  return canViewBaselineGradCam(baseline) && canViewFollowUpGradCam(target);
+}
+
+/** Slider/overlay render both photos in one shared, pixel-aligned coordinate
+ * frame — unlike masks, that genuinely requires registration to have
+ * succeeded, so this is the one place the old "pair" gate still belongs. */
+export function isPairRegistered(
+  baseline: LesionObservation,
+  target: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  if (!isRegisteredProgressAnalysis(analysis)) return false;
+  return Boolean(
+    latestImageAsset(baseline, 'ALIGNED')?.protectedUrl &&
+      latestImageAsset(target, 'ALIGNED')?.protectedUrl,
+  );
+}
+
+export function canUseSlider(
+  baseline: LesionObservation,
+  target: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return isPairRegistered(baseline, target, analysis);
+}
+
+export function canUseOverlay(
+  baseline: LesionObservation,
+  target: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return isPairRegistered(baseline, target, analysis);
+}
+
+/** Difference-map requires everything slider/overlay do, PLUS both masks
+ * (the heatmap is rendered from the two masks) and the persisted asset
+ * itself. */
+export function canViewDifferenceMap(
+  baseline: LesionObservation,
+  target: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return (
+    isPairRegistered(baseline, target, analysis) &&
+    canViewBaselineMask(baseline, analysis) &&
+    canViewFollowUpMask(target, analysis) &&
+    Boolean(latestImageAsset(target, 'DIFFERENCE_MAP')?.protectedUrl)
+  );
+}
+
+/** The relative (%) area index compares two pixel counts, which only means
+ * something once the backend's own comparability policy has judged the pair
+ * COMPARABLE (registration + lighting + scale + same-region checks) — see
+ * quality_reasons in be/ai/app/comparison.py. */
+export function canMeasureRelativeArea(
+  baseline: LesionObservation,
+  target: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  if (!canViewBaselineMask(baseline, analysis) || !canViewFollowUpMask(target, analysis)) {
+    return false;
+  }
+  return analysis?.quality.comparisonDisposition === 'COMPARABLE';
+}
+
+function physicalAreaMetric(
+  analysis?: ComparisonAnalysis | null,
+): ComparisonMetric | undefined {
+  return analysis?.metrics.find((metric) => metric.key === 'lesion-area-physical-cm2');
+}
+
+/** Known limitation: the backend currently computes calibration for both
+ * photos together and reports one combined metric row — it does not yet
+ * distinguish "baseline had a card but follow-up didn't" from "neither did".
+ * canMeasurePhysicalAreaBaseline/FollowUp read the same row today; keeping
+ * them as two functions (rather than one canMeasurePhysicalArea) is what
+ * lets the UI and the backend evolve independently once per-image
+ * calibration provenance exists. */
+export function canMeasurePhysicalAreaBaseline(
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return physicalAreaMetric(analysis)?.baseline != null;
+}
+
+export function canMeasurePhysicalAreaFollowUp(
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return physicalAreaMetric(analysis)?.current != null;
+}
+
+export function canMeasurePhysicalAreaDelta(
+  analysis?: ComparisonAnalysis | null,
+): boolean {
+  return canMeasurePhysicalAreaBaseline(analysis) && canMeasurePhysicalAreaFollowUp(analysis);
+}
+
+/** A progression verdict (improving/stable/worsening) is a distinct, higher
+ * bar than "some evidence exists" — it requires the full registered-pair
+ * policy to have judged the pair COMPARABLE. Never derived from confidence
+ * or classifier-label changes alone. */
+export function canConcludeProgression(analysis?: ComparisonAnalysis | null): boolean {
+  return (
+    isRegisteredProgressAnalysis(analysis) &&
+    analysis?.quality.comparisonDisposition === 'COMPARABLE'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Result summary — one honest headline state for the comparison result
+// screen, built entirely from the capability functions above so the summary
+// card, the workbench, and the metrics panel can never disagree about what
+// evidence actually exists.
+// ---------------------------------------------------------------------------
+
+export type ResultSummaryState =
+  | 'PROGRESSION_AVAILABLE'
+  | 'RELATIVE_ONLY'
+  | 'PER_IMAGE_ONLY'
+  | 'RECAPTURE_REQUIRED'
+  | 'ANALYSIS_UNAVAILABLE';
+
+/** Precedence matters: a NEEDS_RECAPTURE session always wins (the backend
+ * refused to analyze at all), then FAILED/missing-analysis, then the
+ * strongest evidence tier the capability checks actually support — never the
+ * other way around, so a partially-strong pair is never downgraded to a
+ * weaker headline just because a later check also happens to be true. */
+export function selectResultSummaryState(
+  session: ComparisonSession | null | undefined,
+  baseline?: LesionObservation,
+  target?: LesionObservation,
+): ResultSummaryState {
+  if (!session) return 'ANALYSIS_UNAVAILABLE';
+  if (session.status === 'NEEDS_RECAPTURE') return 'RECAPTURE_REQUIRED';
+  const analysis = session.analysis;
+  if (!analysis || session.status === 'FAILED') return 'ANALYSIS_UNAVAILABLE';
+  if (canConcludeProgression(analysis)) return 'PROGRESSION_AVAILABLE';
+  if (
+    baseline &&
+    target &&
+    canMeasureRelativeArea(baseline, target, analysis) &&
+    !canMeasurePhysicalAreaDelta(analysis)
+  ) {
+    return 'RELATIVE_ONLY';
+  }
+  return 'PER_IMAGE_ONLY';
+}
+
+export interface ResultSummaryCopy {
+  title: string;
+  description: string;
+}
+
+const PROGRESSION_SUMMARY_COPY: Record<ClinicalAssessment, ResultSummaryCopy> = {
+  IMPROVING: {
+    title: 'Có dấu hiệu cải thiện',
+    description: 'Các chỉ số ghi nhận ở mốc hiện tại nhìn chung tốt hơn mốc ban đầu.',
+  },
+  STABLE: {
+    title: 'Chưa thấy thay đổi đáng kể',
+    description: 'Chưa ghi nhận khác biệt rõ rệt giữa hai mốc được chọn.',
+  },
+  WORSENING: {
+    title: 'Có dấu hiệu tiến triển xấu',
+    description: 'Một số chỉ số đang xấu hơn. Không tự thay đổi thuốc hoặc liều dùng khi chưa trao đổi với bác sĩ.',
+  },
+  INDETERMINATE: {
+    title: 'Cần bác sĩ đánh giá sớm',
+    description: 'Hệ thống không đủ cơ sở để phân loại xu hướng — cần bác sĩ xem xét trực tiếp.',
+  },
+};
+
+/** The single source of patient-safe copy for every ResultSummaryState —
+ * used identically by patient and clinician views (Part 7: same summary,
+ * clinician gets extra detail elsewhere, not a different conclusion). */
+export function resultSummaryCopy(
+  state: ResultSummaryState,
+  assessment?: ClinicalAssessment | null,
+): ResultSummaryCopy {
+  switch (state) {
+    case 'PROGRESSION_AVAILABLE':
+      return PROGRESSION_SUMMARY_COPY[assessment ?? 'INDETERMINATE'];
+    case 'RELATIVE_ONLY':
+      return {
+        title: 'Chỉ có thể đánh giá diện tích tương đối',
+        description: 'Ảnh chưa có thẻ đo DermaHealth hợp lệ nên chưa thể quy đổi sang cm².',
+      };
+    case 'PER_IMAGE_ONLY':
+      return {
+        title: 'Đã phân tích từng mốc nhưng chưa thể kết luận tiến triển',
+        description:
+          'Hệ thống đã xác định vùng tổn thương trên từng ảnh, nhưng khác biệt về góc chụp, tỷ lệ hoặc vị trí khiến việc so sánh trực tiếp chưa đủ tin cậy.',
+      };
+    case 'RECAPTURE_REQUIRED':
+      return {
+        title: 'Cần chụp lại ảnh',
+        description: 'Ảnh hiện tại chưa đủ chất lượng để đưa ra nhận định đáng tin cậy.',
+      };
+    case 'ANALYSIS_UNAVAILABLE':
+    default:
+      return {
+        title: 'Chưa thể phân tích cặp ảnh này',
+        description: 'Hệ thống chưa tạo được kết quả phân tích cho cặp ảnh đang chọn.',
+      };
+  }
+}
+
+/** Deduplicated, order-preserved, capped — the one list every panel should
+ * read `analysis.limitations` through, so the same sentence never gets
+ * rendered twice on the same screen. */
+export function dedupedLimitations(
+  analysis: ComparisonAnalysis | null | undefined,
+  max = 4,
+): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of analysis?.limitations ?? []) {
+    const text = raw.trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+    if (result.length >= max) break;
+  }
+  return result;
+}
+
+const HEADLINE_METRIC_KEYS = new Set(['lesion-area-physical-cm2', 'lesion-area-index']);
+
+/** Splits metrics into a small "primary" set (area metrics first, since size
+ * change is what most drives the headline) and everything else, for a
+ * "Xem thêm chỉ số" collapse — never drops a metric, only reorders/paginates. */
+export function primaryMetrics(
+  metrics: ComparisonMetric[],
+  max = 4,
+): { primary: ComparisonMetric[]; secondary: ComparisonMetric[] } {
+  const ordered = [...metrics].sort((left, right) => {
+    const leftRank = HEADLINE_METRIC_KEYS.has(left.key) ? 0 : 1;
+    const rightRank = HEADLINE_METRIC_KEYS.has(right.key) ? 0 : 1;
+    return leftRank - rightRank;
+  });
+  return { primary: ordered.slice(0, max), secondary: ordered.slice(max) };
+}
+
+export type EvidenceActionKind =
+  | 'ORIGINAL'
+  | 'BASELINE_MASK'
+  | 'TARGET_MASK'
+  | 'BOTH_MASK'
+  | 'BOTH_GRADCAM'
+  | 'DIFFERENCE_MAP';
+
+/** Flag-independent by design: dermaTimelineFlags.heatmapEnabled is an ops
+ * rollout switch that lives with the hook layer, not a clinical capability —
+ * callers AND it in themselves (ComparisonWorkbench does the same). */
+export function primaryEvidenceActions(
+  baseline: LesionObservation,
+  target: LesionObservation,
+  analysis?: ComparisonAnalysis | null,
+): EvidenceActionKind[] {
+  const actions: EvidenceActionKind[] = ['ORIGINAL'];
+  if (canViewBothMasks(baseline, target, analysis)) {
+    actions.push('BOTH_MASK');
+  } else {
+    if (canViewBaselineMask(baseline, analysis)) actions.push('BASELINE_MASK');
+    if (canViewFollowUpMask(target, analysis)) actions.push('TARGET_MASK');
+  }
+  if (canViewBothGradCam(baseline, target)) actions.push('BOTH_GRADCAM');
+  if (canViewDifferenceMap(baseline, target, analysis)) actions.push('DIFFERENCE_MAP');
+  return actions;
 }

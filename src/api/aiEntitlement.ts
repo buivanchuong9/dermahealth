@@ -62,9 +62,32 @@ export function createAiCreditPurchaseRequest(
 
 export function createAiPlanChangeRequest(
   planCode: string,
+  idempotencyKey?: string,
 ): Promise<AiCommercialRequest> {
   return http.post<AiCommercialRequest>(
     "/api/v1/patients/me/ai-entitlement/plan-change-requests",
     { planCode },
+    idempotencyKey ? { idempotencyKey } : undefined,
+  );
+}
+
+export interface AiDecisionResult {
+  id: string;
+  status: "approved" | "rejected";
+}
+
+/** Staff-only (super_administrator/system_administrator/medical_administrator).
+ * Only decides on a request that already exists — there is no endpoint for
+ * staff to create a plan-change request on another patient's behalf; only
+ * the patient's own "/me" session can create one (see createAiPlanChangeRequest). */
+export function decideAiPlanChange(
+  requestId: string,
+  decision: "approved" | "rejected",
+  idempotencyKey?: string,
+): Promise<AiDecisionResult> {
+  return http.post<AiDecisionResult>(
+    `/api/v1/ai-commercial-requests/plan-changes/${encodeURIComponent(requestId)}/decision`,
+    { decision },
+    idempotencyKey ? { idempotencyKey } : undefined,
   );
 }
