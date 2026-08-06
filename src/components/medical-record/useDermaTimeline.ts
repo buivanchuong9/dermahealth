@@ -138,7 +138,7 @@ export function useDermaTimeline(
 
   const deleteLesionRecord = useCallback(
     async (lesionId: string) => {
-      setDeletedLesionIds((prev) => new Set(prev).add(lesionId));
+      setDeletedLesionIds((prev) => new Set([...prev, lesionId]));
       setLesions((prev) => {
         const remaining = prev.filter((item) => item.id !== lesionId);
         if (selectedLesionId === lesionId) {
