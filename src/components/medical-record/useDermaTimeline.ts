@@ -165,11 +165,11 @@ export function useDermaTimeline(
         repository.listLesions(patientId),
         repository.getBundle(patientId, lesionId),
       ]);
-      setLesions(nextLesions);
+      setLesions(nextLesions.filter((item) => !deletedLesionIds.has(item.id)));
       setSelectedLesionId(lesionId);
       setBundle(nextBundle);
     },
-    [patientId, repository],
+    [patientId, repository, deletedLesionIds],
   );
 
   useEffect(() => {

@@ -143,9 +143,38 @@ export interface PatientProfileNarrative {
   currentSymptoms?: string | null;
   lifestyle?: string | null;
   occupation?: string | null;
+  surgicalHistory?: string | null;
+  vaccinationNotes?: string | null;
   /** Always true — narratives are patient-provided. Never render as clinician history. */
   isPatientProvided: boolean;
   updatedAt: string;
+}
+
+export interface ProblemListEntry {
+  id: string;
+  conditionName: string;
+  conditionCode?: string | null;
+  status: 'active' | 'inactive' | 'resolved';
+  onsetDate?: string | null;
+  severity?: string | null;
+  note?: string | null;
+  addedByUserId: string;
+  addedByName?: string | null;
+  addedAt: string;
+}
+
+export interface CurrentMedication {
+  id: string;
+  medicationName: string;
+  dosage?: string | null;
+  frequency?: string | null;
+  route?: string | null;
+  startedAt?: string | null;
+  note?: string | null;
+  active: boolean;
+  addedByUserId: string;
+  addedByName?: string | null;
+  addedAt: string;
 }
 
 export interface LifetimeMedicalRecord {
@@ -177,6 +206,8 @@ export interface LifetimeMedicalRecord {
   allergies: AllergyIntolerance[];
   vitals: VitalObservation[];
   narrative: PatientProfileNarrative | null;
+  problemList: ProblemListEntry[];
+  currentMedications: CurrentMedication[];
   events: LifetimeRecordEvent[];
   page: number;
   limit: number;
@@ -389,10 +420,45 @@ const mapLifetimeMedicalRecord = (value: unknown): LifetimeMedicalRecord => {
         currentSymptoms: asNullableString(n.currentSymptoms),
         lifestyle: asNullableString(n.lifestyle),
         occupation: asNullableString(n.occupation),
+        surgicalHistory: asNullableString(n.surgicalHistory),
+        vaccinationNotes: asNullableString(n.vaccinationNotes),
         isPatientProvided: true,
         updatedAt: asString(n.updatedAt),
       };
     })(),
+    problemList: asArray(root.problemList).map((v) => {
+      const r = asObject(v);
+      const rawStatus = asString(r.status, 'active');
+      const VALID_STATUS = new Set<string>(['active', 'inactive', 'resolved']);
+      return {
+        id: asString(r.id),
+        conditionName: asString(r.conditionName, 'Chưa xác định'),
+        conditionCode: asNullableString(r.conditionCode),
+        status: (VALID_STATUS.has(rawStatus) ? rawStatus : 'active') as ProblemListEntry['status'],
+        onsetDate: asNullableString(r.onsetDate),
+        severity: asNullableString(r.severity),
+        note: asNullableString(r.note),
+        addedByUserId: asString(r.addedByUserId),
+        addedByName: asNullableString(r.addedByName),
+        addedAt: asString(r.addedAt),
+      };
+    }),
+    currentMedications: asArray(root.currentMedications).map((v) => {
+      const r = asObject(v);
+      return {
+        id: asString(r.id),
+        medicationName: asString(r.medicationName, 'Chưa xác định'),
+        dosage: asNullableString(r.dosage),
+        frequency: asNullableString(r.frequency),
+        route: asNullableString(r.route),
+        startedAt: asNullableString(r.startedAt),
+        note: asNullableString(r.note),
+        active: typeof r.active === 'boolean' ? r.active : true,
+        addedByUserId: asString(r.addedByUserId),
+        addedByName: asNullableString(r.addedByName),
+        addedAt: asString(r.addedAt),
+      };
+    }),
     events: asArray(root.events).map(mapEvent),
     page: asNumber(root.page),
     limit: asNumber(root.limit),
@@ -491,11 +557,63 @@ export interface UpdateNarrativeRequest {
   familyHistory?: string;
   currentSymptoms?: string;
   lifestyle?: string;
+  surgicalHistory?: string;
+  vaccinationNotes?: string;
 }
 
 export const updateNarrative = (patientId: string, body: UpdateNarrativeRequest) =>
   http.put<PatientProfileNarrative>(
     `/api/v1/patients/${encodeURIComponent(patientId)}/narrative`,
+    body,
+  );
+
+export interface CreateProblemEntryRequest {
+  conditionName: string;
+  conditionCode?: string;
+  status?: 'active' | 'inactive' | 'resolved';
+  onsetDate?: string;
+  severity?: string;
+  note?: string;
+}
+
+export const addProblemEntry = (patientId: string, body: CreateProblemEntryRequest) =>
+  http.post<ProblemListEntry>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/problem-list`,
+    body,
+  );
+
+export const updateProblemEntry = (
+  patientId: string,
+  entryId: string,
+  body: Partial<CreateProblemEntryRequest>,
+) =>
+  http.put<ProblemListEntry>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/problem-list/${encodeURIComponent(entryId)}`,
+    body,
+  );
+
+export interface CreateCurrentMedicationRequest {
+  medicationName: string;
+  dosage?: string;
+  frequency?: string;
+  route?: string;
+  startedAt?: string;
+  note?: string;
+}
+
+export const addCurrentMedication = (patientId: string, body: CreateCurrentMedicationRequest) =>
+  http.post<CurrentMedication>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/current-medications`,
+    body,
+  );
+
+export const updateCurrentMedication = (
+  patientId: string,
+  medicationId: string,
+  body: Partial<CreateCurrentMedicationRequest> & { active?: boolean },
+) =>
+  http.put<CurrentMedication>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/current-medications/${encodeURIComponent(medicationId)}`,
     body,
   );
 
