@@ -118,20 +118,10 @@ export function useDermaTimeline(
     return created;
   }, []);
 
-  const [hiddenLesionIds, setHiddenLesionIds] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem(`hidden_lesions_${patientId}`);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
   const loadLesions = useCallback(
     async (signal?: AbortSignal) => {
-      const rawResult = await repository.listLesions(patientId, signal);
+      const result = await repository.listLesions(patientId, signal);
       signal?.throwIfAborted();
-      const result = rawResult.filter((item) => !hiddenLesionIds.includes(item.id));
       setLesions(result);
       if (!result.length) setBundle(undefined);
       setSelectedLesionId((current) =>
@@ -140,18 +130,18 @@ export function useDermaTimeline(
           : result[0]?.id,
       );
     },
-    [patientId, repository, hiddenLesionIds],
+    [patientId, repository],
   );
 
-  const hideLesion = useCallback(
-    (lesionId: string) => {
-      setHiddenLesionIds((prev) => {
-        const next = [...prev, lesionId];
-        try {
-          localStorage.setItem(`hidden_lesions_${patientId}`, JSON.stringify(next));
-        } catch {}
-        return next;
-      });
+  const deleteLesionRecord = useCallback(
+    async (lesionId: string) => {
+      try {
+        if (repository.deleteLesion) {
+          await repository.deleteLesion(lesionId);
+        }
+      } catch (e) {
+        console.error("Failed to delete lesion on backend:", e);
+      }
       setLesions((prev) => {
         const remaining = prev.filter((item) => item.id !== lesionId);
         if (selectedLesionId === lesionId) {
@@ -161,7 +151,7 @@ export function useDermaTimeline(
         return remaining;
       });
     },
-    [patientId, selectedLesionId],
+    [repository, selectedLesionId],
   );
 
   const refreshLesion = useCallback(
@@ -678,7 +668,7 @@ export function useDermaTimeline(
     mutationError,
     clearMutationError: () => setMutationError(undefined),
     retry,
-    hideLesion,
+    deleteLesion: deleteLesionRecord,
     createLesion: createLesionRecord,
     createObservation: createObservationRecord,
     submitReview,

@@ -660,6 +660,11 @@ export const createAdverseEvent = (
     { idempotencyKey },
   );
 
+export const deleteLesion = (lesionId: string) =>
+  http.delete<{ success: boolean; lesionId: string }>(
+    `/api/v1/lesions/${encodeURIComponent(lesionId)}`,
+  );
+
 export interface DermaTimelineRepository {
   listLesions(patientId: string, signal?: AbortSignal): Promise<Lesion[]>;
   getBundle(
@@ -667,6 +672,7 @@ export interface DermaTimelineRepository {
     lesionId: string,
     signal?: AbortSignal,
   ): Promise<LesionDetailBundle>;
+  deleteLesion?(lesionId: string): Promise<void>;
   requestComparison(
     patientId: string,
     bundle: LesionDetailBundle,
@@ -703,6 +709,10 @@ export class ApiDermaTimelineRepository implements DermaTimelineRepository {
     signal?: AbortSignal,
   ): Promise<LesionDetailBundle> {
     return getLesion(lesionId, signal);
+  }
+
+  async deleteLesion(lesionId: string): Promise<void> {
+    await deleteLesion(lesionId);
   }
 
   requestComparison(
