@@ -24,10 +24,9 @@ export function LifetimeMedicalRecord() {
   const patientId = currentPatient?.id;
   const loading = Boolean(patientId) && loadedPatientId !== patientId;
 
-  useEffect(() => {
-    if (!patientId) return;
+  const loadRecord = (id: string) => {
     let active = true;
-    void getLifetimeMedicalRecord(patientId)
+    void getLifetimeMedicalRecord(id)
       .then((result) => {
         if (!active) return;
         setRecord(result);
@@ -39,12 +38,19 @@ export function LifetimeMedicalRecord() {
         setError('Không thể tải đầy đủ hồ sơ bệnh án. Vui lòng thử lại.');
       })
       .finally(() => {
-        if (active) setLoadedPatientId(patientId);
+        if (active) setLoadedPatientId(id);
       });
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
+  };
+
+  useEffect(() => {
+    if (!patientId) return;
+    return loadRecord(patientId);
   }, [patientId]);
+
+  const handleRecordUpdated = () => {
+    if (patientId) loadRecord(patientId);
+  };
 
   const avatarUrl = currentUser.avatarUrl;
 
@@ -123,6 +129,7 @@ export function LifetimeMedicalRecord() {
               record={record}
               patientId={currentPatient.id}
               user={{ id: currentUser.id, name: currentUser.name, role }}
+              onRecordUpdated={handleRecordUpdated}
             />
           </Col>
 

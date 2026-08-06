@@ -73,6 +73,81 @@ export interface LifetimeRecordEvent {
   };
 }
 
+export type AllergyVerificationStatus =
+  | 'patient_reported'
+  | 'clinician_verified'
+  | 'unverified'
+  | 'imported_unverified'
+  | 'organization_verified'
+  | 'superseded'
+  | 'entered_in_error';
+
+export type AllergyKnowledgeState = 'unknown' | 'no_known_allergies' | 'known_allergies';
+export type AllergySourceType = 'patient_reported' | 'clinical_assessment' | 'imported_unverified' | 'legacy_backfill';
+export type VitalSourceType = 'clinical_measurement' | 'patient_reported' | 'device_imported' | 'ehr_imported' | 'legacy_backfill';
+
+export interface AllergyKnowledgeStateInfo {
+  state: AllergyKnowledgeState;
+  assessedAt?: string | null;
+  assessedByUserId?: string | null;
+  organizationId?: string | null;
+}
+
+export interface AllergyIntolerance {
+  id: string;
+  substance: string;
+  substanceCode?: string | null;
+  category: string;
+  reaction?: string | null;
+  severity?: string | null;
+  onsetDate?: string | null;
+  effectiveAt?: string | null;
+  verificationStatus: AllergyVerificationStatus;
+  verifiedAt?: string | null;
+  verifiedByUserId?: string | null;
+  note?: string | null;
+  active: boolean;
+  recordedAt: string;
+  sourceType: AllergySourceType;
+  organizationId: string;
+  clinicLocationId?: string | null;
+  encounterId?: string | null;
+  supersedesId?: string | null;
+  enteredInErrorAt?: string | null;
+}
+
+export interface VitalObservation {
+  id: string;
+  type: string;
+  value: number;
+  unit: string;
+  /** When the measurement was clinically taken — always show this to users. */
+  observedAt: string;
+  /** When it was entered into the system — may differ from observedAt for imports. */
+  recordedAt: string;
+  sourceType: VitalSourceType;
+  organizationId: string;
+  clinicLocationId?: string | null;
+  encounterId?: string | null;
+  method?: string | null;
+  note?: string | null;
+  bmiSourceHeightId?: string | null;
+  bmiSourceWeightId?: string | null;
+}
+
+export interface PatientProfileNarrative {
+  chiefComplaint?: string | null;
+  medicalHistory?: string | null;
+  familyHistory?: string | null;
+  socialHistory?: string | null;
+  currentSymptoms?: string | null;
+  lifestyle?: string | null;
+  occupation?: string | null;
+  /** Always true — narratives are patient-provided. Never render as clinician history. */
+  isPatientProvided: boolean;
+  updatedAt: string;
+}
+
 export interface LifetimeMedicalRecord {
   patient: {
     id: string;
@@ -97,7 +172,11 @@ export interface LifetimeMedicalRecord {
     activeConditions: LifetimeRecordClinicalItem[];
     allergies: LifetimeRecordClinicalItem[];
     currentMedications: LifetimeRecordClinicalItem[];
+    allergyKnowledgeState: AllergyKnowledgeStateInfo;
   };
+  allergies: AllergyIntolerance[];
+  vitals: VitalObservation[];
+  narrative: PatientProfileNarrative | null;
   events: LifetimeRecordEvent[];
   page: number;
   limit: number;
@@ -233,10 +312,87 @@ const mapLifetimeMedicalRecord = (value: unknown): LifetimeMedicalRecord => {
       lastRecordedAt: asNullableString(summary.lastRecordedAt),
       activeConditions: asArray(summary.activeConditions).map(mapClinicalItem),
       allergies: asArray(summary.allergies).map(mapClinicalItem),
-      currentMedications: asArray(summary.currentMedications).map(
-        mapClinicalItem,
-      ),
+      currentMedications: asArray(summary.currentMedications).map(mapClinicalItem),
+      allergyKnowledgeState: (() => {
+        const ks = asObject(summary.allergyKnowledgeState);
+        const VALID_KS = new Set<string>(['unknown', 'no_known_allergies', 'known_allergies']);
+        const rawState = asString(ks.state, 'unknown');
+        return {
+          state: (VALID_KS.has(rawState) ? rawState : 'unknown') as AllergyKnowledgeState,
+          assessedAt: asNullableString(ks.assessedAt),
+          assessedByUserId: asNullableString(ks.assessedByUserId),
+          organizationId: asNullableString(ks.organizationId),
+        };
+      })(),
     },
+    allergies: asArray(root.allergies).map((v) => {
+      const a = asObject(v);
+      const VALID_VERIFICATION = new Set<string>([
+        'patient_reported', 'clinician_verified', 'unverified',
+        'imported_unverified', 'organization_verified', 'superseded', 'entered_in_error',
+      ]);
+      const rawStatus = asString(a.verificationStatus, 'patient_reported');
+      const VALID_SOURCE = new Set<string>(['patient_reported', 'clinical_assessment', 'imported_unverified', 'legacy_backfill']);
+      const rawSource = asString(a.sourceType, 'patient_reported');
+      return {
+        id: asString(a.id),
+        substance: asString(a.substance, 'Chất gây dị ứng chưa xác định'),
+        substanceCode: asNullableString(a.substanceCode),
+        category: asString(a.category, 'other'),
+        reaction: asNullableString(a.reaction),
+        severity: asNullableString(a.severity),
+        onsetDate: asNullableString(a.onsetDate),
+        effectiveAt: asNullableString(a.effectiveAt),
+        verificationStatus: (VALID_VERIFICATION.has(rawStatus) ? rawStatus : 'patient_reported') as AllergyVerificationStatus,
+        verifiedAt: asNullableString(a.verifiedAt),
+        verifiedByUserId: asNullableString(a.verifiedByUserId),
+        note: asNullableString(a.note),
+        active: typeof a.active === 'boolean' ? a.active : true,
+        recordedAt: asString(a.recordedAt),
+        sourceType: (VALID_SOURCE.has(rawSource) ? rawSource : 'patient_reported') as AllergySourceType,
+        organizationId: asString(a.organizationId),
+        clinicLocationId: asNullableString(a.clinicLocationId),
+        encounterId: asNullableString(a.encounterId),
+        supersedesId: asNullableString(a.supersedesId),
+        enteredInErrorAt: asNullableString(a.enteredInErrorAt),
+      };
+    }),
+    vitals: asArray(root.vitals).map((v) => {
+      const obs = asObject(v);
+      const VALID_VSOURCE = new Set<string>(['clinical_measurement', 'patient_reported', 'device_imported', 'ehr_imported', 'legacy_backfill']);
+      const rawVSource = asString(obs.sourceType, 'clinical_measurement');
+      return {
+        id: asString(obs.id),
+        type: asString(obs.type),
+        value: typeof obs.value === 'number' ? obs.value : 0,
+        unit: asString(obs.unit),
+        observedAt: asString(obs.observedAt),
+        recordedAt: asString(obs.recordedAt),
+        sourceType: (VALID_VSOURCE.has(rawVSource) ? rawVSource : 'clinical_measurement') as VitalSourceType,
+        organizationId: asString(obs.organizationId),
+        clinicLocationId: asNullableString(obs.clinicLocationId),
+        encounterId: asNullableString(obs.encounterId),
+        method: asNullableString(obs.method),
+        note: asNullableString(obs.note),
+        bmiSourceHeightId: asNullableString(obs.bmiSourceHeightId),
+        bmiSourceWeightId: asNullableString(obs.bmiSourceWeightId),
+      };
+    }),
+    narrative: (() => {
+      const n = asObject(root.narrative);
+      if (!root.narrative) return null;
+      return {
+        chiefComplaint: asNullableString(n.chiefComplaint),
+        medicalHistory: asNullableString(n.medicalHistory),
+        familyHistory: asNullableString(n.familyHistory),
+        socialHistory: asNullableString(n.socialHistory),
+        currentSymptoms: asNullableString(n.currentSymptoms),
+        lifestyle: asNullableString(n.lifestyle),
+        occupation: asNullableString(n.occupation),
+        isPatientProvided: true,
+        updatedAt: asString(n.updatedAt),
+      };
+    })(),
     events: asArray(root.events).map(mapEvent),
     page: asNumber(root.page),
     limit: asNumber(root.limit),
@@ -276,6 +432,56 @@ export const importExternalLifetimeRecords = (
   http.post<{ importJobId: string; accepted: number; rejected: number }>(
     `${patientLifetimePath(patientId)}/imports`,
     body,
+  );
+
+export interface CreateAllergyRequest {
+  category: string;
+  substance: string;
+  substanceCode?: string;
+  reaction?: string;
+  severity?: string;
+  onsetDate?: string;
+  note?: string;
+}
+
+export const createAllergy = (patientId: string, body: CreateAllergyRequest) =>
+  http.post<AllergyIntolerance>(`/api/v1/patients/${encodeURIComponent(patientId)}/allergies`, body);
+
+export const verifyAllergy = (patientId: string, allergyId: string) =>
+  http.post<AllergyIntolerance>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/allergies/${encodeURIComponent(allergyId)}/verifications`,
+    {},
+  );
+
+export interface CorrectAllergyRequest {
+  reason: string;
+  category?: string;
+  substance?: string;
+  reaction?: string;
+  severity?: string;
+  note?: string;
+}
+
+export const correctAllergy = (patientId: string, allergyId: string, body: CorrectAllergyRequest) =>
+  http.post<AllergyIntolerance>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/allergies/${encodeURIComponent(allergyId)}/corrections`,
+    body,
+  );
+
+export const enterAllergyInError = (patientId: string, allergyId: string, reason: string) =>
+  http.post<AllergyIntolerance>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/allergies/${encodeURIComponent(allergyId)}/entered-in-error`,
+    { reason },
+  );
+
+export const assessAllergyKnowledgeState = (
+  patientId: string,
+  knowledgeState: AllergyKnowledgeState,
+  options?: { note?: string; clinicLocationId?: string; encounterId?: string },
+) =>
+  http.post<AllergyKnowledgeStateInfo>(
+    `/api/v1/patients/${encodeURIComponent(patientId)}/allergy-knowledge-assessments`,
+    { knowledgeState, ...options },
   );
 
 export interface ShareLifetimeRecordRequest {

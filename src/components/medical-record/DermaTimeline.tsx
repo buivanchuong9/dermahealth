@@ -199,6 +199,7 @@ export function DermaTimeline({
     mutationError,
     clearMutationError,
     retry,
+    hideLesion,
     createLesion,
     createObservation,
     submitReview,
@@ -534,6 +535,7 @@ export function DermaTimeline({
               lesions={lesions}
               selectedId={selectedLesionId}
               onSelect={setSelectedLesionId}
+              onDelete={hideLesion}
             />
           </Card>
         </Col>

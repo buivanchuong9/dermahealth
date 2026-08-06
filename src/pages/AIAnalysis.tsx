@@ -20,7 +20,6 @@ import { analyzeDermatologyImage, type ImageQualityReport } from '../domain/imag
 import { FriendlyErrorInline } from '../components/feedback/FriendlyError';
 import { ProfessionalEmpty } from '../components/feedback/ProfessionalEmpty';
 import { createEncounter, getActiveEncounter } from '../api/encounters';
-import { ENCOUNTER_STATUS_LABEL } from '../domain/core/enums';
 import { submitEncounterIntake } from '../api/aiAssessment';
 import {
   analyzeSkinCase,
@@ -220,10 +219,27 @@ export default function AIAnalysis() {
 
     setSubmitting(true);
     setSkinAnalysis(null);
+
+    const INTAKE_ALLOWED = new Set(['registered', 'intake_in_progress']);
+
     let encounter;
     try {
-      encounter = await getActiveEncounter();
+      const existing = await getActiveEncounter();
+      if (existing.status === 'escalated') {
+        setSubmitting(false);
+        setSubmitError(
+          'Ca khám này đã được chuyển cho bác sĩ xem xét (do có dấu hiệu cần ưu tiên). Vui lòng chờ bác sĩ liên hệ hoặc liên hệ phòng khám.',
+        );
+        return;
+      }
+      // Encounter exists but is in a completed state (e.g. ai_assessed) —
+      // create a fresh one so the new photo set gets its own intake record.
+      encounter = INTAKE_ALLOWED.has(existing.status) ? existing : null;
     } catch {
+      encounter = null;
+    }
+
+    if (!encounter) {
       try {
         encounter = await createEncounter({
           patientId: currentPatient.id,
@@ -240,20 +256,6 @@ export default function AIAnalysis() {
         );
         return;
       }
-    }
-    // Only these two statuses accept a new intake submission on the backend
-    // (ai-assessment.service.ts's submitIntake guard) — anything else (most
-    // commonly "escalated", once a red flag routed the case to a doctor)
-    // would fail after upload with a generic error. Catching it here, before
-    // spending the upload, avoids that dead end and explains why.
-    if (encounter.status !== 'registered' && encounter.status !== 'intake_in_progress') {
-      setSubmitting(false);
-      setSubmitError(
-        encounter.status === 'escalated'
-          ? 'Ca khám này đã được chuyển cho bác sĩ xem xét (do có dấu hiệu cần ưu tiên) nên không thể gửi thêm đánh giá AI tự động. Vui lòng chờ bác sĩ liên hệ hoặc liên hệ phòng khám.'
-          : `Lượt khám hiện tại đang ở trạng thái "${ENCOUNTER_STATUS_LABEL[encounter.status] ?? encounter.status}" nên chưa thể gửi đánh giá AI mới.`,
-      );
-      return;
     }
     const skinAnalysisPromise = imageReport?.uploadFile && bodyRegion
       ? analyzeSkinCase({

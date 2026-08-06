@@ -78,13 +78,35 @@ export interface AppointmentCheckInToken {
   revokedAt?: string; revokedReason?: string; version: number;
 }
 
-export type QueueTicketStatus = 'waiting' | 'called' | 'acknowledged' | 'in_service' | 'skipped' | 'completed' | 'routed';
+export type QueueTicketStatus = 'waiting' | 'called' | 'acknowledged' | 'in_service' | 'skipped' | 'completed' | 'routed' | 'cancelled' | 'no_show';
+export type QueueTicketSource = 'appointment' | 'walk_in';
 export interface QueueTicket {
-  id: string; appointmentId: AppointmentId; patientId: PatientId; encounterId: EncounterId;
-  number: string; department: string; serviceStation: string; room?: string; waitingArea: string;
-  priority: 'normal' | 'priority' | 'urgent'; status: QueueTicketStatus; issuedAt: string;
-  calledAt?: string; acknowledgedAt?: string; serviceStartedAt?: string; completedAt?: string;
-  peopleAhead: number; estimatedWaitMinutes: number; preparationInstructions: string[]; nextStation?: string;
+  id: string;
+  appointmentId: AppointmentId | null;
+  patientId: PatientId;
+  encounterId: EncounterId | null;
+  checkInId: string | null;
+  sourceType: QueueTicketSource;
+  clinicDate: string;
+  number: string;
+  department: string;
+  serviceStation: string;
+  room?: string;
+  waitingArea: string;
+  priority: 'normal' | 'priority' | 'urgent';
+  status: QueueTicketStatus;
+  issuedAt: string;
+  calledAt?: string;
+  acknowledgedAt?: string;
+  serviceStartedAt?: string;
+  completedAt?: string;
+  skippedAt?: string;
+  cancelledAt?: string;
+  noShowAt?: string;
+  peopleAhead: number;
+  estimatedWaitMinutes: number;
+  preparationInstructions: string[];
+  nextStation?: string;
   version?: number;
 }
 

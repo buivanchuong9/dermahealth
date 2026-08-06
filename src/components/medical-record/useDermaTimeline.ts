@@ -118,10 +118,20 @@ export function useDermaTimeline(
     return created;
   }, []);
 
+  const [hiddenLesionIds, setHiddenLesionIds] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(`hidden_lesions_${patientId}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const loadLesions = useCallback(
     async (signal?: AbortSignal) => {
-      const result = await repository.listLesions(patientId, signal);
+      const rawResult = await repository.listLesions(patientId, signal);
       signal?.throwIfAborted();
+      const result = rawResult.filter((item) => !hiddenLesionIds.includes(item.id));
       setLesions(result);
       if (!result.length) setBundle(undefined);
       setSelectedLesionId((current) =>
@@ -130,7 +140,28 @@ export function useDermaTimeline(
           : result[0]?.id,
       );
     },
-    [patientId, repository],
+    [patientId, repository, hiddenLesionIds],
+  );
+
+  const hideLesion = useCallback(
+    (lesionId: string) => {
+      setHiddenLesionIds((prev) => {
+        const next = [...prev, lesionId];
+        try {
+          localStorage.setItem(`hidden_lesions_${patientId}`, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      setLesions((prev) => {
+        const remaining = prev.filter((item) => item.id !== lesionId);
+        if (selectedLesionId === lesionId) {
+          setSelectedLesionId(remaining[0]?.id);
+          if (!remaining.length) setBundle(undefined);
+        }
+        return remaining;
+      });
+    },
+    [patientId, selectedLesionId],
   );
 
   const refreshLesion = useCallback(
@@ -647,6 +678,7 @@ export function useDermaTimeline(
     mutationError,
     clearMutationError: () => setMutationError(undefined),
     retry,
+    hideLesion,
     createLesion: createLesionRecord,
     createObservation: createObservationRecord,
     submitReview,

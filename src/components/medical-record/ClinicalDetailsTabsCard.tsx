@@ -3,6 +3,7 @@ import { Skeleton, Tabs } from 'antd';
 import type { LifetimeMedicalRecord } from '../../api/lifetimeMedicalRecord';
 import { LatestLabResultsCard } from './LatestLabResultsCard';
 import { LesionGalleryCard } from './LesionGalleryCard';
+import { PatientIntroductionCard } from './PatientIntroductionCard';
 import { RecentPrescriptionsCard } from './RecentPrescriptionsCard';
 import { TreatmentRegimenCard } from './TreatmentRegimenCard';
 import { TreatmentTimelineCard } from './TreatmentTimelineCard';
@@ -17,13 +18,25 @@ interface ClinicalDetailsTabsCardProps {
   record?: LifetimeMedicalRecord;
   patientId: string;
   user: { id: string; name: string; role: string };
+  onRecordUpdated?: () => void;
 }
 
-export function ClinicalDetailsTabsCard({ record, patientId, user }: ClinicalDetailsTabsCardProps) {
+export function ClinicalDetailsTabsCard({ record, patientId, user, onRecordUpdated }: ClinicalDetailsTabsCardProps) {
   return (
     <Tabs
-      defaultActiveKey="timeline"
+      defaultActiveKey="intro"
       items={[
+        {
+          key: 'intro',
+          label: 'Giới thiệu về tôi',
+          children: (
+            <PatientIntroductionCard
+              record={record}
+              patientId={patientId}
+              onRecordUpdated={onRecordUpdated}
+            />
+          ),
+        },
         {
           key: 'timeline',
           label: 'Dòng thời gian',

@@ -114,6 +114,18 @@ export const PatientHeaderCard: React.FC<PatientHeaderCardProps> = ({
               <span className="emr-detail-val">{bloodType}</span>
             </div>
             <div className="emr-patient-detail-item">
+              <span className="emr-detail-label">Chiều cao:</span>
+              <span className="emr-detail-val">
+                {record?.patient.heightCm ? `${record.patient.heightCm} cm` : 'Chưa cập nhật'}
+              </span>
+            </div>
+            <div className="emr-patient-detail-item">
+              <span className="emr-detail-label">Cân nặng:</span>
+              <span className="emr-detail-val">
+                {record?.patient.weightKg ? `${record.patient.weightKg} kg` : 'Chưa cập nhật'}
+              </span>
+            </div>
+            <div className="emr-patient-detail-item">
               <span className="emr-detail-label">Điện thoại:</span>
               <span className="emr-detail-val">{phone}</span>
             </div>

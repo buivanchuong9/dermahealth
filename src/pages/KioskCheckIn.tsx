@@ -209,7 +209,7 @@ export default function KioskCheckIn({
       .find((item) => item.clinicLocationId)?.clinicLocationId;
     const [appointmentsResult, queueResult] = await Promise.allSettled([
       listAppointments(),
-      listQueueTickets(clinicLocationId),
+      listQueueTickets({ clinicLocationId: clinicLocationId }),
     ]);
     if (appointmentsResult.status === "fulfilled") {
       appointmentRepository.replaceAll(appointmentsResult.value);
@@ -315,6 +315,8 @@ export default function KioskCheckIn({
         skipped: 4,
         routed: 5,
         completed: 6,
+        cancelled: 7,
+        no_show: 8,
       };
       return queueTickets
         .filter((item) => {
@@ -460,7 +462,7 @@ export default function KioskCheckIn({
       await Promise.allSettled([
       listAppointments(),
       listEncounters(),
-      listQueueTickets(clinicLocationId),
+      listQueueTickets({ clinicLocationId: clinicLocationId }),
     ]);
     if (appointmentsResult.status === "fulfilled") {
       appointmentRepository.replaceAll(appointmentsResult.value);
@@ -659,7 +661,7 @@ export default function KioskCheckIn({
     setSubmitting(true);
     try {
       const freshTickets = mergeQueueTicketSnapshot(
-        await listQueueTickets(appointment.clinicLocationId),
+        await listQueueTickets({ clinicLocationId: appointment.clinicLocationId }),
         queueRepository.getAll(),
       );
       queueRepository.replaceAll(freshTickets);
@@ -1157,6 +1159,8 @@ export default function KioskCheckIn({
                                     skipped: ["Tạm hoãn", "warning"],
                                     routed: ["Đã chuyển", "purple"],
                                     completed: ["Hoàn tất", "success"],
+                                    cancelled: ["Đã hủy", "error"],
+                                    no_show: ["Vắng mặt", "orange"],
                                   }[row.status] as [string, string];
                                   return (
                                     <Tag color={status[1]}>{status[0]}</Tag>

@@ -12,6 +12,7 @@ import {
   Input,
   InputNumber,
   Col,
+  Popconfirm,
   Row,
   Segmented,
   Select,
@@ -33,6 +34,7 @@ import {
   MapPin,
   Pill,
   RefreshCw,
+  Trash2,
   TriangleAlert,
   UploadCloud,
 } from "lucide-react";
@@ -624,10 +626,12 @@ export function LesionSelector({
   lesions,
   selectedId,
   onSelect,
+  onDelete,
 }: {
   lesions: Lesion[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  onDelete?: (id: string) => void;
 }) {
   if (!lesions.length) {
     return (
@@ -652,43 +656,78 @@ export function LesionSelector({
             color="#dc2626"
             offset={[-8, 8]}
           >
-            <Button
-              type="text"
-              className={`${styles.lesionItem} ${selectedId === lesion.id ? styles.lesionItemSelected : ""}`}
-              onClick={() => onSelect(lesion.id)}
-              aria-current={selectedId === lesion.id ? "true" : undefined}
-            >
-              <span className={styles.lesionCode}>{lesion.code}</span>
-              <Text strong ellipsis>
-                {lesion.title}
-              </Text>
-              <span className={styles.lesionMeta}>
-                <MapPin size={13} /> {lesion.bodyRegion}
-              </span>
-              <span className={styles.lesionMeta}>
-                <Clock3 size={13} />{" "}
-                {new Date(lesion.firstObservedAt).toLocaleDateString("vi-VN")}
-              </span>
-              <span className={styles.lesionBadges}>
-                <Tag
-                  color={
-                    warning
-                      ? "red"
-                      : lesion.currentAssessment === "IMPROVING"
-                        ? "green"
-                        : "default"
-                  }
-                >
-                  {assessmentLabel[lesion.currentAssessment]}
-                </Tag>
-                {awaiting && <Tag color="gold">Chờ bác sĩ review</Tag>}
-                {lesion.suspectedAdverseEvent && (
-                  <Tag color="red" icon={<CircleAlert size={11} />}>
-                    Biến cố nghi ngờ
+            <div style={{ position: "relative", width: "100%", height: "100%" }}>
+              <Button
+                type="text"
+                className={`${styles.lesionItem} ${selectedId === lesion.id ? styles.lesionItemSelected : ""}`}
+                onClick={() => onSelect(lesion.id)}
+                aria-current={selectedId === lesion.id ? "true" : undefined}
+                style={{ paddingRight: onDelete ? 36 : undefined }}
+              >
+                <span className={styles.lesionCode}>{lesion.code}</span>
+                <Text strong ellipsis style={{ maxWidth: onDelete ? "calc(100% - 24px)" : "100%" }}>
+                  {lesion.title}
+                </Text>
+                <span className={styles.lesionMeta}>
+                  <MapPin size={13} /> {lesion.bodyRegion}
+                </span>
+                <span className={styles.lesionMeta}>
+                  <Clock3 size={13} />{" "}
+                  {new Date(lesion.firstObservedAt).toLocaleDateString("vi-VN")}
+                </span>
+                <span className={styles.lesionBadges}>
+                  <Tag
+                    color={
+                      warning
+                        ? "red"
+                        : lesion.currentAssessment === "IMPROVING"
+                          ? "green"
+                          : "default"
+                    }
+                  >
+                    {assessmentLabel[lesion.currentAssessment]}
                   </Tag>
-                )}
-              </span>
-            </Button>
+                  {awaiting && <Tag color="gold">Chờ bác sĩ review</Tag>}
+                  {lesion.suspectedAdverseEvent && (
+                    <Tag color="red" icon={<CircleAlert size={11} />}>
+                      Biến cố nghi ngờ
+                    </Tag>
+                  )}
+                </span>
+              </Button>
+              {onDelete && (
+                <Popconfirm
+                  title="Xoá tổn thương này?"
+                  description="Mọi ảnh và phân tích của tổn thương sẽ bị ẩn khỏi danh sách."
+                  okText="Xoá"
+                  cancelText="Hủy"
+                  okButtonProps={{ danger: true, size: "small" }}
+                  cancelButtonProps={{ size: "small" }}
+                  onConfirm={(e) => {
+                    e?.stopPropagation();
+                    onDelete(lesion.id);
+                  }}
+                >
+                  <Button
+                    type="text"
+                    danger
+                    size="small"
+                    icon={<Trash2 size={14} />}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      position: "absolute",
+                      top: 8,
+                      right: 8,
+                      zIndex: 2,
+                      opacity: 0.6,
+                      padding: "2px 6px",
+                      borderRadius: 6,
+                    }}
+                    title="Xoá tổn thương này"
+                  />
+                </Popconfirm>
+              )}
+            </div>
           </Badge>
         );
       })}

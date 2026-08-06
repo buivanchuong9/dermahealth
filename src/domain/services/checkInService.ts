@@ -58,10 +58,23 @@ function checkIn(input: CheckInInput): CheckInResult {
   const waiting = queueRepository.getAll().filter((q) => q.department === (appointment.department ?? 'Khoa Da liễu') && ['waiting', 'called'].includes(q.status));
   const sequence = Math.max(0, ...queueRepository.getAll().map((q) => Number(q.number.replace(/\D/g, '')) || 0)) + 1;
   const ticket: QueueTicket = {
-    id: nextId('QUEUE'), appointmentId: appointment.id, patientId: appointment.patientId, encounterId: record.plannedEncounterId,
-    number: `D${String(sequence).padStart(3, '0')}`, department: appointment.department ?? 'Khoa Da liễu', serviceStation: 'Quầy khám Da liễu',
-    room: 'Phòng 204', waitingArea: 'Khu chờ A, tầng 2', priority: 'normal', status: 'waiting', issuedAt: new Date().toISOString(),
-    peopleAhead: waiting.length, estimatedWaitMinutes: waiting.length * 12 + 5,
+    id: nextId('QUEUE'),
+    appointmentId: appointment.id,
+    patientId: appointment.patientId,
+    encounterId: record.plannedEncounterId,
+    checkInId: record.id,
+    sourceType: 'appointment',
+    clinicDate: new Date().toISOString().split('T')[0],
+    number: `D${String(sequence).padStart(3, '0')}`,
+    department: appointment.department ?? 'Khoa Da liễu',
+    serviceStation: 'Quầy khám Da liễu',
+    room: 'Phòng 204',
+    waitingArea: 'Khu chờ A, tầng 2',
+    priority: 'normal',
+    status: 'waiting',
+    issuedAt: new Date().toISOString(),
+    peopleAhead: waiting.length,
+    estimatedWaitMinutes: waiting.length * 12 + 5,
     preparationInstructions: ['Giữ điện thoại ở chế độ có âm thanh', 'Chuẩn bị giấy tờ tùy thân và hồ sơ liên quan'],
   };
   queueRepository.upsert(ticket);

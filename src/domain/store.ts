@@ -30,7 +30,9 @@ export function createEntityStore<T extends Entity>(
   const save = () => {
     try {
       localStorage.setItem(`dermahealth:store:${key}`, JSON.stringify(data));
-    } catch {}
+    } catch {
+      // localStorage unavailable (private browsing / quota exceeded)
+    }
   };
   const notify = () => {
     save();

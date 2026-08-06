@@ -231,7 +231,6 @@ export function ExplainabilityPanel({
   session,
   baseline,
   target,
-  onEvidence: _onEvidence,
   onViewEvidence,
   patientMode,
 }: {

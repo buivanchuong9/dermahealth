@@ -7,7 +7,7 @@ function update(id: string, status: QueueTicketStatus, actorId: UserId, extra: P
   const ticket = queueRepository.getById(id);
   if (!ticket) throw new Error('Không tìm thấy số thứ tự.');
   const updated = queueRepository.upsert({ ...ticket, ...extra, status });
-  auditService.log({ actorId, action: `QUEUE_${status.toUpperCase()}`, entityType: 'QueueTicket', entityId: id, patientId: ticket.patientId, encounterId: ticket.encounterId, previousState: ticket.status, newState: status, sourceModule: 'ClinicQueue' });
+  auditService.log({ actorId, action: `QUEUE_${status.toUpperCase()}`, entityType: 'QueueTicket', entityId: id, patientId: ticket.patientId, encounterId: ticket.encounterId ?? undefined, previousState: ticket.status, newState: status, sourceModule: 'ClinicQueue' });
   return updated;
 }
 function callNext(department: string, actorId: UserId) {
