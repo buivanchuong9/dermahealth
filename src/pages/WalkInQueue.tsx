@@ -19,7 +19,7 @@ const SERVICES = [
 export default function WalkInQueue() {
   const { message } = App.useApp();
   const [params] = useSearchParams();
-  const clinicLocationId = params.get("clinic") || "CS-HCM-01";
+  const clinicLocationId = params.get("clinic") || import.meta.env.VITE_CLINIC_LOCATION_ID || "02d400ec-2ab3-48f1-8a6a-57b7f7d1de14";
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
