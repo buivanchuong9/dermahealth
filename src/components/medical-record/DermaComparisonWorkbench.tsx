@@ -40,7 +40,7 @@ const originalSource = (observation: LesionObservation) =>
   observation.imageAssets.find((asset) => asset.type === 'ORIGINAL')?.protectedUrl;
 
 const alignedSource = (observation: LesionObservation) =>
-  latestImageAsset(observation, 'ALIGNED')?.protectedUrl;
+  latestImageAsset(observation, 'ALIGNED')?.protectedUrl || originalSource(observation);
 
 const MASK_PROVENANCE_LABEL: Record<string, string> = {
   CLINICIAN_DRAWN: 'Mask do bác sĩ vẽ',

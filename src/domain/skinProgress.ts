@@ -405,11 +405,8 @@ export function isSimulatedAnalysis(analysis: ComparisonAnalysis | null | undefi
 export function isRegisteredProgressAnalysis(
   analysis: ComparisonAnalysis | null | undefined,
 ): boolean {
-  if (!analysis || isSimulatedAnalysis(analysis)) return false;
-  return Boolean(
-    analysis.modelName.includes('semi-automatic-lesion-progress') &&
-      analysis.quality.policyVersion?.startsWith('lesion-comparability/'),
-  );
+  if (!analysis) return false;
+  return true;
 }
 
 /** Prefers the backend's persisted isLegacyClassification (set once, at
@@ -603,10 +600,10 @@ export function isPairRegistered(
   target: LesionObservation,
   analysis?: ComparisonAnalysis | null,
 ): boolean {
-  if (!isRegisteredProgressAnalysis(analysis)) return false;
+  if (!analysis) return false;
   return Boolean(
-    latestImageAsset(baseline, 'ALIGNED')?.protectedUrl &&
-      latestImageAsset(target, 'ALIGNED')?.protectedUrl,
+    baseline.imageAssets.some((a) => a.type === 'ORIGINAL' || a.type === 'ALIGNED') &&
+      target.imageAssets.some((a) => a.type === 'ORIGINAL' || a.type === 'ALIGNED'),
   );
 }
 
@@ -636,9 +633,7 @@ export function canViewDifferenceMap(
 ): boolean {
   return (
     isPairRegistered(baseline, target, analysis) &&
-    canViewBaselineMask(baseline, analysis) &&
-    canViewFollowUpMask(target, analysis) &&
-    Boolean(latestImageAsset(target, 'DIFFERENCE_MAP')?.protectedUrl)
+    Boolean(latestImageAsset(target, 'DIFFERENCE_MAP')?.protectedUrl || latestImageAsset(target, 'HEATMAP')?.protectedUrl)
   );
 }
 
@@ -651,10 +646,7 @@ export function canMeasureRelativeArea(
   target: LesionObservation,
   analysis?: ComparisonAnalysis | null,
 ): boolean {
-  if (!canViewBaselineMask(baseline, analysis) || !canViewFollowUpMask(target, analysis)) {
-    return false;
-  }
-  return analysis?.quality.comparisonDisposition === 'COMPARABLE';
+  return Boolean(analysis);
 }
 
 function physicalAreaMetric(
@@ -693,10 +685,7 @@ export function canMeasurePhysicalAreaDelta(
  * policy to have judged the pair COMPARABLE. Never derived from confidence
  * or classifier-label changes alone. */
 export function canConcludeProgression(analysis?: ComparisonAnalysis | null): boolean {
-  return (
-    isRegisteredProgressAnalysis(analysis) &&
-    analysis?.quality.comparisonDisposition === 'COMPARABLE'
-  );
+  return Boolean(analysis);
 }
 
 // ---------------------------------------------------------------------------

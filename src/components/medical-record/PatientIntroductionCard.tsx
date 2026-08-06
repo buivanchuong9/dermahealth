@@ -338,8 +338,9 @@ export const PatientIntroductionCard: React.FC<Props> = ({ record, patientId, on
       setAddAllergyOpen(false);
       form.resetFields();
       onRecordUpdated?.();
-    } catch {
-      // form validation error shown inline
+    } catch (err) {
+      if (err instanceof Error) void message.error(err.message || 'Không thể ghi nhận. Vui lòng thử lại.');
+      // otherwise: form validation error, shown inline
     } finally {
       setSaving(false);
     }
