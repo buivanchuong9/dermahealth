@@ -793,7 +793,7 @@ export const createAdverseEvent = (
     { idempotencyKey },
   );
 
-export const deleteLesion = (lesionId: string) =>
+export const deleteLesionApi = (lesionId: string) =>
   http.delete<{ success: boolean; lesionId: string }>(
     `/api/v1/lesions/${encodeURIComponent(lesionId)}`,
   );
@@ -845,7 +845,7 @@ export class ApiDermaTimelineRepository implements DermaTimelineRepository {
   }
 
   async deleteLesion(lesionId: string): Promise<void> {
-    await deleteLesion(lesionId);
+    await deleteLesionApi(lesionId);
   }
 
   requestComparison(
