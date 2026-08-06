@@ -47,6 +47,17 @@ const DISEASES_BY_REGION: Record<string, Array<{ label: string; probability: num
   other:    [{ label: 'Viêm da tiếp xúc', probability: 0.76 }, { label: 'Hắc lào (Nấm da thân)', probability: 0.16 }, { label: 'Bệnh chàm / Eczema', probability: 0.07 }],
 };
 
+function jetColor(v: number): [number, number, number] {
+  // Standard jet colormap: blue → cyan → green → yellow → red
+  let r = 0, g = 0, b = 0;
+  if (v < 0.125) { r = 0; g = 0; b = 0.5 + v * 4; }
+  else if (v < 0.375) { r = 0; g = (v - 0.125) * 4; b = 1; }
+  else if (v < 0.625) { r = (v - 0.375) * 4; g = 1; b = 1 - (v - 0.375) * 4; }
+  else if (v < 0.875) { r = 1; g = 1 - (v - 0.625) * 4; b = 0; }
+  else { r = 1 - (v - 0.875) * 4; g = 0; b = 0; }
+  return [Math.max(0, Math.min(1, r)), Math.max(0, Math.min(1, g)), Math.max(0, Math.min(1, b))];
+}
+
 function buildHeatmapDataUrl(originalDataUrl: string, size: number): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -55,26 +66,52 @@ function buildHeatmapDataUrl(originalDataUrl: string, size: number): Promise<str
       canvas.width = size; canvas.height = size;
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, size, size);
+      const imageData = ctx.getImageData(0, 0, size, size);
+      const px = imageData.data;
 
-      const cx = size * 0.50, cy = size * 0.46, r = size * 0.40;
-      ctx.globalAlpha = 0.58;
+      // Multiple irregular Gaussian hotspots — mimics real Grad-CAM attention blobs
+      const hotspots = [
+        { x: 0.50, y: 0.47, sx: 0.16, sy: 0.14, w: 1.00 },
+        { x: 0.55, y: 0.42, sx: 0.10, sy: 0.09, w: 0.72 },
+        { x: 0.44, y: 0.52, sx: 0.09, sy: 0.11, w: 0.65 },
+        { x: 0.53, y: 0.56, sx: 0.08, sy: 0.07, w: 0.50 },
+        { x: 0.42, y: 0.43, sx: 0.07, sy: 0.08, w: 0.42 },
+        { x: 0.58, y: 0.50, sx: 0.06, sy: 0.07, w: 0.38 },
+        { x: 0.48, y: 0.38, sx: 0.07, sy: 0.06, w: 0.30 },
+      ];
 
-      // red core
-      const g1 = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 0.28);
-      g1.addColorStop(0, 'rgba(255,20,0,0.95)'); g1.addColorStop(1, 'rgba(255,80,0,0)');
-      ctx.fillStyle = g1; ctx.fillRect(0, 0, size, size);
+      // Build activation map
+      const act = new Float32Array(size * size);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const nx = x / size, ny = y / size;
+          let val = 0;
+          for (const h of hotspots) {
+            const dx = (nx - h.x) / h.sx, dy = (ny - h.y) / h.sy;
+            val = Math.max(val, h.w * Math.exp(-0.5 * (dx * dx + dy * dy)));
+          }
+          act[y * size + x] = val;
+        }
+      }
 
-      // orange-yellow mid ring
-      const g2 = ctx.createRadialGradient(cx, cy, r * 0.18, cx, cy, r * 0.62);
-      g2.addColorStop(0, 'rgba(255,200,0,0)'); g2.addColorStop(0.45, 'rgba(255,190,0,0.65)'); g2.addColorStop(1, 'rgba(80,255,80,0)');
-      ctx.fillStyle = g2; ctx.fillRect(0, 0, size, size);
+      // Normalize to [0, 1]
+      let maxA = 0;
+      for (let i = 0; i < act.length; i++) if (act[i] > maxA) maxA = act[i];
+      if (maxA > 0) for (let i = 0; i < act.length; i++) act[i] /= maxA;
 
-      // green outer
-      const g3 = ctx.createRadialGradient(cx, cy, r * 0.45, cx, cy, r);
-      g3.addColorStop(0, 'rgba(0,230,80,0)'); g3.addColorStop(0.5, 'rgba(0,200,80,0.38)'); g3.addColorStop(1, 'rgba(0,80,255,0)');
-      ctx.fillStyle = g3; ctx.fillRect(0, 0, size, size);
+      // Blend jet colormap onto image pixels
+      for (let i = 0; i < size * size; i++) {
+        const v = act[i];
+        if (v < 0.12) continue; // leave cold areas untouched
+        const [jr, jg, jb] = jetColor(v);
+        const alpha = Math.min(0.72, v * 0.80);
+        const p = i * 4;
+        px[p]     = Math.round(px[p]     * (1 - alpha) + jr * 255 * alpha);
+        px[p + 1] = Math.round(px[p + 1] * (1 - alpha) + jg * 255 * alpha);
+        px[p + 2] = Math.round(px[p + 2] * (1 - alpha) + jb * 255 * alpha);
+      }
 
-      ctx.globalAlpha = 1;
+      ctx.putImageData(imageData, 0, 0);
       resolve(canvas.toDataURL('image/png'));
     };
     img.src = originalDataUrl;
