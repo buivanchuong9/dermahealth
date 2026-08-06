@@ -388,11 +388,10 @@ export default function AIAnalysis() {
     runScanAnimation(() => {
       void analysisPromise
         .then((outcome) => {
-          if (!outcome.ok) {
+          if (outcome.ok === false) {
+            const err = outcome.error;
             setSubmitError(
-              outcome.error instanceof Error
-                ? outcome.error.message
-                : 'Server không thể phân tích ảnh.',
+              err instanceof Error ? err.message : 'Server không thể phân tích ảnh.',
             );
             setSubmitting(false);
             setStep('upload');
@@ -867,19 +866,17 @@ export default function AIAnalysis() {
                   />
                 ) : displayedPredictions.length > 0 ? (
                   <>
-                    <Alert
-                      type={skinAnalysis.aggregate.abstained ? 'warning' : 'info'}
-                      showIcon
-                      message={skinAnalysis.aggregate.abstained
-                        ? 'Độ tin cậy chưa đủ để AI kết luận'
-                        : 'Ba khả năng gần nhất từ model'}
-                      description={skinAnalysis.aggregate.abstained
-                        ? (clinicalMode
-                            ? skinAnalysis.aggregate.abstainReasons.join('; ')
-                            : 'Các kết quả dưới đây chỉ để tham khảo và cần bác sĩ xác nhận.')
-                        : 'Model score thể hiện mức phù hợp với ảnh, không phải xác suất chẩn đoán chính xác.'}
-                      style={{ marginBottom: 16 }}
-                    />
+                    {skinAnalysis.aggregate.abstained && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message="Độ tin cậy chưa đủ để AI kết luận"
+                        description={clinicalMode
+                          ? skinAnalysis.aggregate.abstainReasons.join('; ')
+                          : 'Các kết quả dưới đây chỉ để tham khảo và cần bác sĩ xác nhận.'}
+                        style={{ marginBottom: 16 }}
+                      />
+                    )}
                     {[...displayedPredictions]
                       .sort((a, b) => b.probability - a.probability)
                       .slice(0, 3)
