@@ -942,20 +942,21 @@ export default function Profile() {
                 bodyStyle={{ padding: recentActivities.length ? '0 24px' : 24 }}
               >
                 {recentActivities.length > 0 ? (
-                  <div>
-                    {recentActivities.map((activity) => {
+                  <div style={{ maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
+                    {recentActivities.map((activity, idx) => {
+                      const isLast = idx === recentActivities.length - 1;
                       if (activity.kind === "ai") {
                         return (
-                          <div key={`ai-${activity.id}`} style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                          <div key={`ai-${activity.id}`} style={{ padding: '12px 0', borderBottom: isLast ? 'none' : '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                             <div>
-                              <Text strong style={{ display: 'block', fontSize: 14, color: '#1f2937' }}>
+                              <Text strong style={{ display: 'block', fontSize: 13.5, color: '#1f2937' }}>
                                 Phân tích da bằng AI
                               </Text>
                               <Text type="secondary" style={{ fontSize: 12 }}>
                                 {formatDateTime(activity.occurredAt)} · {safeString(activity.usage.bodyRegion, "Vùng da")}
                               </Text>
                             </div>
-                            <Tag color={activity.usage.allowanceKind === "purchased" ? "purple" : "cyan"} style={{ borderRadius: 12, padding: '2px 10px', fontSize: 12, margin: 0, flexShrink: 0 }}>
+                            <Tag color={activity.usage.allowanceKind === "purchased" ? "purple" : "cyan"} style={{ borderRadius: 12, padding: '2px 10px', fontSize: 11.5, margin: 0, flexShrink: 0 }}>
                               {activity.usage.allowanceKind === "purchased" ? "Lượt mua thêm" : "Trong gói"}
                             </Tag>
                           </div>
@@ -968,12 +969,12 @@ export default function Profile() {
                       const rawStatus = safeString(item.status, "completed");
                       const statusLabel = ENCOUNTER_STATUS_LABEL[rawStatus as EncounterStatus] ?? rawStatus;
                       return (
-                        <div key={`encounter-${item.id}`} style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        <div key={`encounter-${item.id}`} style={{ padding: '12px 0', borderBottom: isLast ? 'none' : '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                           <div>
-                            <Text strong style={{ display: 'block', fontSize: 14, color: '#1f2937' }}>{deptText}</Text>
+                            <Text strong style={{ display: 'block', fontSize: 13.5, color: '#1f2937' }}>{deptText}</Text>
                             <Text type="secondary" style={{ fontSize: 12 }}>{formatDateTime(item.createdAt)} · {typeText}</Text>
                           </div>
-                          <Tag color="blue" style={{ borderRadius: 12, padding: '2px 10px', fontSize: 12, margin: 0, flexShrink: 0 }}>
+                          <Tag color="blue" style={{ borderRadius: 12, padding: '2px 10px', fontSize: 11.5, margin: 0, flexShrink: 0 }}>
                             {statusLabel}
                           </Tag>
                         </div>
