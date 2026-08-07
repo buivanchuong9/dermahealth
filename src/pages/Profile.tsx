@@ -768,7 +768,7 @@ export default function Profile() {
                    <Text style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', textTransform: 'uppercase' }}>
                      {isUnlimitedPlan ? "Gói Max" : "Gói hiện tại"}
                    </Text>
-                   <Tag color="#0f172a" style={{ color: '#fff', fontWeight: 700, borderRadius: 20, padding: '4px 12px', margin: 0, border: 'none' }}>{currentPlan.name}</Tag>
+                   <Tag style={{ backgroundColor: '#0f172a', color: '#ffffff', fontWeight: 700, borderRadius: 20, padding: '4px 12px', margin: 0, border: 'none' }}>{currentPlan.name}</Tag>
                 </div>
                 {isUnlimitedPlan ? (
                   <div style={{ marginBottom: 24 }}>
