@@ -642,8 +642,8 @@ export function canViewDifferenceMap(
  * COMPARABLE (registration + lighting + scale + same-region checks) — see
  * quality_reasons in be/ai/app/comparison.py. */
 export function canMeasureRelativeArea(
-  baseline: LesionObservation,
-  target: LesionObservation,
+  _baseline: LesionObservation,
+  _target: LesionObservation,
   analysis?: ComparisonAnalysis | null,
 ): boolean {
   return Boolean(analysis);

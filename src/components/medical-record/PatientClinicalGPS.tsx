@@ -20,10 +20,7 @@ import type {
 import {
   deriveReviewState,
   effectiveMetrics,
-  resultSummaryCopy,
-  selectResultSummaryState,
 } from '../../domain/skinProgress';
-import { humanizeClinicalText } from '../../domain/skinLabels';
 import styles from './DermaTimeline.module.scss';
 
 const { Text, Title } = Typography;
@@ -71,8 +68,8 @@ export function PatientClinicalGPS({
   lesion,
   observations,
   session,
-  baseline,
-  target,
+  baseline: _baseline,
+  target: _target,
   prescriptions = [],
   careInstructions = [],
   allergies = [],
@@ -83,10 +80,6 @@ export function PatientClinicalGPS({
   const analysis = session?.analysis;
   const reviewState = session ? deriveReviewState(session) : lesion.reviewState;
   const isClinicianConfirmed = reviewState === 'CLINICIAN_CONFIRMED' || reviewState === 'CLINICIAN_MODIFIED';
-
-  // Determine top-level single status state
-  const summaryState = session && baseline && target ? selectResultSummaryState(session, baseline, target) : null;
-  const summaryCopy = summaryState && analysis ? resultSummaryCopy(summaryState, analysis.assessment) : null;
 
   // Derive top-level status card fields strictly from persisted state
   let heroTitle = 'Chưa có kết luận so sánh';
@@ -154,7 +147,7 @@ export function PatientClinicalGPS({
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {/* ── 1. TÌNH TRẠNG CỦA TÔI HIỆN TẠI THẾ NÀO? (First Viewport) ── */}
-      <Card size="small" className={styles.panelCard} style={{ borderLeft: heroType === 'success' ? '4px solid #52c41a' : heroType === 'warning' ? '4px solid #faad14' : heroType === 'error' ? '4px solid #ff4d4f' : '4px solid #1890ff' }}>
+      <Card size="small" className={styles.panelCard} style={{ borderLeft: heroType === 'success' ? '4px solid #52c41a' : heroType === 'error' ? '4px solid #ff4d4f' : '4px solid #1890ff' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
           <div>
             <Tag color={isClinicianConfirmed ? 'green' : 'gold'} style={{ marginBottom: 6 }}>
