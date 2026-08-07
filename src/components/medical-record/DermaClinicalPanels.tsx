@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Alert, Button, Card, Collapse, Descriptions, Drawer, Empty, Form, Input, Select, Space, Tag, Typography, App as AntApp } from 'antd';
-import { AlertCircle, Camera, Eye, FileCheck2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Alert, Button, Card, Collapse, Descriptions, Drawer, Form, Input, Select, Space, Tag, Typography, App as AntApp } from 'antd';
+import { Camera, Eye, FileCheck2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { humanizeClinicalText } from '../../domain/skinLabels';
 import { createAdverseEvent } from '../../api/lifetimeMedicalRecord';
 import {
@@ -10,8 +10,6 @@ import {
   isLegacyClassification,
   isRegisteredProgressAnalysis,
   primaryMetrics,
-  resultSummaryCopy,
-  selectResultSummaryState,
   type AdverseEventCausality,
   type ComparisonSession,
   type EvidenceLink,
@@ -44,12 +42,6 @@ const PATIENT_METRIC_LABEL: Record<string, string> = {
   'redness-score': 'Mức độ đỏ da',
 };
 
-/** Patient-friendly missing reason by metric key */
-const PATIENT_METRIC_MISSING: Record<string, string> = {
-  'lesion-area-index': 'Ảnh chưa đủ điều kiện để xác định vùng tổn thương.',
-  'lesion-area-physical-cm2': 'Không phát hiện thẻ đo DermaHealth trong ảnh — chưa tính được diện tích thực.',
-  'lesion-count': 'Ảnh chưa đủ rõ để đếm số lượng tổn thương.',
-};
 
 const sourceLabel = {
   IMAGE_ANALYSIS: 'Phân tích hình ảnh',
