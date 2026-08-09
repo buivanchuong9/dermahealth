@@ -1,38 +1,22 @@
-const ACCESS_TOKEN_KEY = 'dermahealth:v1:auth:accessToken';
-const EXPIRES_AT_KEY = 'dermahealth:v1:auth:accessTokenExpiresAt';
+let accessToken: string | null = null;
+let accessTokenExpiresAt: string | null = null;
 
 export function getAccessToken(): string | null {
-  try {
-    return localStorage.getItem(ACCESS_TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return accessToken;
 }
 
 export function getAccessTokenExpiresAt(): string | null {
-  try {
-    return localStorage.getItem(EXPIRES_AT_KEY);
-  } catch {
-    return null;
-  }
+  return accessTokenExpiresAt;
 }
 
 export function setAccessToken(token: string, expiresAt: string): void {
-  try {
-    localStorage.setItem(ACCESS_TOKEN_KEY, token);
-    localStorage.setItem(EXPIRES_AT_KEY, expiresAt);
-  } catch {
-    // ignore — private mode / storage disabled
-  }
+  accessToken = token;
+  accessTokenExpiresAt = expiresAt;
 }
 
 export function clearAccessToken(): void {
-  try {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(EXPIRES_AT_KEY);
-  } catch {
-    // ignore
-  }
+  accessToken = null;
+  accessTokenExpiresAt = null;
 }
 
 export function isAccessTokenExpired(): boolean {

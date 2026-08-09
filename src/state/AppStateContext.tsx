@@ -8,10 +8,11 @@ import {
 import { App as AntApp, Button, Result, Spin } from "antd";
 import { useNavigate } from "react-router-dom";
 import {
+  clearAllRepositories,
+  queueRepository,
   appointmentRepository,
   encounterRepository,
   patientRepository,
-  queueRepository,
   userRepository,
 } from "../domain/repositories";
 import { AppStateContext, type AppStateValue } from "./appStateContextObject";
@@ -37,7 +38,10 @@ import {
 } from "../api/queue";
 import { resolveOperationalRole, type UserRole } from "../domain/core/role";
 import { listOwnerRolePermissions } from "../api/ownerOperations";
-import { replaceRolePermissions } from "./rolePermissionStore";
+import {
+  clearRolePermissions,
+  replaceRolePermissions,
+} from "./rolePermissionStore";
 
 const activeRoleStorageKey = (userId: string) =>
   `dermahealth:v1:auth:activeRole:${userId}`;
@@ -256,11 +260,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       return null;
     });
     setCurrentPatientId(null);
-    userRepository.replaceAll([]);
-    patientRepository.replaceAll([]);
-    appointmentRepository.replaceAll([]);
-    encounterRepository.replaceAll([]);
-    queueRepository.replaceAll([]);
+    clearAllRepositories();
+    clearRolePermissions();
     clearAccessToken();
   }, []);
   const setCurrentUserId = useCallback((id: UserId) => {

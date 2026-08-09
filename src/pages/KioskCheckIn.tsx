@@ -53,8 +53,6 @@ import {
 import { useStore } from "../state/useStore";
 
 const { Title, Text } = Typography;
-const RECEPTION_DEVICE_ID_KEY = "dermahealth:reception-device:id";
-const RECEPTION_DEVICE_SECRET_KEY = "dermahealth:reception-device:secret";
 const MIN_CALLS_BEFORE_SKIP = 3;
 const QUEUE_PAGE_SIZE = 6;
 const localDayRange = (value = new Date()) => {
@@ -65,32 +63,16 @@ const localDayRange = (value = new Date()) => {
   return { start: start.getTime(), end: end.getTime() };
 };
 
-const storedReceptionDevice = () => {
-  try {
-    const id = localStorage.getItem(RECEPTION_DEVICE_ID_KEY);
-    const secret = localStorage.getItem(RECEPTION_DEVICE_SECRET_KEY);
-    return id && secret ? { id, secret } : undefined;
-  } catch {
-    return undefined;
-  }
-};
+let receptionDeviceCredential: { id: string; secret: string } | undefined;
+
+const storedReceptionDevice = () => receptionDeviceCredential;
 
 const storeReceptionDevice = (id: string, secret: string) => {
-  try {
-    localStorage.setItem(RECEPTION_DEVICE_ID_KEY, id);
-    localStorage.setItem(RECEPTION_DEVICE_SECRET_KEY, secret);
-  } catch {
-    // Trình duyệt chặn storage: credential vẫn dùng được cho lần check-in hiện tại.
-  }
+  receptionDeviceCredential = { id, secret };
 };
 
 const clearStoredReceptionDevice = () => {
-  try {
-    localStorage.removeItem(RECEPTION_DEVICE_ID_KEY);
-    localStorage.removeItem(RECEPTION_DEVICE_SECRET_KEY);
-  } catch {
-    // Không còn thao tác khôi phục nào khác nếu storage bị chặn.
-  }
+  receptionDeviceCredential = undefined;
 };
 
 export function QueueResult({
@@ -489,11 +471,9 @@ export default function KioskCheckIn({
       import.meta.env.VITE_KIOSK_CLINIC_LOCATION_ID ??
       import.meta.env.VITE_CLINIC_LOCATION_ID ??
       "CS-HCM-01";
-    // Device credentials are never baked into the app bundle (a shared
-    // secret readable by every visitor would let anyone forge check-ins
-    // remotely). Each physical kiosk provisions its own device secret once,
-    // stored only in that browser's localStorage — same mechanism for both
-    // the staff-attended and unattended kiosk routes.
+    // Device credentials are never baked into the app bundle or persisted in
+    // browser storage. They live only for this page lifetime; a durable kiosk
+    // session must be implemented as a server-issued HttpOnly cookie.
     let deviceId: string | undefined;
     let deviceSecret: string | undefined;
     const stored = storedReceptionDevice();

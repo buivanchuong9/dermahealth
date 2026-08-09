@@ -12,8 +12,8 @@ import type {
   AppointmentCheckInToken, QueueTicket,
 } from './core/entities';
 
-// Named, typed prototype repositories. Each is a thin wrapper around a
-// localStorage-backed EntityStore (see store.ts). Entities that are tightly
+// Named, typed repositories. Each is a thin wrapper around an in-memory
+// EntityStore (see store.ts). Entities that are tightly
 // coupled to one of the eleven named repositories called out in the
 // implementation brief (diagnosis, clinicalOrder, workflow, medicalRecord,
 // carePlan) are grouped as sub-namespaces on that repository rather than
@@ -51,8 +51,7 @@ const integrationMessageStore: EntityStore<IntegrationMessage> = createEntitySto
 const checkInTokenStore: EntityStore<AppointmentCheckInToken> = createEntityStore('appointmentCheckInTokens', world.appointmentCheckInTokens);
 const queueTicketStore: EntityStore<QueueTicket> = createEntityStore('queueTickets', world.queueTickets);
 
-// Seed additions are merged without resetting the user's local prototype data.
-// This keeps newly provisioned platform administrators available immediately.
+// Seed additions are merged into the in-memory startup view.
 world.users.filter((user) => user.role === 'super_administrator').forEach((user) => {
   if (!userStore.getById(user.id)) userStore.upsert(user);
 });
@@ -75,11 +74,7 @@ workflowInstanceStore.getAll().forEach((instance) => {
   workflowInstanceStore.upsert({ ...instance, ...identity });
 });
 
-/** Cross-collection FK sanity check for whatever combination of persisted-vs-seed
- * collections ended up loaded (e.g. one corrupted key falling back to seed while a
- * sibling collection that references it was loaded from a stale/valid persisted
- * copy). A dangling reference here means the localStorage snapshot is internally
- * inconsistent and must not be trusted, even though every individual key parsed. */
+/** Cross-collection FK sanity check for the in-memory startup view. */
 function hasReferentialIntegrityIssues(): boolean {
   const patientIds = new Set(patientStore.getAll().map((p) => p.id));
   const encounterIds = new Set(encounterStore.getAll().map((e) => e.id));
@@ -99,8 +94,8 @@ if (autoRecovered || hasReferentialIntegrityIssues()) {
   resetAllRepositoriesToSeed();
 }
 
-/** True if this page load discarded corrupted, incompatible, or referentially
- * broken persisted data and fell back to fresh seed data. Consumed once by
+/** True if this page load discarded a referentially broken startup view and
+ * fell back to fresh seed data. Consumed once by
  * AppStateProvider to surface a one-time notice to the user. */
 export function wasDataAutoRecovered(): boolean {
   return autoRecovered;
@@ -159,7 +154,42 @@ export const integrationRepository = {
   messages: () => integrationMessageStore,
 };
 
-/** Wipes localStorage and re-seeds every store in-place (used by "reset demo data"). */
+/** Zeroizes every user-scoped in-memory collection on logout. Keeping only
+ * the boot collections clear would let a second account in the same tab see
+ * stale, lazily loaded data from the previous account. */
+export function clearAllRepositories(): void {
+  userStore.replaceAll([]);
+  patientStore.replaceAll([]);
+  appointmentStore.replaceAll([]);
+  encounterStore.replaceAll([]);
+  intakeStore.replaceAll([]);
+  aiAssessmentStore.replaceAll([]);
+  doctorReviewStore.replaceAll([]);
+  doctorDiagnosisStore.replaceAll([]);
+  clinicalPlanStore.replaceAll([]);
+  clinicalOrderStore.replaceAll([]);
+  clinicalResultStore.replaceAll([]);
+  workflowTemplateStore.replaceAll([]);
+  workflowTemplateVersionStore.replaceAll([]);
+  workflowInstanceStore.replaceAll([]);
+  workflowTaskStore.replaceAll([]);
+  clinicalDocumentStore.replaceAll([]);
+  medicalRecordStore.replaceAll([]);
+  prescriptionStore.replaceAll([]);
+  carePlanStore.replaceAll([]);
+  followUpActivityStore.replaceAll([]);
+  clinicalAlertStore.replaceAll([]);
+  encounterCreationRequestStore.replaceAll([]);
+  notificationStore.replaceAll([]);
+  consentStore.replaceAll([]);
+  auditStore.replaceAll([]);
+  integrationConnectionStore.replaceAll([]);
+  integrationMessageStore.replaceAll([]);
+  checkInTokenStore.replaceAll([]);
+  queueTicketStore.replaceAll([]);
+}
+
+/** Purges legacy persisted entities and re-seeds every in-memory store. */
 export function resetAllRepositoriesToSeed(): void {
   clearPersistedState();
   resetIdSequence();

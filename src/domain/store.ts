@@ -14,28 +14,12 @@ export interface EntityStore<T extends Entity> {
 /** Business data lives in PostgreSQL. This store is only an in-memory view
  * populated from API responses; it deliberately never reads/writes localStorage. */
 export function createEntityStore<T extends Entity>(
-  key: string,
+  _key: string,
   initial: T[],
 ): EntityStore<T> {
-  const loadStored = (): T[] => {
-    try {
-      const raw = localStorage.getItem(`dermahealth:store:${key}`);
-      return raw ? (JSON.parse(raw) as T[]) : initial;
-    } catch {
-      return initial;
-    }
-  };
-  let data = loadStored();
+  let data = [...initial];
   const listeners = new Set<() => void>();
-  const save = () => {
-    try {
-      localStorage.setItem(`dermahealth:store:${key}`, JSON.stringify(data));
-    } catch {
-      // localStorage unavailable (private browsing / quota exceeded)
-    }
-  };
   const notify = () => {
-    save();
     listeners.forEach((listener) => listener());
   };
   return {
@@ -65,7 +49,17 @@ export function createEntityStore<T extends Entity>(
   };
 }
 
-export function clearPersistedState(): void {}
+export function clearPersistedState(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, index) =>
+      localStorage.key(index),
+    ).filter((key): key is string => key?.startsWith('dermahealth:store:') ?? false);
+    keys.forEach((key) => localStorage.removeItem(key));
+  } catch {
+    // Storage can be unavailable in private/restricted browsing.
+  }
+}
 export function wasRecoveredFromCorruption(): boolean {
   return false;
 }

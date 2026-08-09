@@ -35,6 +35,9 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: 🔐 Verify sensitive browser storage
+        run: npm run security:storage-check
+
       - name: ✅ Verify build output
         run: |
           if [ ! -f "${{ env.BUILD_OUTPUT_DIR }}/index.html" ]; then
@@ -116,3 +119,49 @@ jobs:
             # 6. Dọn dẹp
             rm -rf "$INCOMING"
             echo "✅ Deploy thành công lúc $(date)"
+
+      - name: 🛡️ Verify public security posture
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_URL="https://dermahealth.fitdnu.id.vn"
+          HTTP_HEADERS="$(mktemp)"
+          HTTPS_HEADERS="$(mktemp)"
+          trap 'rm -f "$HTTP_HEADERS" "$HTTPS_HEADERS"' EXIT
+
+          curl -sS -o /dev/null -D "$HTTP_HEADERS" \
+            "http://dermahealth.fitdnu.id.vn/login"
+          grep -Eiq '^HTTP/[^ ]+ 30(1|8)' "$HTTP_HEADERS"
+          grep -Eiq '^location: https://dermahealth\.fitdnu\.id\.vn/login' "$HTTP_HEADERS"
+
+          curl -sS -o /dev/null -D "$HTTPS_HEADERS" "$BASE_URL/login"
+          for header in \
+            strict-transport-security \
+            content-security-policy \
+            x-frame-options \
+            x-content-type-options \
+            referrer-policy \
+            permissions-policy; do
+            grep -Eiq "^${header}:" "$HTTPS_HEADERS" || {
+              echo "Missing required response header: $header" >&2
+              exit 1
+            }
+          done
+
+          for path in /.env /.git/HEAD /openapi.json /sitemap.xml; do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL$path")"
+            if [ "$status" != "404" ]; then
+              echo "Expected 404 for $path, got $status" >&2
+              exit 1
+            fi
+          done
+
+          for tls_version in 1.0 1.1; do
+            if curl -sS -o /dev/null \
+              --tlsv${tls_version} --tls-max ${tls_version} \
+              "$BASE_URL/login"; then
+              echo "Obsolete TLS $tls_version is still accepted" >&2
+              exit 1
+            fi
+          done

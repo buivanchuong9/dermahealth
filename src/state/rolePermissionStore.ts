@@ -19,6 +19,10 @@ export function replaceRolePermissions(rows: RolePermission[]) {
   emit({ loaded: true, rows });
 }
 
+export function clearRolePermissions() {
+  emit({ loaded: false, rows: [] });
+}
+
 export function grantRolePermissionLocally(
   role: UserRole,
   permissionCode: string,

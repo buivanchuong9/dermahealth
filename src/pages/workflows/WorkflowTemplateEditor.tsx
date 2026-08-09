@@ -414,25 +414,18 @@ export default function WorkflowTemplateEditor() {
   const latestPublished = templateVersions.find((v) => v.id === template?.latestPublishedVersionId);
   const systemNodePositions = (() => {
     if (!draft) return {};
-    const storageKey = `dermahealth:workflow-layout:${draft.id}:system-nodes`;
-    try {
-      const stored = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, { x: number; y: number }>;
-      const merged = {
-        ...stored,
-        ...(draft.nodePositions?.__START__ ? { __START__: draft.nodePositions.__START__ } : {}),
-        ...(draft.nodePositions?.__END__ ? { __END__: draft.nodePositions.__END__ } : {}),
-      };
-      return Object.fromEntries(
-        Object.entries(merged).filter(([, position]) =>
-          Number.isFinite(position?.x)
-          && Number.isFinite(position?.y)
-          && Math.abs(position.x) < 100_000
-          && Math.abs(position.y) < 100_000,
-        ),
-      );
-    } catch {
-      return {};
-    }
+    const storedOnServer = {
+      ...(draft.nodePositions?.__START__ ? { __START__: draft.nodePositions.__START__ } : {}),
+      ...(draft.nodePositions?.__END__ ? { __END__: draft.nodePositions.__END__ } : {}),
+    };
+    return Object.fromEntries(
+      Object.entries(storedOnServer).filter(([, position]) =>
+        Number.isFinite(position?.x)
+        && Number.isFinite(position?.y)
+        && Math.abs(position.x) < 100_000
+        && Math.abs(position.y) < 100_000,
+      ),
+    );
   })();
   const canDesign = hasRoleAccess(role, WORKFLOW_AUTHOR_ROLES);
   const canPublish = hasRoleAccess(role, ['medical_administrator']);
@@ -465,20 +458,7 @@ export default function WorkflowTemplateEditor() {
   const hasEndNode = Boolean(systemNodePositions.__END__);
   const terminalEdges = (() => {
     if (!draft) return [];
-    if (draft.terminalEdges?.length) return draft.terminalEdges;
-    try {
-      const stored = JSON.parse(localStorage.getItem(`dermahealth:workflow-layout:${draft.id}:terminal-edges`) ?? '[]') as Array<{ source: string; target: string }>;
-      const validNodeIds = new Set(['__START__', '__END__', ...flowSteps.map((step) => step.code)]);
-      return stored.filter((edge) =>
-        validNodeIds.has(edge.source)
-        && validNodeIds.has(edge.target)
-        && edge.source !== edge.target
-        && edge.source !== '__END__'
-        && edge.target !== '__START__',
-      );
-    } catch {
-      return [];
-    }
+    return draft.terminalEdges ?? [];
   })();
   const validationReport = validateWorkflowGraph({
     steps: flowSteps,
@@ -696,8 +676,6 @@ export default function WorkflowTemplateEditor() {
           nodePositions: fresh.nodePositions ?? positions,
           terminalEdges: fresh.terminalEdges ?? nextTerminalEdges,
         });
-        localStorage.removeItem(`dermahealth:workflow-layout:${versionId}:system-nodes`);
-        localStorage.removeItem(`dermahealth:workflow-layout:${versionId}:terminal-edges`);
       })
       .catch((err: unknown) => {
         showError(err);
