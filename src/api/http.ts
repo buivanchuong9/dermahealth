@@ -41,14 +41,6 @@ function redirectToLoginAfterSessionExpiry(): void {
   if (typeof window === "undefined" || redirectingToLogin) return;
   if (window.location.pathname === "/login") return;
   redirectingToLogin = true;
-  try {
-    sessionStorage.setItem(
-      "dermahealth:returnTo",
-      `${window.location.pathname}${window.location.search}${window.location.hash}`,
-    );
-  } catch {
-    // Session storage may be unavailable in private/restricted browsing.
-  }
   window.location.replace("/login?reason=session-expired");
 }
 

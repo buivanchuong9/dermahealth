@@ -2,6 +2,14 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
+    <!-- Defense in depth for static hosts. The Nginx response header remains
+         authoritative and also supplies frame-ancestors, which meta CSP
+         cannot enforce. Keep both policies in sync. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; media-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests"
+    />
+    <meta name="referrer" content="no-referrer" />
     <link rel="icon" type="image/png" href="/logo-mark.png?v=3" />
     <link rel="apple-touch-icon" href="/logo-mark.png?v=3" />
     <meta name="theme-color" content="#0c304d" />
