@@ -398,6 +398,7 @@ export default function Login() {
   const [isDark, setIsDark] = useState(false);
   const [flashAngle, setFlashAngle] = useState(0);
   const flashRef = useRef<HTMLSpanElement>(null);
+  const beamRef = useRef<HTMLDivElement>(null);
   const sessionExpired =
     new URLSearchParams(window.location.search).get("reason") ===
     "session-expired";
@@ -412,14 +413,38 @@ export default function Login() {
     if (!isDark) return;
     const onMove = (e: MouseEvent) => {
       const el = flashRef.current;
+      const beam = beamRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
-      const radL = Math.atan2(e.clientY - cy, -(e.clientX - cx));
+      const dx = e.clientX - cx;
+      const dy = e.clientY - cy;
+      const dist = Math.hypot(dx, dy);
+      // Icon rotation
+      const radL = Math.atan2(dy, -dx);
       const degL = radL * (180 / Math.PI);
       const clamped = Math.max(-90, Math.min(90, degL));
       setFlashAngle(-90 - clamped);
+      // Beam via direct DOM — no re-render
+      if (beam) {
+        const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+        const beamLength = clamp(dist * 1.65, 160, 1600);
+        const beamHeight = beamLength * 0.38;
+        // angleDeg: direction from flashlight center toward cursor (standard atan2)
+        const angleRad = Math.atan2(dy, dx);
+        const angleDeg = angleRad * (180 / Math.PI);
+        // Offset origin 13px forward along beam direction so beam starts at flashlight tip
+        const originX = cx + Math.cos(angleRad) * 13;
+        const originY = cy + Math.sin(angleRad) * 13;
+        // transformOrigin "0 50%" means rotation pivot is at left-center of the div
+        beam.style.left = `${originX}px`;
+        beam.style.top = `${originY - beamHeight / 2}px`;
+        beam.style.width = `${beamLength}px`;
+        beam.style.height = `${beamHeight}px`;
+        beam.style.transform = `rotate(${angleDeg}deg)`;
+        beam.style.opacity = "1";
+      }
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
@@ -543,6 +568,38 @@ export default function Login() {
         )}
       </Modal>
       <Spotlight isDark={isDark} />
+
+      {/* ── Flashlight beam ── */}
+      {isDark && (
+        <div
+          ref={beamRef}
+          style={{
+            position: "fixed",
+            zIndex: 5,
+            pointerEvents: "none",
+            transformOrigin: "0 50%",
+            filter: "blur(12px)",
+            opacity: 0,
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "linear-gradient(90deg," +
+                "rgba(255,224,156,0.754) 0%," +
+                "rgba(255,219,145,0.559) 16%," +
+                "rgba(255,214,140,0.325) 35%," +
+                "rgba(255,207,130,0.143) 55%," +
+                "rgba(255,202,124,0.039) 75%," +
+                "rgba(255,202,124,0) 96%," +
+                "transparent 100%)",
+              clipPath: "polygon(0 50%, 100% 0%, 100% 100%)",
+            }}
+          />
+        </div>
+      )}
 
       {/* ── Ambient blobs ── */}
       <motion.div
