@@ -9,7 +9,7 @@ import {
   Alert,
   Modal,
 } from "antd";
-import { ArrowRight, Shield, Zap, Heart, Eye, EyeOff } from "lucide-react";
+import { ArrowRight, Shield, Zap, Heart, Eye, Flashlight } from "lucide-react";
 import {
   motion,
   useMotionValue,
@@ -166,7 +166,7 @@ function Typewriter({ lines }: { lines: string[] }) {
 }
 
 /* ─── Spotlight (follows cursor on right panel) ──────── */
-function Spotlight() {
+function Spotlight({ isDark }: { isDark?: boolean }) {
   const x = useMotionValue(-200);
   const y = useMotionValue(-200);
   const sx = useSpring(x, { stiffness: 120, damping: 20 });
@@ -191,11 +191,12 @@ function Spotlight() {
         position: "fixed",
         pointerEvents: "none",
         zIndex: 0,
-        width: 420,
-        height: 420,
+        width: isDark ? 550 : 420,
+        height: isDark ? 550 : 420,
         borderRadius: "50%",
-        background:
-          "radial-gradient(circle, rgba(93,169,234,0.10) 0%, transparent 70%)",
+        background: isDark
+          ? "radial-gradient(circle, rgba(93,169,234,0.35) 0%, rgba(26,84,148,0.12) 45%, transparent 70%)"
+          : "radial-gradient(circle, rgba(93,169,234,0.10) 0%, transparent 70%)",
         x: sx,
         y: sy,
         translateX: "-50%",
@@ -271,7 +272,15 @@ function RippleButton({
 }
 
 /* ─── Social Button (no y-lift, just shadow + scale) ─── */
-function SocialBtn({ label, icon }: { label: string; icon: React.ReactNode }) {
+function SocialBtn({
+  label,
+  icon,
+  isDark,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  isDark?: boolean;
+}) {
   return (
     <motion.button
       whileHover={{ scale: 1.035, boxShadow: "0 6px 22px rgba(16,34,90,0.13)" }}
@@ -281,18 +290,20 @@ function SocialBtn({ label, icon }: { label: string; icon: React.ReactNode }) {
         flex: 1,
         height: 50,
         borderRadius: 14,
-        background: "rgba(255,255,255,0.92)",
-        border: "1.5px solid rgba(16,34,90,0.10)",
+        background: isDark ? "rgba(15,28,48,0.85)" : "rgba(255,255,255,0.92)",
+        border: isDark
+          ? "1.5px solid rgba(93,169,234,0.25)"
+          : "1.5px solid rgba(16,34,90,0.10)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         gap: 9,
         fontWeight: 600,
         fontSize: 14,
-        color: "#1a1a2e",
+        color: isDark ? "#ffffff" : "#1a1a2e",
         cursor: "pointer",
         boxShadow: "0 2px 8px rgba(16,34,90,0.06)",
-        transition: "border-color 0.2s",
+        transition: "border-color 0.7s ease, background 0.7s ease, color 0.7s ease",
       }}
     >
       {icon} {label}
@@ -306,27 +317,36 @@ function FeatureCard({
   title,
   desc,
   delay,
+  isDark,
 }: {
   icon: React.ReactNode;
   title: string;
   desc: string;
   delay: number;
+  isDark?: boolean;
 }) {
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay, duration: 0.5, ease: E_OUT }}
-      whileHover={{ x: 6, background: "rgba(255,255,255,0.12)" }}
+      whileHover={{
+        x: 6,
+        background: isDark
+          ? "rgba(93,169,234,0.15)"
+          : "rgba(255,255,255,0.12)",
+      }}
       style={{
         display: "flex",
         alignItems: "flex-start",
         gap: 14,
         padding: "12px 16px",
         borderRadius: 14,
-        background: "rgba(255,255,255,0.06)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        transition: "background 0.25s",
+        background: isDark ? "rgba(13,32,64,0.85)" : "rgba(255,255,255,0.06)",
+        border: isDark
+          ? "1px solid rgba(93,169,234,0.30)"
+          : "1px solid rgba(255,255,255,0.1)",
+        transition: "background 0.7s ease, border-color 0.7s ease",
         cursor: "default",
       }}
     >
@@ -335,7 +355,9 @@ function FeatureCard({
           width: 36,
           height: 36,
           borderRadius: 10,
-          background: "rgba(93,169,234,0.22)",
+          background: isDark
+            ? "rgba(93,169,234,0.18)"
+            : "rgba(93,169,234,0.22)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -349,7 +371,7 @@ function FeatureCard({
           style={{
             fontWeight: 700,
             fontSize: 13.5,
-            color: "rgba(255,255,255,0.92)",
+            color: isDark ? "#ffffff" : "rgba(255,255,255,0.92)",
             lineHeight: 1.2,
           }}
         >
@@ -358,7 +380,7 @@ function FeatureCard({
         <div
           style={{
             fontSize: 12,
-            color: "rgba(255,255,255,0.52)",
+            color: isDark ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.52)",
             marginTop: 3,
             lineHeight: 1.4,
           }}
@@ -373,6 +395,9 @@ function FeatureCard({
 /* ─── Main ───────────────────────────────────────────── */
 export default function Login() {
   const nav = useNavigate();
+  const [isDark, setIsDark] = useState(false);
+  const [flashAngle, setFlashAngle] = useState(0);
+  const flashRef = useRef<HTMLSpanElement>(null);
   const sessionExpired =
     new URLSearchParams(window.location.search).get("reason") ===
     "session-expired";
@@ -382,6 +407,23 @@ export default function Login() {
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotResult, setForgotResult] = useState<string | null>(null);
   const [forgotError, setForgotError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isDark) return;
+    const onMove = (e: MouseEvent) => {
+      const el = flashRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const radL = Math.atan2(e.clientY - cy, -(e.clientX - cx));
+      const degL = radL * (180 / Math.PI);
+      const clamped = Math.max(-90, Math.min(90, degL));
+      setFlashAngle(-90 - clamped);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [isDark]);
 
   const handleLogin = async (values: LoginFormValues) => {
     setError(null);
@@ -447,7 +489,10 @@ export default function Login() {
         width: "100vw",
         fontFamily: "var(--font-system)",
         overflow: "hidden",
-        background: "linear-gradient(135deg, #eef2ff 0%, #e8f0fe 100%)",
+        background: isDark
+          ? "linear-gradient(135deg, #030a16 0%, #0a1b33 100%)"
+          : "linear-gradient(135deg, #eef2ff 0%, #e8f0fe 100%)",
+        transition: "background 0.7s ease",
       }}
     >
       <Modal
@@ -497,7 +542,7 @@ export default function Login() {
           </Form>
         )}
       </Modal>
-      <Spotlight />
+      <Spotlight isDark={isDark} />
 
       {/* ── Ambient blobs ── */}
       <motion.div
@@ -609,12 +654,14 @@ export default function Login() {
           flex: 1,
           position: "relative",
           overflow: "hidden",
-          background:
-            "linear-gradient(152deg, #071e35 0%, #0c3060 48%, #174d8a 100%)",
+          background: isDark
+            ? "linear-gradient(152deg, #040d1a 0%, #081528 48%, #0d2040 100%)"
+            : "linear-gradient(152deg, #071e35 0%, #0c3060 48%, #174d8a 100%)",
           color: "white",
           display: "flex",
           flexDirection: "column",
           padding: "44px 60px",
+          transition: "background 0.7s ease",
         }}
       >
         {/* Shimmer sweep */}
@@ -660,9 +707,11 @@ export default function Login() {
             width: 360,
             height: 360,
             borderRadius: "50%",
-            background:
-              "radial-gradient(circle, rgba(93,169,234,0.16) 0%, transparent 68%)",
+            background: isDark
+              ? "radial-gradient(circle, rgba(93,169,234,0.40) 0%, transparent 68%)"
+              : "radial-gradient(circle, rgba(93,169,234,0.16) 0%, transparent 68%)",
             pointerEvents: "none",
+            transition: "background 0.7s ease",
           }}
         />
 
@@ -771,7 +820,9 @@ export default function Login() {
           <motion.div variants={leftItem}>
             <p
               style={{
-                color: "rgba(255,255,255,0.65)",
+                color: isDark
+                  ? "rgba(255,255,255,0.8)"
+                  : "rgba(255,255,255,0.65)",
                 fontSize: 15,
                 lineHeight: 1.78,
                 marginBottom: 0,
@@ -792,8 +843,13 @@ export default function Login() {
               marginTop: 32,
               borderRadius: 16,
               overflow: "hidden",
-              border: "1px solid rgba(255,255,255,0.1)",
-              background: "rgba(255,255,255,0.04)",
+              border: isDark
+                ? "1px solid rgba(93,169,234,0.35)"
+                : "1px solid rgba(255,255,255,0.1)",
+              background: isDark
+                ? "rgba(4,13,26,0.75)"
+                : "rgba(255,255,255,0.04)",
+              transition: "background 0.7s ease, border-color 0.7s ease",
             }}
           >
             {[
@@ -810,7 +866,11 @@ export default function Login() {
                   padding: "14px 0",
                   textAlign: "center",
                   borderRight:
-                    i < 2 ? "1px solid rgba(255,255,255,0.1)" : "none",
+                    i < 2
+                      ? isDark
+                        ? "1px solid rgba(93,169,234,0.3)"
+                        : "1px solid rgba(255,255,255,0.1)"
+                      : "none",
                   cursor: "default",
                 }}
               >
@@ -827,7 +887,7 @@ export default function Login() {
                 <div
                   style={{
                     fontSize: 11.5,
-                    opacity: 0.5,
+                    opacity: isDark ? 0.75 : 0.5,
                     marginTop: 4,
                     letterSpacing: "0.03em",
                   }}
@@ -853,18 +913,21 @@ export default function Login() {
               title="AI Phân tích da"
               desc="Nhận diện vấn đề da chính xác 98%"
               delay={0.8}
+              isDark={isDark}
             />
             <FeatureCard
               icon={<Shield size={16} color="#5da9ea" />}
               title="Bảo mật dữ liệu"
               desc="Mã hóa end-to-end chuẩn y tế"
               delay={0.92}
+              isDark={isDark}
             />
             <FeatureCard
               icon={<Heart size={16} color="#5da9ea" />}
               title="Theo dõi tiến triển"
               desc="Lịch sử điều trị toàn diện"
               delay={1.04}
+              isDark={isDark}
             />
           </motion.div>
         </div>
@@ -923,13 +986,19 @@ export default function Login() {
           <div
             style={{
               padding: "38px 36px 30px",
-              background: "rgba(255,255,255,0.86)",
+              background: isDark
+                ? "rgba(10,22,40,0.85)"
+                : "rgba(255,255,255,0.86)",
               backdropFilter: "blur(32px) saturate(180%)",
               WebkitBackdropFilter: "blur(32px) saturate(180%)",
               borderRadius: 28,
-              border: "1px solid rgba(255,255,255,0.92)",
-              boxShadow:
-                "0 4px 24px rgba(16,34,90,0.08), 0 1px 4px rgba(16,34,90,0.05), inset 0 1px 0 rgba(255,255,255,1)",
+              border: isDark
+                ? "1px solid rgba(93,169,234,0.25)"
+                : "1px solid rgba(255,255,255,0.92)",
+              boxShadow: isDark
+                ? "0 8px 32px rgba(0,0,0,0.45), 0 0 24px rgba(93,169,234,0.12)"
+                : "0 4px 24px rgba(16,34,90,0.08), 0 1px 4px rgba(16,34,90,0.05), inset 0 1px 0 rgba(255,255,255,1)",
+              transition: "all 0.7s ease",
             }}
           >
             {/* Header */}
@@ -943,15 +1012,24 @@ export default function Login() {
                   level={3}
                   style={{
                     marginBottom: 4,
-                    background: "linear-gradient(135deg, #071e35, #1a5494)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
+                    color: isDark ? "#ffffff" : undefined,
+                    background: isDark
+                      ? "none"
+                      : "linear-gradient(135deg, #071e35, #1a5494)",
+                    WebkitBackgroundClip: isDark ? "unset" : "text",
+                    WebkitTextFillColor: isDark ? "#ffffff" : "transparent",
                     fontWeight: 800,
                   }}
                 >
                   Đăng nhập
                 </Title>
-                <Text type="secondary" style={{ fontSize: 13.5 }}>
+                <Text
+                  type="secondary"
+                  style={{
+                    fontSize: 13.5,
+                    color: isDark ? "rgba(255,255,255,0.65)" : undefined,
+                  }}
+                >
                   Chào mừng trở lại! Vui lòng nhập thông tin của bạn.
                 </Text>
               </div>
@@ -988,7 +1066,15 @@ export default function Login() {
 
                 <motion.div variants={fadeUp}>
                   <Form.Item
-                    label="Email"
+                    label={
+                      <span
+                        style={{
+                          color: isDark ? "rgba(255,255,255,0.85)" : undefined,
+                        }}
+                      >
+                        Email
+                      </span>
+                    }
                     name="email"
                     rules={[
                       { required: true, message: "Vui lòng nhập Email!" },
@@ -1002,9 +1088,14 @@ export default function Login() {
                         borderRadius: 13,
                         padding: "11px 14px",
                         fontSize: 14,
-                        background: "rgba(248,250,255,0.9)",
-                        border: "1.5px solid rgba(16,34,90,0.11)",
-                        transition: "all 0.25s ease",
+                        background: isDark
+                          ? "rgba(15,28,48,0.7)"
+                          : "rgba(248,250,255,0.9)",
+                        border: isDark
+                          ? "1.5px solid rgba(93,169,234,0.3)"
+                          : "1.5px solid rgba(16,34,90,0.11)",
+                        color: isDark ? "#ffffff" : undefined,
+                        transition: "all 0.7s ease",
                       }}
                     />
                   </Form.Item>
@@ -1012,7 +1103,15 @@ export default function Login() {
 
                 <motion.div variants={fadeUp}>
                   <Form.Item
-                    label="Mật khẩu"
+                    label={
+                      <span
+                        style={{
+                          color: isDark ? "rgba(255,255,255,0.85)" : undefined,
+                        }}
+                      >
+                        Mật khẩu
+                      </span>
+                    }
                     name="password"
                     rules={[
                       { required: true, message: "Vui lòng nhập mật khẩu!" },
@@ -1021,16 +1120,56 @@ export default function Login() {
                     <Input.Password
                       size="large"
                       placeholder="••••••••"
-                      iconRender={(visible) =>
-                        visible ? <EyeOff size={16} /> : <Eye size={16} />
+                      visibilityToggle={{ visible: false }}
+                      iconRender={() =>
+                        isDark ? (
+                          <span
+                            ref={flashRef}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDark(false);
+                            }}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              transform: `rotate(${flashAngle}deg)`,
+                              transition: "transform 0.08s linear",
+                            }}
+                          >
+                            <Flashlight
+                              size={16}
+                              style={{ color: "#5da9ea", cursor: "pointer" }}
+                            />
+                          </span>
+                        ) : (
+                          <span
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDark(true);
+                            }}
+                          >
+                            <Eye
+                              size={16}
+                              style={{ color: "#6b7280", cursor: "pointer" }}
+                            />
+                          </span>
+                        )
                       }
                       style={{
                         borderRadius: 13,
                         padding: "11px 14px",
                         fontSize: 14,
-                        background: "rgba(248,250,255,0.9)",
-                        border: "1.5px solid rgba(16,34,90,0.11)",
-                        transition: "all 0.25s ease",
+                        background: isDark
+                          ? "rgba(15,28,48,0.7)"
+                          : "rgba(248,250,255,0.9)",
+                        border: isDark
+                          ? "1.5px solid rgba(93,169,234,0.3)"
+                          : "1.5px solid rgba(16,34,90,0.11)",
+                        color: isDark ? "#ffffff" : undefined,
+                        transition: "all 0.7s ease",
                       }}
                     />
                   </Form.Item>
@@ -1046,13 +1185,22 @@ export default function Login() {
                   }}
                 >
                   <Form.Item name="remember" valuePropName="checked" noStyle>
-                    <Checkbox style={{ fontSize: 13 }}>
+                    <Checkbox
+                      style={{
+                        fontSize: 13,
+                        color: isDark ? "rgba(255,255,255,0.85)" : undefined,
+                      }}
+                    >
                       Ghi nhớ đăng nhập
                     </Checkbox>
                   </Form.Item>
                   <motion.a
                     href="#"
-                    style={{ color: "#1a5494", fontWeight: 600, fontSize: 13 }}
+                    style={{
+                      color: isDark ? "#5da9ea" : "#1a5494",
+                      fontWeight: 600,
+                      fontSize: 13,
+                    }}
                     whileHover={{ color: "#5da9ea" }}
                     onClick={(e) => {
                       e.preventDefault();
@@ -1108,7 +1256,12 @@ export default function Login() {
             >
               <Divider
                 plain
-                style={{ fontSize: 12, color: "#9ca3af", margin: "20px 0" }}
+                style={{
+                  fontSize: 12,
+                  color: isDark ? "rgba(255,255,255,0.45)" : "#9ca3af",
+                  borderColor: isDark ? "rgba(255,255,255,0.12)" : undefined,
+                  margin: "20px 0",
+                }}
               >
                 Hoặc tiếp tục với
               </Divider>
@@ -1123,6 +1276,7 @@ export default function Login() {
             >
               <SocialBtn
                 label="Google"
+                isDark={isDark}
                 icon={
                   <svg width="18" height="18" viewBox="0 0 24 24">
                     <path
@@ -1146,12 +1300,16 @@ export default function Login() {
               />
               <SocialBtn
                 label="Apple"
+                isDark={isDark}
                 icon={
-                  <img
-                    src="/logo_apple.png"
-                    alt="Apple"
-                    style={{ width: 18, height: 18, objectFit: "contain" }}
-                  />
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill={isDark ? "#ffffff" : "#000000"}
+                  >
+                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.67-.82 1.13-1.96.99-3.11-.97.04-2.15.65-2.85 1.46-.62.72-1.16 1.88-1.01 3 .1.01 2.2-.68 2.87-1.35z" />
+                  </svg>
                 }
               />
             </motion.div>
@@ -1169,12 +1327,16 @@ export default function Login() {
                   textAlign: "center",
                   marginTop: 22,
                   fontSize: 13.5,
+                  color: isDark ? "rgba(255,255,255,0.6)" : undefined,
                 }}
               >
                 Chưa có tài khoản?{" "}
                 <motion.a
                   href="/register"
-                  style={{ color: "#1a5494", fontWeight: 700 }}
+                  style={{
+                    color: isDark ? "#5da9ea" : "#1a5494",
+                    fontWeight: 700,
+                  }}
                   whileHover={{ color: "#5da9ea" }}
                   onClick={(e) => {
                     e.preventDefault();
