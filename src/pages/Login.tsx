@@ -9,7 +9,7 @@ import {
   Alert,
   Modal,
 } from "antd";
-import { ArrowRight, Shield, Zap, Heart } from "lucide-react";
+import { ArrowRight, Shield, Zap, Heart, Eye, EyeOff } from "lucide-react";
 import {
   motion,
   useMotionValue,
@@ -1021,6 +1021,9 @@ export default function Login() {
                     <Input.Password
                       size="large"
                       placeholder="••••••••"
+                      iconRender={(visible) =>
+                        visible ? <EyeOff size={16} /> : <Eye size={16} />
+                      }
                       style={{
                         borderRadius: 13,
                         padding: "11px 14px",
