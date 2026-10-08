@@ -17,7 +17,7 @@ import {
   animate,
   AnimatePresence,
 } from "framer-motion";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { forgotPassword, login } from "../api/auth";
 import { ApiError } from "../api/http";
 
@@ -195,7 +195,7 @@ function Spotlight({ isDark }: { isDark?: boolean }) {
         height: isDark ? 550 : 420,
         borderRadius: "50%",
         background: isDark
-          ? "radial-gradient(circle, rgba(93,169,234,0.35) 0%, rgba(26,84,148,0.12) 45%, transparent 70%)"
+          ? "radial-gradient(circle, rgba(93,169,234,0.20) 0%, rgba(26,84,148,0.08) 45%, transparent 70%)"
           : "radial-gradient(circle, rgba(93,169,234,0.10) 0%, transparent 70%)",
         x: sx,
         y: sy,
@@ -290,9 +290,9 @@ function SocialBtn({
         flex: 1,
         height: 50,
         borderRadius: 14,
-        background: isDark ? "rgba(15,28,48,0.85)" : "rgba(255,255,255,0.92)",
+        background: isDark ? "rgba(32,45,70,0.8)" : "rgba(255,255,255,0.92)",
         border: isDark
-          ? "1.5px solid rgba(93,169,234,0.25)"
+          ? "1.5px solid rgba(147,180,225,0.20)"
           : "1.5px solid rgba(16,34,90,0.10)",
         display: "flex",
         alignItems: "center",
@@ -333,7 +333,7 @@ function FeatureCard({
       whileHover={{
         x: 6,
         background: isDark
-          ? "rgba(93,169,234,0.15)"
+          ? "rgba(93,169,234,0.12)"
           : "rgba(255,255,255,0.12)",
       }}
       style={{
@@ -342,9 +342,9 @@ function FeatureCard({
         gap: 14,
         padding: "12px 16px",
         borderRadius: 14,
-        background: isDark ? "rgba(13,32,64,0.85)" : "rgba(255,255,255,0.06)",
+        background: isDark ? "rgba(26,38,62,0.8)" : "rgba(255,255,255,0.06)",
         border: isDark
-          ? "1px solid rgba(93,169,234,0.30)"
+          ? "1px solid rgba(147,180,225,0.18)"
           : "1px solid rgba(255,255,255,0.1)",
         transition: "background 0.7s ease, border-color 0.7s ease",
         cursor: "default",
@@ -392,6 +392,150 @@ function FeatureCard({
   );
 }
 
+/* ─── Password with flashlight reveal overlay ────────── */
+// Native input text is hidden in dark mode; this overlay draws each char as a
+// bullet or the real char, cross-fading by opacity only (no layout change).
+function PasswordReveal({
+  value,
+  onChange,
+  id,
+  isDark,
+  lit,
+  cellRefs,
+  renderInput,
+}: {
+  value?: string;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  id?: string;
+  isDark: boolean;
+  lit: boolean[];
+  cellRefs: React.MutableRefObject<(HTMLSpanElement | null)[]>;
+  renderInput: (p: {
+    value?: string;
+    onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    id?: string;
+    styles?: { input?: React.CSSProperties };
+  }) => React.ReactNode;
+}) {
+  const chars = Array.from(value ?? "");
+  cellRefs.current.length = chars.length;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  // Native bullet width vs overlay cell width: the native caret sits after the
+  // native bullets, so both must advance by the same amount per character.
+  const [metrics, setMetrics] = useState({ cell: 8.68, spacing: 0 });
+
+  useLayoutEffect(() => {
+    const input = wrapRef.current?.querySelector("input");
+    if (!input) return;
+    // Measure with the overlay's own font (what the revealed glyphs render in)
+    const cs = getComputedStyle(overlayRef.current ?? input);
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return;
+    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const bullet = ctx.measureText("•").width;
+    // Cell pitch must fit the widest real glyph (m, W, @ …) so none collide;
+    // it stays uniform so bullets don't leak per-char widths and the native
+    // caret (same pitch via letter-spacing) lands after the last char.
+    const widest = Array.from(value ?? "").reduce(
+      (w, ch) => Math.max(w, ctx.measureText(ch).width),
+      0,
+    );
+    const cell = Math.max(bullet, parseFloat(cs.fontSize) * 0.8, widest * 1.1);
+    setMetrics((m) =>
+      m.cell === cell && m.spacing === cell - bullet
+        ? m
+        : { cell, spacing: cell - bullet },
+    );
+  }, [isDark, value]);
+
+  // Light ↔ Dark: re-seat the caret at the end of the real password
+  useLayoutEffect(() => {
+    const input = wrapRef.current?.querySelector("input");
+    if (!input || document.activeElement !== input) return;
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+  }, [isDark, metrics]);
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      {renderInput({
+        value,
+        onChange,
+        id,
+        styles: isDark
+          ? {
+              input: {
+                color: "transparent",
+                caretColor: "#ffffff",
+                letterSpacing: `${metrics.spacing}px`,
+              },
+            }
+          : undefined,
+      })}
+      {isDark && (
+        <div
+          ref={overlayRef}
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: 15.5,
+            right: 46,
+            top: 0,
+            bottom: 0,
+            display: "flex",
+            alignItems: "center",
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+            fontSize: 14,
+            color: "#ffffff",
+          }}
+        >
+          {chars.map((ch, i) => (
+            <span
+              key={i}
+              ref={(el) => {
+                cellRefs.current[i] = el;
+              }}
+              style={{
+                position: "relative",
+                display: "inline-block",
+                width: metrics.cell,
+                height: "1.4em",
+                lineHeight: "1.4em",
+                textAlign: "center",
+                flexShrink: 0,
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  opacity: lit[i] ? 0 : 1,
+                  transition: "opacity 0.35s ease",
+                }}
+              >
+                •
+              </span>
+              <span
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  opacity: lit[i] ? 1 : 0,
+                  transition: "opacity 0.35s ease",
+                }}
+              >
+                {ch}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Main ───────────────────────────────────────────── */
 export default function Login() {
   const nav = useNavigate();
@@ -399,6 +543,11 @@ export default function Login() {
   const [flashAngle, setFlashAngle] = useState(0);
   const flashRef = useRef<HTMLSpanElement>(null);
   const beamRef = useRef<HTMLDivElement>(null);
+  const charCellRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const revealAnchorRef = useRef(-1);
+  const fullRevealRef = useRef(false);
+  const enteredFromLeftRef = useRef(false);
+  const [litChars, setLitChars] = useState<boolean[]>([]);
   const sessionExpired =
     new URLSearchParams(window.location.search).get("reason") ===
     "session-expired";
@@ -410,7 +559,13 @@ export default function Login() {
   const [forgotError, setForgotError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isDark) return;
+    if (!isDark) {
+      revealAnchorRef.current = -1;
+      fullRevealRef.current = false;
+      enteredFromLeftRef.current = false;
+      setLitChars((prev) => (prev.length ? [] : prev));
+      return;
+    }
     const onMove = (e: MouseEvent) => {
       const el = flashRef.current;
       const beam = beamRef.current;
@@ -444,6 +599,60 @@ export default function Login() {
         beam.style.height = `${beamHeight}px`;
         beam.style.transform = `rotate(${angleDeg}deg)`;
         beam.style.opacity = "1";
+
+        // Password reveal: char under the cursor + the 2 chars to its left
+        const cells = charCellRefs.current;
+        const hit = cells.findIndex((cell) => {
+          if (!cell) return false;
+          const r = cell.getBoundingClientRect();
+          return (
+            e.clientX >= r.left &&
+            e.clientX <= r.right &&
+            e.clientY >= r.top - 8 &&
+            e.clientY <= r.bottom + 8
+          );
+        });
+        // Cumulative right→left: anchor = first char touched; moving right never moves it
+        if (hit < 0) {
+          revealAnchorRef.current = -1;
+          // Remember if the cursor is left of the field: re-entering from there must not start a reveal
+          const first = cells[0]?.getBoundingClientRect();
+          enteredFromLeftRef.current = !!first && e.clientX < first.left;
+        } else if (revealAnchorRef.current < 0 && !enteredFromLeftRef.current) {
+          revealAnchorRef.current = hit;
+        }
+        const anchor = revealAnchorRef.current;
+        const groupLit = cells.map(
+          (_, i) => hit >= 0 && anchor >= 0 && i >= hit - 2 && i <= anchor,
+        );
+        // Beam cone covering the whole password → show it all; beam leaving → hide
+        const cos = Math.cos(angleRad);
+        const sin = Math.sin(angleRad);
+        const inBeam = cells.map((cell) => {
+          if (!cell) return false;
+          const r = cell.getBoundingClientRect();
+          const vx = r.left + r.width / 2 - originX;
+          const vy = r.top + r.height / 2 - originY;
+          const along = vx * cos + vy * sin;
+          const across = Math.abs(-vx * sin + vy * cos);
+          return (
+            along >= -8 &&
+            along <= beamLength &&
+            across <= Math.max(along, 0) * 0.19 + 9
+          );
+        });
+        // A cursor resting on a char only gets the 3-char group, never the full reveal
+        const groupAll = groupLit.length > 0 && groupLit.every(Boolean);
+        if (inBeam.length && inBeam.every(Boolean) && (hit < 0 || groupAll))
+          fullRevealRef.current = true;
+        else if ((hit >= 0 && !groupAll) || !inBeam.some(Boolean))
+          fullRevealRef.current = false;
+        const next = fullRevealRef.current ? groupLit.map(() => true) : groupLit;
+        setLitChars((prev) =>
+          prev.length === next.length && prev.every((v, i) => v === next[i])
+            ? prev
+            : next,
+        );
       }
     };
     window.addEventListener("mousemove", onMove);
@@ -515,7 +724,7 @@ export default function Login() {
         fontFamily: "var(--font-system)",
         overflow: "hidden",
         background: isDark
-          ? "linear-gradient(135deg, #030a16 0%, #0a1b33 100%)"
+          ? "linear-gradient(135deg, #0c1322 0%, #15213a 100%)"
           : "linear-gradient(135deg, #eef2ff 0%, #e8f0fe 100%)",
         transition: "background 0.7s ease",
       }}
@@ -712,7 +921,7 @@ export default function Login() {
           position: "relative",
           overflow: "hidden",
           background: isDark
-            ? "linear-gradient(152deg, #040d1a 0%, #081528 48%, #0d2040 100%)"
+            ? "linear-gradient(152deg, #0d1525 0%, #121d33 48%, #1a2a47 100%)"
             : "linear-gradient(152deg, #071e35 0%, #0c3060 48%, #174d8a 100%)",
           color: "white",
           display: "flex",
@@ -765,7 +974,7 @@ export default function Login() {
             height: 360,
             borderRadius: "50%",
             background: isDark
-              ? "radial-gradient(circle, rgba(93,169,234,0.40) 0%, transparent 68%)"
+              ? "radial-gradient(circle, rgba(93,169,234,0.24) 0%, transparent 68%)"
               : "radial-gradient(circle, rgba(93,169,234,0.16) 0%, transparent 68%)",
             pointerEvents: "none",
             transition: "background 0.7s ease",
@@ -901,10 +1110,10 @@ export default function Login() {
               borderRadius: 16,
               overflow: "hidden",
               border: isDark
-                ? "1px solid rgba(93,169,234,0.35)"
+                ? "1px solid rgba(147,180,225,0.20)"
                 : "1px solid rgba(255,255,255,0.1)",
               background: isDark
-                ? "rgba(4,13,26,0.75)"
+                ? "rgba(16,25,42,0.7)"
                 : "rgba(255,255,255,0.04)",
               transition: "background 0.7s ease, border-color 0.7s ease",
             }}
@@ -925,7 +1134,7 @@ export default function Login() {
                   borderRight:
                     i < 2
                       ? isDark
-                        ? "1px solid rgba(93,169,234,0.3)"
+                        ? "1px solid rgba(147,180,225,0.18)"
                         : "1px solid rgba(255,255,255,0.1)"
                       : "none",
                   cursor: "default",
@@ -1044,16 +1253,16 @@ export default function Login() {
             style={{
               padding: "38px 36px 30px",
               background: isDark
-                ? "rgba(10,22,40,0.85)"
+                ? "rgba(22,33,54,0.88)"
                 : "rgba(255,255,255,0.86)",
               backdropFilter: "blur(32px) saturate(180%)",
               WebkitBackdropFilter: "blur(32px) saturate(180%)",
               borderRadius: 28,
               border: isDark
-                ? "1px solid rgba(93,169,234,0.25)"
+                ? "1px solid rgba(147,180,225,0.16)"
                 : "1px solid rgba(255,255,255,0.92)",
               boxShadow: isDark
-                ? "0 8px 32px rgba(0,0,0,0.45), 0 0 24px rgba(93,169,234,0.12)"
+                ? "0 8px 32px rgba(0,0,0,0.32), 0 0 20px rgba(93,169,234,0.06)"
                 : "0 4px 24px rgba(16,34,90,0.08), 0 1px 4px rgba(16,34,90,0.05), inset 0 1px 0 rgba(255,255,255,1)",
               transition: "all 0.7s ease",
             }}
@@ -1146,10 +1355,10 @@ export default function Login() {
                         padding: "11px 14px",
                         fontSize: 14,
                         background: isDark
-                          ? "rgba(15,28,48,0.7)"
+                          ? "rgba(32,45,70,0.75)"
                           : "rgba(248,250,255,0.9)",
                         border: isDark
-                          ? "1.5px solid rgba(93,169,234,0.3)"
+                          ? "1.5px solid rgba(147,180,225,0.22)"
                           : "1.5px solid rgba(16,34,90,0.11)",
                         color: isDark ? "#ffffff" : undefined,
                         transition: "all 0.7s ease",
@@ -1174,60 +1383,68 @@ export default function Login() {
                       { required: true, message: "Vui lòng nhập mật khẩu!" },
                     ]}
                   >
-                    <Input.Password
-                      size="large"
-                      placeholder="••••••••"
-                      visibilityToggle={{ visible: false }}
-                      iconRender={() =>
-                        isDark ? (
-                          <span
-                            ref={flashRef}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setIsDark(false);
-                            }}
+                    <PasswordReveal
+                      isDark={isDark}
+                      lit={litChars}
+                      cellRefs={charCellRefs}
+                      renderInput={(p) => (
+                          <Input.Password
+                              {...p}
+                            size="large"
+                            placeholder="••••••••"
+                            visibilityToggle={{ visible: false }}
+                            iconRender={() =>
+                              isDark ? (
+                                <span
+                                  ref={flashRef}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setIsDark(false);
+                                  }}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    transform: `rotate(${flashAngle}deg)`,
+                                    transition: "transform 0.08s linear",
+                                  }}
+                                >
+                                  <Flashlight
+                                    size={16}
+                                    style={{ color: "#5da9ea", cursor: "pointer" }}
+                                  />
+                                </span>
+                              ) : (
+                                <span
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setIsDark(true);
+                                  }}
+                                >
+                                  <Eye
+                                    size={16}
+                                    style={{ color: "#6b7280", cursor: "pointer" }}
+                                  />
+                                </span>
+                              )
+                            }
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              transform: `rotate(${flashAngle}deg)`,
-                              transition: "transform 0.08s linear",
+                              borderRadius: 13,
+                              padding: "11px 14px",
+                              fontSize: 14,
+                              background: isDark
+                                ? "rgba(32,45,70,0.75)"
+                                : "rgba(248,250,255,0.9)",
+                              border: isDark
+                                ? "1.5px solid rgba(147,180,225,0.22)"
+                                : "1.5px solid rgba(16,34,90,0.11)",
+                              color: isDark ? "#ffffff" : undefined,
+                              transition: "all 0.7s ease",
                             }}
-                          >
-                            <Flashlight
-                              size={16}
-                              style={{ color: "#5da9ea", cursor: "pointer" }}
-                            />
-                          </span>
-                        ) : (
-                          <span
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setIsDark(true);
-                            }}
-                          >
-                            <Eye
-                              size={16}
-                              style={{ color: "#6b7280", cursor: "pointer" }}
-                            />
-                          </span>
-                        )
-                      }
-                      style={{
-                        borderRadius: 13,
-                        padding: "11px 14px",
-                        fontSize: 14,
-                        background: isDark
-                          ? "rgba(15,28,48,0.7)"
-                          : "rgba(248,250,255,0.9)",
-                        border: isDark
-                          ? "1.5px solid rgba(93,169,234,0.3)"
-                          : "1.5px solid rgba(16,34,90,0.11)",
-                        color: isDark ? "#ffffff" : undefined,
-                        transition: "all 0.7s ease",
-                      }}
+                          />
+                      )}
                     />
                   </Form.Item>
                 </motion.div>
