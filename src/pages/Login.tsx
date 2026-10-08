@@ -523,6 +523,10 @@ function PasswordReveal({
                   position: "absolute",
                   inset: 0,
                   opacity: lit[i] ? 1 : 0,
+                  color: "#ffffff",
+                  // hairline dark edge keeps glyphs crisp against the amber beam
+                  textShadow: "0 1px 1px rgba(7,14,28,0.55)",
+                  WebkitFontSmoothing: "antialiased",
                   transition: "opacity 0.35s ease",
                 }}
               >
@@ -546,6 +550,7 @@ export default function Login() {
   const charCellRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const revealAnchorRef = useRef(-1);
   const fullRevealRef = useRef(false);
+  const entryHitRef = useRef(-1);
   const enteredFromLeftRef = useRef(false);
   const [litChars, setLitChars] = useState<boolean[]>([]);
   const sessionExpired =
@@ -586,8 +591,10 @@ export default function Login() {
         const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
         const beamLength = clamp(dist * 1.65, 160, 1600);
         const beamHeight = beamLength * 0.38;
-        // angleDeg: direction from flashlight center toward cursor (standard atan2)
-        const angleRad = Math.atan2(dy, dx);
+        // Beam heading = the flashlight's own (clamped) heading, so it only shines
+        // forward within the same 180° the icon can face; identical to
+        // atan2(dy, dx) whenever the cursor is on the icon's facing side
+        const angleRad = ((180 - clamped) * Math.PI) / 180;
         const angleDeg = angleRad * (180 / Math.PI);
         // Offset origin 13px forward along beam direction so beam starts at flashlight tip
         const originX = cx + Math.cos(angleRad) * 13;
@@ -619,11 +626,17 @@ export default function Login() {
           const first = cells[0]?.getBoundingClientRect();
           enteredFromLeftRef.current = !!first && e.clientX < first.left;
         } else if (revealAnchorRef.current < 0 && !enteredFromLeftRef.current) {
-          revealAnchorRef.current = hit;
+          // First touch anywhere: reveal from that char through the end (right side)
+          revealAnchorRef.current = cells.length - 1;
+          entryHitRef.current = hit;
         }
         const anchor = revealAnchorRef.current;
         const groupLit = cells.map(
-          (_, i) => hit >= 0 && anchor >= 0 && i >= hit - 2 && i <= anchor,
+          (_, i) =>
+            hit >= 0 &&
+            anchor >= 0 &&
+            i >= (hit === entryHitRef.current ? hit : hit - 2) &&
+            i <= anchor,
         );
         // Beam cone covering the whole password → show it all; beam leaving → hide
         const cos = Math.cos(angleRad);
@@ -734,6 +747,18 @@ export default function Login() {
         open={forgotOpen}
         footer={null}
         destroyOnHidden
+        styles={
+          isDark
+            ? {
+                container: {
+                  background: "rgb(22,33,54)",
+                  border: "1px solid rgba(147,180,225,0.16)",
+                },
+                title: { background: "transparent", color: "#ffffff" },
+                close: { color: "rgba(255,255,255,0.65)" },
+              }
+            : undefined
+        }
         onCancel={() => {
           setForgotOpen(false);
           setForgotResult(null);
@@ -741,7 +766,20 @@ export default function Login() {
         }}
       >
         {forgotResult ? (
-          <Alert type="success" showIcon message={forgotResult} />
+          <Alert
+            type="success"
+            showIcon
+            message={forgotResult}
+            style={
+              isDark
+                ? {
+                    background: "rgba(34,197,94,0.12)",
+                    border: "1px solid rgba(34,197,94,0.35)",
+                    color: "#ffffff",
+                  }
+                : undefined
+            }
+          />
         ) : (
           <Form<ForgotPasswordFormValues>
             layout="vertical"
@@ -752,18 +790,43 @@ export default function Login() {
                 type="error"
                 showIcon
                 message={forgotError}
-                style={{ marginBottom: 16 }}
+                style={{
+                  marginBottom: 16,
+                  ...(isDark
+                    ? {
+                        background: "rgba(239,68,68,0.12)",
+                        border: "1px solid rgba(239,68,68,0.35)",
+                        color: "#ffffff",
+                      }
+                    : {}),
+                }}
               />
             )}
             <Form.Item
-              label="Email tài khoản"
+              label={
+                <span style={{ color: isDark ? "rgba(255,255,255,0.85)" : undefined }}>
+                  Email tài khoản
+                </span>
+              }
               name="email"
               rules={[
                 { required: true, message: "Vui lòng nhập email!" },
                 { type: "email", message: "Email không hợp lệ!" },
               ]}
             >
-              <Input size="large" placeholder="user@dermahealth.vn" />
+              <Input
+                size="large"
+                placeholder="user@dermahealth.vn"
+                style={
+                  isDark
+                    ? {
+                        background: "rgba(32,45,70,0.75)",
+                        border: "1.5px solid rgba(147,180,225,0.22)",
+                        color: "#ffffff",
+                      }
+                    : undefined
+                }
+              />
             </Form.Item>
             <Button
               type="primary"
