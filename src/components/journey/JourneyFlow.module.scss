@@ -1,0 +1,587 @@
+// Circular journey tracker. Ten nodes sit on a ring, a progress dial fills the
+// middle. Palette: teal/emerald = done, sky→indigo = current, soft slate = locked.
+
+$done-a: #14b8a6;
+$done-b: #10b981;
+$cur-a: #38bdf8;
+$cur-b: #6366f1;
+$idle-bg: #eef2f7;
+$idle-fg: #94a3b8;
+$track: #dbe5f0;
+$node: 46px;
+
+.stage {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 50%, #ffffff 0 38%, transparent 70%),
+    linear-gradient(160deg, #f0f9ff 0%, #f5f3ff 100%);
+}
+
+.track {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  aspect-ratio: 1 / 1;
+  container-type: inline-size;
+}
+
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ringSoft {
+  fill: none;
+  stroke: #c9d8ea;
+  stroke-width: 0.25;
+  stroke-dasharray: 0.8 1.6;
+}
+
+.seg,
+.segDone,
+.segActive {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.seg {
+  stroke: $track;
+  stroke-width: 1.7;
+}
+
+.segDone {
+  stroke: url(#journeyDone);
+  stroke-width: 1.7;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: draw 0.5s ease-out forwards;
+}
+
+.segActive {
+  stroke: $cur-b;
+  stroke-width: 1.7;
+  stroke-dasharray: 3 3;
+  animation: march 0.9s linear infinite;
+}
+
+.dialBase {
+  fill: #fff;
+  stroke: #e6edf5;
+  stroke-width: 2.4;
+}
+
+.dialValue {
+  fill: none;
+  stroke: url(#journeyDial);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.8s ease;
+}
+
+.center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.percent {
+  font-size: clamp(26px, 6.4vw, 40px);
+  font-weight: 800;
+  line-height: 1;
+  background: linear-gradient(135deg, $cur-a, $cur-b);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+
+  small {
+    font-size: 0.5em;
+    font-weight: 700;
+  }
+}
+
+.centerCaption {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.centerTitle {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+// ---- Nodes ----
+
+.cell {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: 0;
+  height: 0;
+}
+
+.node {
+  position: absolute;
+  left: calc(#{$node} / -2);
+  top: calc(#{$node} / -2);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: $node;
+  height: $node;
+  padding: 0;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  background: $idle-bg;
+  color: $idle-fg;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+
+  &:hover {
+    transform: translateY(-3px) rotate(-5deg);
+  }
+}
+
+.done .node {
+  background: linear-gradient(135deg, $done-a, $done-b);
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(16, 185, 129, 0.4);
+
+  > svg {
+    animation: stamp 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  }
+}
+
+.current .node {
+  background: linear-gradient(135deg, $cur-a, $cur-b);
+  color: #fff;
+  transform: scale(1.22);
+  box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.16), 0 10px 22px rgba(99, 102, 241, 0.45);
+  animation: arrive 0.6s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+
+  &:hover {
+    transform: scale(1.22) translateY(-2px);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 2px solid $cur-b;
+    opacity: 0;
+    animation: pulse 2s ease-out infinite;
+  }
+}
+
+.selected .node {
+  outline: 2px solid $cur-b;
+  outline-offset: 4px;
+}
+
+// Labels sit just outside the ring. Translating by half of their own box
+// along the node's direction pushes them clear of the node on every side.
+.label {
+  position: absolute;
+  z-index: 2;
+  // Offset from the node centre, outward along its direction: a fixed gap in
+  // container units plus half of the label's own box.
+  left: calc(var(--cx) * 9.5cqw);
+  top: calc(var(--cy) * 9.5cqw);
+  transform: translate(calc(-50% + var(--cx) * 50%), calc(-50% + var(--cy) * 50%));
+  margin: 0;
+  padding: 2px 4px;
+  white-space: nowrap;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.done .label {
+  color: #0f766e;
+}
+
+.current .label {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #4338ca;
+}
+
+// ---- Game layer: aura, sparks, token ----
+
+.aura {
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(from 0deg, transparent 0 55%, $cur-a 85%, #fff 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  animation: spin 2.4s linear infinite;
+}
+
+.sparks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.spark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px;
+  border-radius: 50%;
+  background: #fbbf24;
+  opacity: 0;
+  animation: burst 0.8s ease-out both;
+  animation-delay: 0.15s;
+  transform: rotate(var(--a)) translateY(0);
+}
+
+.token {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transition:
+    left 0.5s cubic-bezier(0.45, 0, 0.25, 1),
+    top 0.5s cubic-bezier(0.45, 0, 0.25, 1);
+}
+
+.hop {
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation: hop 0.5s ease-out;
+}
+
+.bob {
+  position: absolute;
+  left: 0;
+  bottom: 36px;
+  transform: translateX(-50%);
+  animation: bob 1.4s ease-in-out infinite;
+}
+
+.pin {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: linear-gradient(135deg, #fb923c, #f43f5e);
+  box-shadow: 0 6px 12px rgba(244, 63, 94, 0.4);
+  border: 3px solid #fff;
+}
+
+.pinFace {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 50%;
+  transform: rotate(45deg);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.shadow {
+  position: absolute;
+  left: 0;
+  bottom: 27px;
+  width: 22px;
+  height: 7px;
+  margin-left: -11px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.2);
+  animation: shadow 1.4s ease-in-out infinite;
+}
+
+// ---- Detail panel ----
+
+.detailHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 12px 12px 0 0;
+  color: #fff;
+  background: linear-gradient(120deg, $cur-b, $cur-a);
+}
+
+.detailHead.headDone {
+  background: linear-gradient(120deg, $done-a, $done-b);
+}
+
+.detailHead.headIdle {
+  background: linear-gradient(120deg, #64748b, #94a3b8);
+}
+
+.detailIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.sectionLabel {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.todo {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.todoItem {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f1f5ff;
+  font-size: 13.5px;
+  color: var(--text-primary);
+}
+
+.place {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #dbe4ff;
+  background: #fff;
+}
+
+.placeRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13.5px;
+}
+
+.placeLive {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.taskRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border-default);
+  font-size: 13px;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+// ---- Keyframes ----
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes march {
+  to {
+    stroke-dashoffset: -6;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes stamp {
+  0% {
+    transform: scale(0) rotate(-40deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes arrive {
+  0% {
+    transform: scale(0.6);
+  }
+  100% {
+    transform: scale(1.22);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@keyframes burst {
+  0% {
+    opacity: 1;
+    transform: rotate(var(--a)) translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateY(-40px) scale(0.3);
+  }
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-7px);
+  }
+}
+
+@keyframes shadow {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(0.7);
+    opacity: 0.5;
+  }
+}
+
+@keyframes hop {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-34px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+// Small screens: keep only the current step's label so nothing overlaps.
+@media (max-width: 520px) {
+  .label {
+    display: none;
+  }
+
+  .current .label {
+    display: block;
+  }
+
+  .centerTitle {
+    display: none;
+  }
+
+  $node-s: 38px;
+
+  .node {
+    left: calc(#{$node-s} / -2);
+    top: calc(#{$node-s} / -2);
+    width: $node-s;
+    height: $node-s;
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segDone {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  .segActive,
+  .current .node,
+  .current .node::after,
+  .done .node > svg,
+  .aura,
+  .spark,
+  .bob,
+  .hop,
+  .shadow {
+    animation: none;
+  }
+
+  .dialValue,
+  .token {
+    transition: none;
+  }
+}
