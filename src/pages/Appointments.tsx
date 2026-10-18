@@ -3,12 +3,11 @@ import {
   App,
   Button,
   Card,
-  DatePicker,
+  Col,
   Empty,
-  List,
   Modal,
-  Radio,
-  Select,
+  Row,
+  Segmented,
   Space,
   Spin,
   Tag,
@@ -20,12 +19,22 @@ import dayjs, { type Dayjs } from "dayjs";
 import {
   Building2,
   Calendar,
+  CalendarClock,
+  Check,
   CheckCircle2,
   Clock,
   Stethoscope,
   UserRound,
   Video,
 } from "lucide-react";
+import {
+  DateStrip,
+  DoctorPicker,
+  ModePicker,
+  SlotPicker,
+  type DoctorChoice,
+  type SlotChoice,
+} from "../components/appointments/BookingParts";
 import { useAppState } from "../state/useAppState";
 import { useStore } from "../state/useStore";
 import { appointmentRepository, queueRepository, userRepository } from "../domain/repositories";
@@ -86,6 +95,36 @@ const unavailableSlotLabel = (slot: AvailabilitySlot) => {
   return slot.status ? labels[slot.status] ?? "Không khả dụng" : "Đã kín";
 };
 
+const WEEKDAY = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+
+const STATUS_META: Record<Appointment["status"], { label: string; color: string }> = {
+  upcoming: { label: "Sắp tới", color: "blue" },
+  done: { label: "Đã khám", color: "green" },
+  cancelled: { label: "Đã hủy", color: "default" },
+  missed: { label: "Vắng mặt", color: "orange" },
+};
+
+const buildSlotChoices = (
+  slots: AvailabilitySlot[],
+  appointments: Appointment[],
+  excludedAppointmentId?: string,
+): SlotChoice[] =>
+  slots.map((slot) => {
+    const overlaps = overlapsAppointment(slot, appointments, excludedAppointmentId);
+    const unavailable = !isSlotAvailable(slot);
+    return {
+      value: slot.slotId,
+      disabled: unavailable || overlaps,
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+      hint: overlaps
+        ? "Trùng lịch của bạn"
+        : unavailable
+          ? unavailableSlotLabel(slot)
+          : `Còn ${slot.remainingCapacity} chỗ`,
+    };
+  });
+
 export default function Appointments() {
   const { message, modal } = App.useApp();
   const { currentPatient } = useAppState();
@@ -115,52 +154,19 @@ export default function Appointments() {
   const [rescheduleSlots, setRescheduleSlots] = useState<AvailabilitySlot[]>([]);
   const [rescheduleSlotId, setRescheduleSlotId] = useState<string>();
   const [actionLoading, setActionLoading] = useState(false);
+  const [tab, setTab] = useState<"upcoming" | "history">("upcoming");
   const selectedDoctorId = doctorId ?? doctors[0]?.id;
   const doctor = useMemo(
     () => doctors.find((item) => item.id === selectedDoctorId),
     [doctors, selectedDoctorId],
   );
 
-  const slotOptions = useMemo(
-    () =>
-      slots.map((slot) => {
-        const overlaps = overlapsAppointment(slot, appointments);
-        const unavailable = !isSlotAvailable(slot);
-        return {
-          value: slot.slotId,
-          disabled: unavailable || overlaps,
-          label: `${dayjs(slot.startsAt).format("HH:mm")} – ${dayjs(slot.endsAt).format("HH:mm")}${
-            overlaps
-              ? " · Bạn đã có lịch trùng giờ"
-              : unavailable
-                ? ` · ${unavailableSlotLabel(slot)}`
-                : ` · Còn ${slot.remainingCapacity} chỗ`
-          }`,
-        };
-      }),
+  const slotChoices = useMemo(
+    () => buildSlotChoices(slots, appointments),
     [appointments, slots],
   );
-  const rescheduleSlotOptions = useMemo(
-    () =>
-      rescheduleSlots.map((slot) => {
-        const overlaps = overlapsAppointment(
-          slot,
-          appointments,
-          rescheduleTarget?.id,
-        );
-        const unavailable = !isSlotAvailable(slot);
-        return {
-          value: slot.slotId,
-          disabled: unavailable || overlaps,
-          label: `${dayjs(slot.startsAt).format("HH:mm")} – ${dayjs(slot.endsAt).format("HH:mm")}${
-            overlaps
-              ? " · Bạn đã có lịch trùng giờ"
-              : unavailable
-                ? ` · ${unavailableSlotLabel(slot)}`
-                : ` · Còn ${slot.remainingCapacity} chỗ`
-          }`,
-        };
-      }),
+  const rescheduleChoices = useMemo(
+    () => buildSlotChoices(rescheduleSlots, appointments, rescheduleTarget?.id),
     [appointments, rescheduleSlots, rescheduleTarget?.id],
   );
   const selectedSlot = useMemo(
@@ -421,252 +427,357 @@ export default function Appointments() {
     }
   };
 
+  const doctorChoices: DoctorChoice[] = doctors.map((item) => ({
+    id: item.id,
+    name: item.name,
+    specialty: item.specialty,
+    place: item.clinicName,
+    avatarUrl: item.avatarUrl,
+  }));
+  const stepDone = {
+    doctor: Boolean(doctor),
+    date: Boolean(date),
+    slot: Boolean(selectedSlot),
+  };
+  const startOf = (item: Appointment) =>
+    item.startAt ? Date.parse(item.startAt) : 0;
+  const upcoming = appointments
+    .filter((item) => item.status === "upcoming")
+    .sort((a, b) => startOf(a) - startOf(b));
+  const history = appointments
+    .filter((item) => item.status !== "upcoming")
+    .sort((a, b) => startOf(b) - startOf(a));
+  const shown = tab === "upcoming" ? upcoming : history;
+  const nextAppointment = upcoming[0];
+
+  const doctorName = (id: string) =>
+    doctors.find((entry) => entry.id === id)?.name ?? id;
+
+  const noSlotsNotice = (
+    <Alert
+      type="info"
+      showIcon
+      message="Bác sĩ không có ca khám trong ngày này"
+      description={
+        suggestedDates.length ? (
+          <Space wrap style={{ marginTop: 8 }}>
+            <Typography.Text>Ngày gần nhất còn giờ:</Typography.Text>
+            {suggestedDates.map((item) => (
+              <Button key={item.date} size="small" onClick={() => setDate(dayjs(item.date))}>
+                {dayjs(item.date).format("DD/MM")} · {item.availableCount} khung giờ
+              </Button>
+            ))}
+          </Space>
+        ) : (
+          "Chưa tìm thấy lịch trống trong 14 ngày tiếp theo. Vui lòng chọn bác sĩ khác."
+        )
+      }
+    />
+  );
+
   return (
-    <Space direction="vertical" size={18} style={{ width: "100%" }} className="appointments-page">
-      <div>
-        <Title level={3} style={{ marginBottom: 4 }}>Lịch hẹn</Title>
-        <Typography.Text type="secondary">
-          Đặt lịch, theo dõi check-in và tiến trình vào phòng khám.
-        </Typography.Text>
-      </div>
-      <Card
-        className="booking-card"
-        title={
-          <div className="booking-card-title">
-            <span><Calendar size={19} /></span>
+    <Space direction="vertical" size={20} style={{ width: "100%" }} className="appointments-page">
+      <div className="appt-hero">
+        <div>
+          <Title level={3} style={{ margin: 0 }}>Lịch hẹn</Title>
+          <Typography.Text type="secondary">
+            Đặt lịch, theo dõi check-in và tiến trình vào phòng khám.
+          </Typography.Text>
+        </div>
+        {nextAppointment ? (
+          <div className="appt-next">
+            <span className="appt-next-icon"><Calendar size={18} /></span>
             <div>
-              <Typography.Text strong>Đặt lịch khám</Typography.Text>
-              <Typography.Text type="secondary">Chọn bác sĩ, ngày và khung giờ phù hợp</Typography.Text>
+              <small>Lịch hẹn sắp tới</small>
+              <strong>
+                {nextAppointment.time} · {nextAppointment.date}
+              </strong>
+              <small>{doctorName(nextAppointment.doctorId)}</small>
             </div>
           </div>
-        }
-      >
-        <Space direction="vertical" size={14} style={{ width: "100%" }}>
-          <div className="booking-fields">
-            <label>
-              <span className="field-label"><UserRound size={14} /> Bác sĩ</span>
-              <Select
-                placeholder="Chọn bác sĩ"
+        ) : (
+          <div className="appt-next is-empty">
+            <span className="appt-next-icon"><Calendar size={18} /></span>
+            <div>
+              <small>Lịch hẹn sắp tới</small>
+              <strong>Chưa có lịch</strong>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <Row gutter={[20, 20]} align="top">
+        <Col xs={24} xl={16}>
+          <Card className="booking-card" styles={{ body: { padding: 0 } }}>
+            <section className="book-step">
+              <header>
+                <span className={`step-no${stepDone.doctor ? " is-done" : ""}`}>
+                  {stepDone.doctor ? <Check size={14} strokeWidth={3} /> : 1}
+                </span>
+                <div>
+                  <h4>Chọn bác sĩ</h4>
+                  <p>Bác sĩ sẽ trực tiếp khám cho bạn</p>
+                </div>
+              </header>
+              <DoctorPicker
+                doctors={doctorChoices}
                 value={selectedDoctorId}
                 onChange={setDoctorId}
-                options={doctors.map((item) => ({
-                  value: item.id,
-                  label: `${item.name}${item.specialty ? ` — ${item.specialty}` : ""}`,
-                }))}
-                notFoundContent={<Empty description="Chưa có bác sĩ trong hệ thống" />}
               />
-            </label>
-            <label>
-              <span className="field-label"><Calendar size={14} /> Ngày khám</span>
-              <DatePicker
-                value={date}
-                onChange={setDate}
-                disabledDate={(value) => value.isBefore(dayjs(), "day")}
-                style={{ width: "100%" }}
-                placeholder="Chọn ngày khám"
-                format="DD/MM/YYYY"
-              />
-            </label>
-            <label>
-              <span className="field-label"><Building2 size={14} /> Hình thức</span>
-              <Radio.Group
-                value={mode}
-                optionType="button"
-                buttonStyle="solid"
-                onChange={(event) => setMode(event.target.value)}
-                options={[
-                  { value: "in_person", label: "Tại phòng khám" },
-                  { value: "video", label: "Trực tuyến" },
-                ]}
-              />
-            </label>
-          </div>
-          {availabilityError && (
-            <Alert
-              type="warning"
-              showIcon
-              message="Chưa tải được giờ khám"
-              description={availabilityError}
-            />
-          )}
-          {slotLoading || suggestionLoading ? (
-            <Space>
-              <Spin size="small" />
-              <Typography.Text type="secondary">
-                {slotLoading
-                  ? "Đang kiểm tra giờ trống…"
-                  : "Đang tìm ngày khám gần nhất…"}
-              </Typography.Text>
-            </Space>
-          ) : date && slotOptions.length ? (
-            <div className="slot-section">
-              <Typography.Text strong>Giờ khám còn trống</Typography.Text>
-              <div className="slot-grid">
-              {slotOptions.map((option) => (
-                <Button
-                  key={option.value}
-                  disabled={option.disabled}
-                  type={slotId === option.value ? "primary" : "default"}
-                  onClick={() => setSlotId(option.value)}
-                >
-                  <Clock size={14} /> {option.label}
-                </Button>
-              ))}
-              </div>
+            </section>
+
+            <section className="book-step">
+              <header>
+                <span className={`step-no${stepDone.date ? " is-done" : ""}`}>
+                  {stepDone.date ? <Check size={14} strokeWidth={3} /> : 2}
+                </span>
+                <div>
+                  <h4>Chọn ngày khám</h4>
+                  <p>Chọn nhanh trong 14 ngày tới hoặc một ngày khác</p>
+                </div>
+              </header>
+              <DateStrip value={date} onChange={setDate} />
+            </section>
+
+            <section className="book-step">
+              <header>
+                <span className={`step-no${stepDone.slot ? " is-done" : ""}`}>
+                  {stepDone.slot ? <Check size={14} strokeWidth={3} /> : 3}
+                </span>
+                <div>
+                  <h4>Chọn giờ khám</h4>
+                  <p>Các khung giờ còn trống của bác sĩ trong ngày</p>
+                </div>
+              </header>
+              {availabilityError && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="Chưa tải được giờ khám"
+                  description={availabilityError}
+                  style={{ marginBottom: 12 }}
+                />
+              )}
+              {!date ? (
+                <div className="slot-state">Chọn ngày ở bước 2 để xem các khung giờ còn trống.</div>
+              ) : suggestionLoading ? (
+                <div className="slot-state">
+                  <Spin size="small" /> <span>Đang tìm ngày khám gần nhất…</span>
+                </div>
+              ) : (
+                <SlotPicker
+                  choices={slotChoices}
+                  value={slotId}
+                  onChange={setSlotId}
+                  loading={slotLoading}
+                  empty={availabilityError ? null : noSlotsNotice}
+                />
+              )}
+            </section>
+
+            <section className="book-step">
+              <header>
+                <span className="step-no is-done"><Check size={14} strokeWidth={3} /></span>
+                <div>
+                  <h4>Hình thức khám</h4>
+                  <p>Bạn có thể khám tại phòng khám hoặc trực tuyến</p>
+                </div>
+              </header>
+              <ModePicker value={mode} onChange={setMode} />
+            </section>
+          </Card>
+        </Col>
+
+        <Col xs={24} xl={8}>
+          <Card className="summary-card" styles={{ body: { padding: 0 } }}>
+            <div className="summary-head">
+              <Typography.Text strong>Tóm tắt lịch hẹn</Typography.Text>
+              <small>Kiểm tra lại trước khi xác nhận</small>
             </div>
-          ) : date ? (
-            <Alert
-              type="info"
-              showIcon
-              message="Bác sĩ không có ca khám trong ngày này"
-              description={
-                suggestedDates.length ? (
-                  <Space wrap style={{ marginTop: 8 }}>
-                    <Typography.Text>Ngày gần nhất còn giờ:</Typography.Text>
-                    {suggestedDates.map((item) => (
-                      <Button
-                        key={item.date}
-                        size="small"
-                        onClick={() => setDate(dayjs(item.date))}
-                      >
-                        {dayjs(item.date).format("ddd, DD/MM")} ·{" "}
-                        {item.availableCount} khung giờ
-                      </Button>
-                    ))}
-                  </Space>
-                ) : (
-                  "Chưa tìm thấy lịch trống trong 14 ngày tiếp theo. Vui lòng chọn bác sĩ khác."
-                )
-              }
-            />
-          ) : (
-            <Typography.Text type="secondary">
-              Chọn ngày để xem các khung giờ còn trống.
-            </Typography.Text>
-          )}
-          <div className="booking-confirm">
-            <div>
-              <Typography.Text strong>
-                {selectedSlot
-                  ? `${dayjs(selectedSlot.startsAt).format("HH:mm")} · ${dayjs(selectedSlot.startsAt).format("DD/MM/YYYY")}`
-                  : "Chưa chọn giờ khám"}
-              </Typography.Text>
-              <Typography.Text type="secondary">
-                {selectedSlot
-                  ? `${doctor?.name ?? "Bác sĩ"} · ${mode === "video" ? "Trực tuyến" : "Tại phòng khám"}`
-                  : "Chọn một khung giờ khả dụng để tiếp tục"}
-              </Typography.Text>
+            <ul className="summary-list">
+              <li>
+                <UserRound size={16} />
+                <div>
+                  <small>Bác sĩ</small>
+                  <strong>{doctor?.name ?? "Chưa chọn"}</strong>
+                  {doctor?.specialty && <span>{doctor.specialty}</span>}
+                </div>
+              </li>
+              <li>
+                <Calendar size={16} />
+                <div>
+                  <small>Ngày khám</small>
+                  <strong>{date ? `${WEEKDAY[date.day()]}, ${date.format("DD/MM/YYYY")}` : "Chưa chọn"}</strong>
+                </div>
+              </li>
+              <li>
+                <Clock size={16} />
+                <div>
+                  <small>Giờ khám</small>
+                  <strong>
+                    {selectedSlot
+                      ? `${dayjs(selectedSlot.startsAt).format("HH:mm")} – ${dayjs(selectedSlot.endsAt).format("HH:mm")}`
+                      : "Chưa chọn"}
+                  </strong>
+                </div>
+              </li>
+              <li>
+                {mode === "video" ? <Video size={16} /> : <Building2 size={16} />}
+                <div>
+                  <small>Hình thức</small>
+                  <strong>{mode === "video" ? "Trực tuyến" : "Tại phòng khám"}</strong>
+                  {mode === "in_person" && doctor?.clinicName && <span>{doctor.clinicName}</span>}
+                </div>
+              </li>
+            </ul>
+            <div className="summary-foot">
+              <Button
+                type="primary"
+                size="large"
+                block
+                icon={<CheckCircle2 size={16} />}
+                disabled={!slotId}
+                loading={bookingLoading}
+                onClick={() => void submit()}
+              >
+                Xác nhận đặt lịch
+              </Button>
+              <small>
+                {slotId
+                  ? "Lễ tân sẽ nhận được lịch. Bạn vào hàng đợi sau khi check-in."
+                  : "Hoàn tất các bước bên trái để đặt lịch."}
+              </small>
             </div>
-            <Button
-              type="primary"
-              size="large"
-              icon={<CheckCircle2 size={16} />}
-              disabled={!slotId}
-              loading={bookingLoading}
-              onClick={() => void submit()}
-            >
-              Xác nhận đặt lịch
-            </Button>
-          </div>
-        </Space>
-      </Card>
+          </Card>
+        </Col>
+      </Row>
+
       <Card
         className="appointment-list-card"
-        title="Lịch hẹn của bệnh nhân"
-        extra={<Typography.Text type="secondary">{appointments.length} lịch hẹn</Typography.Text>}
+        title="Lịch hẹn của bạn"
+        extra={
+          <Segmented
+            value={tab}
+            onChange={(value) => setTab(value as "upcoming" | "history")}
+            options={[
+              { value: "upcoming", label: `Sắp tới (${upcoming.length})` },
+              { value: "history", label: `Lịch sử (${history.length})` },
+            ]}
+          />
+        }
       >
-        <List
-          dataSource={[...appointments].sort((a, b) =>
-            `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`),
-          )}
-          locale={{ emptyText: "Chưa có lịch hẹn" }}
-          renderItem={(item) => (
-            <List.Item
-              className="appointment-row"
-              actions={
-                item.status === "upcoming"
-                  ? [
-                      <Button
-                        key="reschedule"
-                        type="link"
-                        onClick={() => {
-                          setRescheduleTarget(item);
-                          setRescheduleDate(null);
-                          setRescheduleSlots([]);
-                          setRescheduleSlotId(undefined);
-                        }}
-                      >
-                        Đổi lịch
-                      </Button>,
-                      <Button
-                        key="cancel"
-                        type="link"
-                        danger
-                        onClick={() => cancel(item)}
-                      >
-                        Hủy
-                      </Button>,
-                    ]
-                  : undefined
-              }
-            >
-              <List.Item.Meta
-                avatar={<div className="appointment-date-icon"><Calendar size={19} /></div>}
-                title={<span>{item.time} · {item.date}</span>}
-                description={
-                  <Space wrap>
-                    <Stethoscope size={14} />
-                    {doctors.find((entry) => entry.id === item.doctorId)
-                      ?.name ?? item.doctorId}
-                    <span>· {item.department}</span>
-                    {item.mode === "video" ? <Video size={14} /> : <Building2 size={14} />}
-                    {item.mode === "video" ? "Trực tuyến" : "Tại phòng khám"}
-                  </Space>
-                }
-              />
-              <div className="appointment-progress">
-                <Steps
-                  size="small"
-                  responsive={false}
-                  current={
-                    queueTickets.some((ticket) =>
-                      ticket.appointmentId === item.id &&
-                      ["in_service", "completed"].includes(ticket.status)
-                    )
-                      ? 2
-                      : queueTickets.some((ticket) => ticket.appointmentId === item.id)
-                        ? 1
-                        : 0
-                  }
-                  items={[
-                    { title: "Đã đặt" },
-                    { title: "Check-in" },
-                    { title: "Đang khám" },
-                  ]}
-                />
-                <Tag color={item.status === "upcoming" ? "blue" : "default"}>
-                  {item.status === "upcoming" ? "Sắp tới" : item.status}
-                </Tag>
-              </div>
-            </List.Item>
-          )}
-        />
+        {shown.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={tab === "upcoming" ? "Bạn chưa có lịch hẹn sắp tới" : "Chưa có lịch sử khám"}
+          />
+        ) : (
+          <div className="appt-list">
+            {shown.map((item, index) => {
+              const start = item.startAt ? dayjs(item.startAt) : undefined;
+              const ticket = queueTickets.find((entry) => entry.appointmentId === item.id);
+              const progress = queueTickets.some(
+                (entry) =>
+                  entry.appointmentId === item.id &&
+                  ["in_service", "completed"].includes(entry.status),
+              )
+                ? 2
+                : ticket
+                  ? 1
+                  : 0;
+              const meta = STATUS_META[item.status];
+              return (
+                <article key={item.id} className={`appt-item is-${item.status}`}>
+                  <div className="appt-date">
+                    <small>{start ? WEEKDAY[start.day()] : ""}</small>
+                    <strong>{start ? start.format("DD") : item.date}</strong>
+                    <small>{start ? `Thg ${start.format("M")}` : ""}</small>
+                  </div>
+                  <div className="appt-main">
+                    <div className="appt-title">
+                      <strong>{item.time}</strong>
+                      <Tag bordered={false} color={meta.color}>{meta.label}</Tag>
+                      {tab === "upcoming" && index === 0 && (
+                        <Tag bordered={false} color="gold">Gần nhất</Tag>
+                      )}
+                    </div>
+                    <div className="appt-meta">
+                      <span><Stethoscope size={14} /> {doctorName(item.doctorId)}</span>
+                      {item.department && <span>{item.department}</span>}
+                      <span>
+                        {item.mode === "video" ? <Video size={14} /> : <Building2 size={14} />}
+                        {item.mode === "video" ? "Trực tuyến" : "Tại phòng khám"}
+                      </span>
+                      {item.status === "cancelled" && item.cancelReason && (
+                        <span className="appt-reason">Lý do: {item.cancelReason}</span>
+                      )}
+                    </div>
+                  </div>
+                  {item.status === "upcoming" && (
+                    <>
+                      <div className="appt-progress">
+                        <Steps
+                          size="small"
+                          responsive={false}
+                          current={progress}
+                          items={[{ title: "Đã đặt" }, { title: "Check-in" }, { title: "Đang khám" }]}
+                        />
+                      </div>
+                      <div className="appt-actions">
+                        <Button
+                          icon={<CalendarClock size={15} />}
+                          onClick={() => {
+                            setRescheduleTarget(item);
+                            setRescheduleDate(null);
+                            setRescheduleSlots([]);
+                            setRescheduleSlotId(undefined);
+                          }}
+                        >
+                          Đổi lịch
+                        </Button>
+                        <Button danger type="text" onClick={() => cancel(item)}>
+                          Hủy
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </Card>
+
       <Modal
         title="Đổi lịch hẹn"
         open={Boolean(rescheduleTarget)}
         okText="Xác nhận đổi lịch"
         cancelText="Đóng"
+        width={620}
         okButtonProps={{ disabled: !rescheduleSlotId }}
-        confirmLoading={actionLoading}
+        confirmLoading={actionLoading && Boolean(rescheduleSlotId)}
         onOk={() => void submitReschedule()}
         onCancel={() => {
           setRescheduleTarget(undefined);
           setRescheduleDate(null);
         }}
       >
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
-          <DatePicker
+        {rescheduleTarget && (
+          <div className="resched-current">
+            <Calendar size={16} />
+            <span>
+              Lịch hiện tại: <strong>{rescheduleTarget.time} · {rescheduleTarget.date}</strong> ·{" "}
+              {doctorName(rescheduleTarget.doctorId)}
+            </span>
+          </div>
+        )}
+        <div className="book-step is-modal">
+          <header>
+            <div>
+              <h4>Chọn ngày mới</h4>
+            </div>
+          </header>
+          <DateStrip
             value={rescheduleDate}
             onChange={(value) => {
               setRescheduleDate(value);
@@ -674,21 +785,26 @@ export default function Appointments() {
               setRescheduleSlotId(undefined);
               setActionLoading(Boolean(value));
             }}
-            disabledDate={(value) => value.isBefore(dayjs(), "day")}
-            placeholder="Chọn ngày mới"
-            style={{ width: "100%" }}
           />
-          <Select
-            value={rescheduleSlotId}
-            onChange={setRescheduleSlotId}
-            loading={actionLoading}
-            placeholder="Chọn giờ mới"
-            options={rescheduleSlotOptions}
-            notFoundContent={
-              <Empty description="Bác sĩ chưa mở lịch ngày này" />
-            }
-          />
-        </Space>
+        </div>
+        <div className="book-step is-modal">
+          <header>
+            <div>
+              <h4>Chọn giờ mới</h4>
+            </div>
+          </header>
+          {!rescheduleDate ? (
+            <div className="slot-state">Chọn ngày mới để xem giờ trống.</div>
+          ) : (
+            <SlotPicker
+              choices={rescheduleChoices}
+              value={rescheduleSlotId}
+              onChange={setRescheduleSlotId}
+              loading={actionLoading && rescheduleSlots.length === 0}
+              empty={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Bác sĩ chưa mở lịch ngày này" />}
+            />
+          )}
+        </div>
       </Modal>
     </Space>
   );
